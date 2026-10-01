@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { wasPaid } from "@/lib/invoice-status";
 
 type Props = {
   tenancyId: string;
@@ -35,7 +36,7 @@ export function MoveInSteps(p: Props) {
 
   const moveIn = p.photos.filter((x) => x.phase === "move_in");
   const rooms = [...new Set(moveIn.map((x) => x.room))];
-  const paid = p.invoice?.status === "PAID" || p.invoice?.status === "MARKED_AS_PAID";
+  const paid = wasPaid(p.invoice?.status);
 
   return (
     <div className="mt-8 space-y-4">

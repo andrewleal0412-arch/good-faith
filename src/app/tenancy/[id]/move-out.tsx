@@ -33,6 +33,7 @@ export function MoveOut(p: {
   moveOutPhotos: { id: string; room: string; url: string | null }[];
   findings: FindingView[];
   inspectedAt: string | null;
+  locked: boolean; // the deposit has been returned, so the deductions are final
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -134,10 +135,12 @@ export function MoveOut(p: {
                     <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-bg px-4 py-3">
                       <p className="text-[14px] font-semibold">Deducting {usd(f.deduction.amount)}</p>
                       <p className="text-[13px] text-ink-2">{f.deduction.math}</p>
-                      <button onClick={() => removeDeduction(f.deduction!.id)} disabled={busy === `remove-${f.deduction.id}`}
-                        className="ml-auto text-[13px] font-semibold text-danger disabled:opacity-40">Remove</button>
+                      {!p.locked && (
+                        <button onClick={() => removeDeduction(f.deduction!.id)} disabled={busy === `remove-${f.deduction.id}`}
+                          className="ml-auto text-[13px] font-semibold text-danger disabled:opacity-40">Remove</button>
+                      )}
                     </div>
-                  ) : f.classification === "wear_and_tear" ? null : f.id && open === f.id ? (
+                  ) : f.classification === "wear_and_tear" || p.locked ? null : f.id && open === f.id ? (
                     <DeductionForm tenancyId={p.tenancyId} finding={{ ...f, id: f.id }}
                       onCancel={() => setOpen(null)} onDone={() => { setOpen(null); router.refresh(); }} />
                   ) : f.id ? (

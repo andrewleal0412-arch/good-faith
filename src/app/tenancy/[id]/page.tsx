@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Pending } from "@/lib/agent";
+import { timeline } from "@/lib/agent-timeline";
+import { guardRefund } from "@/lib/closeout";
+import { wasPaid } from "@/lib/invoice-status";
 import { db, signedUrl } from "@/lib/db";
 import type { StoredDeduction } from "@/lib/deductions";
 import { getInvoice } from "@/lib/paypal";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView } from "./move-out";
+import { CloseOut, type PendingView } from "./close-out";
 import { Settlement } from "./settlement";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +22,12 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const { id } = await params;
   const { data: t } = await db.from("tenancies").select("*, properties(*)").eq("id", id).single();
   if (!t) notFound();
-  const [{ data: payments }, { data: photos }, { data: deductionRows }, { data: log }] = await Promise.all([
+  const [{ data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }] = await Promise.all([
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("deductions").select("*").eq("tenancy_id", id).order("created_at"),
-    db.from("audit_log").select("*").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(30),
+    db.from("audit_log").select("*").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(40),
+    db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1),
   ]);
 
   // Live invoice status from PayPal, so "Paid" shows the moment the tenant pays.
@@ -55,7 +61,25 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
       deduction: d ? { id: d.id, amount: d.amount, math: d.math } : null,
     };
   }));
-  const paid = invoiceStatus === "PAID" || invoiceStatus === "MARKED_AS_PAID";
+  const paid = wasPaid(invoiceStatus);
+  const returned = (payments ?? []).find((x) => x.kind === "refund" || x.kind === "payout");
+
+  // The latest close-out run, with any pending money movement re-checked against the rules right now.
+  const run = runs?.[0];
+  let pendingView: PendingView | null = null;
+  if (run?.status === "awaiting_approval" && run.pending) {
+    const pd = run.pending as Pending;
+    const refund = pd.toolName === "create_refund";
+    const amount = refund ? (pd.input.amount as { value?: string })?.value ?? "" : String(pd.input.amount ?? "");
+    pendingView = {
+      tool: pd.toolName, amount: Number(amount),
+      to: refund ? `The tenants' original PayPal payment (${pd.input.capture_id})` : `PayPal account ${pd.input.email}`,
+      note: (refund ? pd.input.note_to_payer : pd.input.note) as string | null ?? null,
+      check: await guardRefund(id, refund
+        ? { rail: "refund_original_payment", amount, captureId: pd.input.capture_id as string }
+        : { rail: "payout", amount, email: pd.input.email as string }),
+    };
+  }
   const agreement = t.refund_agreement as { paypal_email: string; signed_by: string[]; signed_at: string } | null;
   const terms = t.lease_terms as LeaseTerms;
   const flags = (t.lease_flags ?? []) as Flag[];
@@ -89,6 +113,7 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
         moveOutPhotos={photoViews.filter((x) => x.phase === "move_out_before")}
         findings={findings}
         inspectedAt={t.move_out_inspected_at}
+        locked={!!returned}
       />
 
       {t.move_out_inspected_at && (
@@ -99,6 +124,15 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
           depositHeld={paid && invoice ? Number(invoice.amount) : null}
           refundTo={agreement?.paypal_email ?? null}
           deductions={deductions}
+          returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, at: returned.created_at } : null}
+        />
+      )}
+
+      {t.move_out_inspected_at && (
+        <CloseOut
+          tenancyId={id}
+          refunded={!!returned}
+          run={run ? { id: run.id, status: run.status, error: run.error, items: timeline(run.messages), pending: pendingView } : null}
         />
       )}
 
@@ -136,6 +170,14 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "deduction_added": return `Deducted ${usd(d?.amount as number)} for ${String(d?.item).toLowerCase()}: ${d?.math}`;
     case "deduction_removed": return `Removed the ${usd(d?.amount as number)} deduction for ${String(d?.item).toLowerCase()}`;
     case "move_out_date_set": return `Tenant moved out ${d?.move_out_date}; statement and refund due by ${d?.statement_due}`;
+    case "close_out_started": return "Started the close-out";
+    case "refund_proposed": return `Asked you to approve a ${usd(d?.amount as number)} refund`;
+    case "refund_approved": return `Approved the ${usd(d?.amount as number)} refund`;
+    case "refund_declined": return `Declined the ${usd(d?.amount as number)} refund`;
+    case "refund_blocked": return `Stopped a refund that didn't match the rules: ${d?.reason}`;
+    case "refund_sent": return `Returned ${usd(d?.amount as number)} through PayPal (${d?.refund_id ? `refund ${d.refund_id}` : `payout ${d?.payout_batch_id}`}, ${String(d?.status).toLowerCase()})`;
+    case "refund_failed": return `PayPal didn't accept the ${usd(d?.amount as number)} refund`;
+    case "close_out_finished": return "Finished the close-out";
     case "photos_added": return `Added ${d?.count} ${String(d?.phase).replace(/_/g, " ")} photo${d?.count === 1 ? "" : "s"}: ${d?.room}`;
     default: return action.replace(/_/g, " ");
   }

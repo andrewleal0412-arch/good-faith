@@ -1,13 +1,17 @@
 import "server-only";
 
-// PayPal REST in the sandbox (PAYPAL_ENVIRONMENT=SANDBOX). Invoices collect the deposit; refunds and Payouts return
-// it (wired in the move-out step). Proven against the sandbox by scripts/sandbox_smoke.py on 2026-10-01.
+// PayPal REST in the sandbox (PAYPAL_ENVIRONMENT=SANDBOX). Invoices collect the deposit; at move-out the agent returns
+// it through PayPal's Agent Toolkit (a refund of the original payment) or, past PayPal's refund window, a Payout.
+// Proven against the sandbox by scripts/sandbox_smoke.py on 2026-10-01.
 const BASE = process.env.PAYPAL_ENVIRONMENT === "LIVE" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
 const WEB = process.env.PAYPAL_ENVIRONMENT === "LIVE" ? "https://www.paypal.com" : "https://www.sandbox.paypal.com";
 
 let cached: { token: string; until: number } | null = null;
 
-async function token(): Promise<string> {
+export const SANDBOX = process.env.PAYPAL_ENVIRONMENT !== "LIVE";
+
+/** OAuth access token (client credentials), cached until a minute before it expires. */
+export async function accessToken(): Promise<string> {
   if (cached && Date.now() < cached.until) return cached.token;
   const r = await fetch(`${BASE}/v1/oauth2/token`, {
     method: "POST",
@@ -26,7 +30,7 @@ async function token(): Promise<string> {
 export async function paypal<T = Record<string, unknown>>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await r.text();
@@ -56,7 +60,26 @@ export async function sendDepositInvoice(opts: {
   return { id, payLink: `${WEB}/invoice/p/#${id}` };
 }
 
+export type Invoice = {
+  id: string;
+  status: string;
+  primary_recipients?: { billing_info?: { email_address?: string } }[];
+  payments?: { transactions?: { payment_id: string; payment_date_time?: string; method?: string; amount: { value: string } }[] };
+};
+
 export async function getInvoice(id: string) {
-  return paypal<{ id: string; status: string; payments?: { transactions?: { payment_id: string; amount: { value: string } }[] } }>(
-    "GET", `/v2/invoicing/invoices/${id}`);
+  return paypal<Invoice>("GET", `/v2/invoicing/invoices/${id}`);
+}
+
+/** Send money to a PayPal account by email (Payouts). Used when the deposit can't be refunded against its original
+ *  payment, e.g. it was paid more than 180 days ago. The batch id doubles as an idempotency key. */
+export async function sendPayout(opts: { email: string; amount: number; note: string; batchId: string }) {
+  const r = await paypal<{ batch_header: { payout_batch_id: string; batch_status: string } }>("POST", "/v1/payments/payouts", {
+    sender_batch_header: { sender_batch_id: opts.batchId, email_subject: "Your security deposit refund", email_message: opts.note },
+    items: [{
+      recipient_type: "EMAIL", receiver: opts.email, note: opts.note, sender_item_id: opts.batchId,
+      amount: { value: opts.amount.toFixed(2), currency: "USD" },
+    }],
+  });
+  return { id: r.batch_header.payout_batch_id, status: r.batch_header.batch_status };
 }

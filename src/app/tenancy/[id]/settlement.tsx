@@ -16,6 +16,7 @@ export function Settlement(p: {
   depositHeld: number | null;
   refundTo: string | null;
   deductions: StoredDeduction[];
+  returned: { amount: number; kind: string; id: string; at: string } | null;
 }) {
   const router = useRouter();
   const [date, setDate] = useState(p.moveOutDate ?? "");
@@ -85,10 +86,13 @@ export function Settlement(p: {
           <Row label="Deductions">{s.total ? `-${usd(s.total)}` : usd(0)}</Row>
           {s.balanceClaimed > 0 ? (
             <Row label="Balance claimed from tenant" strong>{usd(s.balanceClaimed)}</Row>
+          ) : p.returned ? (
+            <Row label={`Refunded by PayPal ${p.returned.kind === "payout" ? "Payout" : "refund"} on ${longDate(p.returned.at.slice(0, 10))}`} strong>{usd(p.returned.amount)}</Row>
           ) : (
             <Row label={`Refund${p.refundTo ? ` by PayPal to ${p.refundTo}` : ""}`} strong>{usd(s.refund)}</Row>
           )}
         </dl>
+        {p.returned && <p className="mt-1 text-right font-mono text-[11px] text-ink-3">{p.returned.id}</p>}
         {s.balanceClaimed > 0 && (
           <p className="mt-2 text-[12px] text-ink-3">
             The statement lists this as a claim, not a demand for payment. The agent never collects it on its own.
