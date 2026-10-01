@@ -1,0 +1,14 @@
+import { audit, db } from "@/lib/db";
+
+export const runtime = "nodejs";
+
+// Remove a deduction before the statement goes out. Its receipt goes too; after-repair photos stay as evidence.
+export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/deductions/[did]">) {
+  const { id, did } = await ctx.params;
+  const { data: d } = await db.from("deductions").select("item, amount, receipt_path").eq("id", did).eq("tenancy_id", id).single();
+  if (!d) return Response.json({ error: "No such deduction." }, { status: 404 });
+  if (d.receipt_path) await db.storage.from("receipts").remove([d.receipt_path]);
+  await db.from("deductions").delete().eq("id", did);
+  await audit(id, "landlord", "deduction_removed", { item: d.item, amount: Number(d.amount) });
+  return Response.json({ ok: true });
+}

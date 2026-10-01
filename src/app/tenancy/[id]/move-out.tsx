@@ -2,8 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { usd } from "@/lib/deductions";
+import { DeductionForm } from "./deduction-form";
 
 export type FindingView = {
+  id?: string;
   room: string;
   item: string;
   observation: string;
@@ -14,6 +17,7 @@ export type FindingView = {
   confidence: number;
   beforeUrl: string | null;
   afterUrl: string | null;
+  deduction: { id: string; amount: number; math: string } | null;
 };
 
 const KIND = {
@@ -34,6 +38,7 @@ export function MoveOut(p: {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [room, setRoom] = useState(p.rooms[0] ?? "Living room");
+  const [open, setOpen] = useState<string | null>(null);
 
   async function upload(files: FileList) {
     setBusy("photos");
@@ -48,7 +53,16 @@ export function MoveOut(p: {
     router.refresh();
   }
 
+  async function removeDeduction(id: string) {
+    setBusy(`remove-${id}`);
+    await fetch(`/api/tenancies/${p.tenancyId}/deductions/${id}`, { method: "DELETE" });
+    setBusy(null);
+    router.refresh();
+  }
+
   async function inspect() {
+    if (p.findings.some((f) => f.deduction) &&
+      !confirm("Comparing again replaces these findings. Your deductions stay in the list below but won't show on the new cards. Continue?")) return;
     setBusy("inspect");
     setError("");
     const r = await fetch(`/api/tenancies/${p.tenancyId}/inspect`, { method: "POST" });
@@ -96,7 +110,7 @@ export function MoveOut(p: {
             {p.findings.map((f, i) => {
               const k = KIND[f.classification];
               return (
-                <li key={i} className="rounded-2xl bg-surface p-5 shadow-sm">
+                <li key={f.id ?? i} className="rounded-2xl bg-surface p-5 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${k.bg} ${k.fg}`}>{k.label}</span>
                     <span className="text-[12px] text-ink-3">{f.room} · {k.note}</span>
@@ -116,6 +130,21 @@ export function MoveOut(p: {
                   </div>
                   <p className="mt-3 text-[14px] leading-relaxed text-ink-2">{f.observation}</p>
                   <p className="mt-1 text-[13px] leading-relaxed text-ink-3">{f.reason}</p>
+                  {f.deduction ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-bg px-4 py-3">
+                      <p className="text-[14px] font-semibold">Deducting {usd(f.deduction.amount)}</p>
+                      <p className="text-[13px] text-ink-2">{f.deduction.math}</p>
+                      <button onClick={() => removeDeduction(f.deduction!.id)} disabled={busy === `remove-${f.deduction.id}`}
+                        className="ml-auto text-[13px] font-semibold text-danger disabled:opacity-40">Remove</button>
+                    </div>
+                  ) : f.classification === "wear_and_tear" ? null : f.id && open === f.id ? (
+                    <DeductionForm tenancyId={p.tenancyId} finding={{ ...f, id: f.id }}
+                      onCancel={() => setOpen(null)} onDone={() => { setOpen(null); router.refresh(); }} />
+                  ) : f.id ? (
+                    <button onClick={() => setOpen(f.id!)} className="mt-4 rounded-xl border border-line px-4 py-2 text-[14px] font-semibold">
+                      {f.classification === "unclear" ? "Add a deduction anyway" : "Add a deduction"}
+                    </button>
+                  ) : null}
                 </li>
               );
             })}

@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db, signedUrl } from "@/lib/db";
+import type { StoredDeduction } from "@/lib/deductions";
 import { getInvoice } from "@/lib/paypal";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView } from "./move-out";
+import { Settlement } from "./settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +17,10 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const { id } = await params;
   const { data: t } = await db.from("tenancies").select("*, properties(*)").eq("id", id).single();
   if (!t) notFound();
-  const [{ data: payments }, { data: photos }, { data: log }] = await Promise.all([
+  const [{ data: payments }, { data: photos }, { data: deductionRows }, { data: log }] = await Promise.all([
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("*").eq("tenancy_id", id).order("created_at"),
+    db.from("deductions").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("audit_log").select("*").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(30),
   ]);
 
@@ -41,10 +44,19 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const photoViews = await Promise.all((photos ?? []).map(async (p) => ({
     id: p.id as string, phase: p.phase as string, room: p.room as string, url: await signedUrl("photos", p.storage_path),
   })));
-  // Move-out findings with signed before/after URLs for the side-by-side view.
-  const findings: FindingView[] = await Promise.all(((t.move_out_findings ?? []) as (Omit<FindingView, "beforeUrl" | "afterUrl"> & {
+  const deductions = (deductionRows ?? []).map((d) => ({ ...d, amount: Number(d.amount) })) as StoredDeduction[];
+  // Move-out findings with signed before/after URLs for the side-by-side view, and the deduction made from each.
+  const findings: FindingView[] = await Promise.all(((t.move_out_findings ?? []) as (Omit<FindingView, "beforeUrl" | "afterUrl" | "deduction"> & {
     moveInPath: string; moveOutPath: string;
-  })[]).map(async (f) => ({ ...f, beforeUrl: await signedUrl("photos", f.moveInPath), afterUrl: await signedUrl("photos", f.moveOutPath) })));
+  })[]).map(async (f) => {
+    const d = deductions.find((x) => f.id && x.finding?.id === f.id);
+    return {
+      ...f, beforeUrl: await signedUrl("photos", f.moveInPath), afterUrl: await signedUrl("photos", f.moveOutPath),
+      deduction: d ? { id: d.id, amount: d.amount, math: d.math } : null,
+    };
+  }));
+  const paid = invoiceStatus === "PAID" || invoiceStatus === "MARKED_AS_PAID";
+  const agreement = t.refund_agreement as { paypal_email: string; signed_by: string[]; signed_at: string } | null;
   const terms = t.lease_terms as LeaseTerms;
   const flags = (t.lease_flags ?? []) as Flag[];
   const prop = t.properties as { address: string; owner_name: string | null };
@@ -64,7 +76,7 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
           violations: flags.filter((f) => f.severity === "violation").length,
           warnings: flags.filter((f) => f.severity === "warning").length,
         }}
-        agreement={t.refund_agreement as { paypal_email: string; signed_by: string[]; signed_at: string } | null}
+        agreement={agreement}
         lawful={lawfulDeposit(terms)}
         invoice={invoice ? { id: invoice.paypal_id, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
           payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null } : null}
@@ -78,6 +90,17 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
         findings={findings}
         inspectedAt={t.move_out_inspected_at}
       />
+
+      {t.move_out_inspected_at && (
+        <Settlement
+          tenancyId={id}
+          today={new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })}
+          moveOutDate={t.move_out_date}
+          depositHeld={paid && invoice ? Number(invoice.amount) : null}
+          refundTo={agreement?.paypal_email ?? null}
+          deductions={deductions}
+        />
+      )}
 
       <section className="mt-10">
         <h2 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink-3">Activity</h2>
@@ -110,6 +133,9 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "deposit_invoice_sent": return `Sent a PayPal deposit invoice for ${usd(d?.amount as number)}${d?.reason === "lease over the legal cap; invoiced the cap" ? `, not the ${usd(d?.charged_by_lease as number)} the lease asks for (legal cap)` : ""}`;
     case "deposit_invoice_failed": return "PayPal rejected the deposit invoice";
     case "move_out_inspected": return `Compared move-in and move-out photos (${(d?.rooms as string[])?.join(", ")}): ${d?.damage} damage, ${d?.cleaning} cleaning, ${d?.wear_and_tear} wear and tear (not chargeable)${(d?.unclear as number) ? `, ${d?.unclear} unclear` : ""}`;
+    case "deduction_added": return `Deducted ${usd(d?.amount as number)} for ${String(d?.item).toLowerCase()}: ${d?.math}`;
+    case "deduction_removed": return `Removed the ${usd(d?.amount as number)} deduction for ${String(d?.item).toLowerCase()}`;
+    case "move_out_date_set": return `Tenant moved out ${d?.move_out_date}; statement and refund due by ${d?.statement_due}`;
     case "photos_added": return `Added ${d?.count} ${String(d?.phase).replace(/_/g, " ")} photo${d?.count === 1 ? "" : "s"}: ${d?.room}`;
     default: return action.replace(/_/g, " ");
   }

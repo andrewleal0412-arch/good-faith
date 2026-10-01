@@ -16,7 +16,7 @@ export async function audit(tenancyId: string | null, actor: Actor, action: stri
 }
 
 /** Short-lived link to a private file (leases and photos are in private buckets). */
-export async function signedUrl(bucket: "leases" | "photos", path: string, seconds = 3600) {
+export async function signedUrl(bucket: "leases" | "photos" | "receipts", path: string, seconds = 3600) {
   const { data } = await db.storage.from(bucket).createSignedUrl(path, seconds);
   return data?.signedUrl ?? null;
 }

@@ -29,9 +29,9 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
       const [inB, outB] = await Promise.all([Promise.all(r.in.map(bytes)), Promise.all(r.out.map(bytes))]);
       const findings = await inspectRoom(room, inB, outB);
       // Attach the actual photo paths so the statement can show each before/after pair (AB 2801).
-      return findings.map((f) => ({ ...f, moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] }));
+      return findings.map((f) => ({ ...f, id: crypto.randomUUID(), moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] }));
     }));
-    const findings: (Finding & { moveInPath: string; moveOutPath: string })[] = results.flat();
+    const findings: (Finding & { id: string; moveInPath: string; moveOutPath: string })[] = results.flat();
     await db.from("tenancies").update({ move_out_findings: findings, move_out_inspected_at: new Date().toISOString(), status: "moving_out" }).eq("id", id);
     await audit(id, "agent", "move_out_inspected", {
       rooms: ready.map(([room]) => room),
