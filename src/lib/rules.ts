@@ -118,3 +118,14 @@ export function evaluateLease(t: LeaseTerms): Flag[] {
   const order = { violation: 0, warning: 1, info: 2 } as const;
   return flags.sort((a, b) => order[a.severity] - order[b.severity]);
 }
+
+/** What the agent will actually invoice at move-in: everything the lease charges as security, capped at the legal
+ *  maximum (D3/D4). Null when the cap can't be determined yet. */
+export function lawfulDeposit(t: LeaseTerms): { amount: number; cap: number; charged: number } | null {
+  if (!t.monthlyRent) return null;
+  const exempt = smallLandlordExempt(t);
+  if (exempt === null) return null;
+  const cap = t.monthlyRent * (exempt ? 2 : 1);
+  const charged = totalSecurity(t);
+  return { amount: Math.min(charged, cap), cap, charged };
+}

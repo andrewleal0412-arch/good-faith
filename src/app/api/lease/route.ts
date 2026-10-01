@@ -1,11 +1,12 @@
+import { db } from "@/lib/db";
 import { extractLeaseTerms } from "@/lib/extract";
-import { evaluateLease, smallLandlordExempt, totalSecurity } from "@/lib/rules";
+import { evaluateLease, lawfulDeposit, smallLandlordExempt, totalSecurity } from "@/lib/rules";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // POST a lease PDF (form field "file"): Claude extracts the deposit terms, then the rules engine flags anything
-// that breaks California law. Nothing is stored yet.
+// that breaks California law. The PDF goes to the private leases bucket so a tenancy can be started from it.
 export async function POST(req: Request) {
   const form = await req.formData();
   const file = form.get("file");
@@ -16,8 +17,16 @@ export async function POST(req: Request) {
     return Response.json({ error: "That PDF is over 15 MB." }, { status: 400 });
   }
   try {
-    const terms = await extractLeaseTerms(new Uint8Array(await file.arrayBuffer()), file.name);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const leasePath = `${crypto.randomUUID()}.pdf`;
+    const [terms, upload] = await Promise.all([
+      extractLeaseTerms(bytes, file.name),
+      db.storage.from("leases").upload(leasePath, bytes, { contentType: "application/pdf" }),
+    ]);
+    if (upload.error) console.error("lease upload failed", upload.error.message);
     return Response.json({
+      leasePath: upload.error ? null : leasePath,
+      lawfulDeposit: lawfulDeposit(terms),
       terms,
       totalSecurity: totalSecurity(terms),
       smallLandlordExempt: smallLandlordExempt(terms),

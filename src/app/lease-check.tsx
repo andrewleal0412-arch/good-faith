@@ -1,9 +1,13 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Flag, LeaseTerms } from "@/lib/rules";
 
-type Result = { terms: LeaseTerms; totalSecurity: number; smallLandlordExempt: boolean | null; flags: Flag[] };
+type Result = {
+  terms: LeaseTerms; totalSecurity: number; smallLandlordExempt: boolean | null; flags: Flag[];
+  leasePath: string | null; lawfulDeposit: { amount: number; cap: number; charged: number } | null;
+};
 
 const usd = (n: number | null | undefined) =>
   n == null ? "--" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -20,6 +24,20 @@ export function LeaseCheck() {
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const router = useRouter();
+
+  async function startTenancy() {
+    if (!result) return;
+    setStarting(true);
+    const r = await fetch("/api/tenancies", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terms: result.terms, leasePath: result.leasePath }),
+    });
+    const j = await r.json();
+    if (!r.ok) { setStarting(false); setError(j.error ?? "Couldn't start the tenancy."); setState("error"); return; }
+    router.push(`/tenancy/${j.id}`);
+  }
 
   async function upload(file: File) {
     if (file.type !== "application/pdf") {
@@ -122,6 +140,18 @@ export function LeaseCheck() {
                 );
               })}
             </ul>
+          </section>
+
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-ink p-5 text-white">
+            <p className="text-[14px] leading-relaxed text-white/80">
+              {result.lawfulDeposit && result.lawfulDeposit.amount < result.lawfulDeposit.charged
+                ? `Start the tenancy and the agent will collect only the lawful ${"$"}${result.lawfulDeposit.amount.toLocaleString("en-US")} deposit through PayPal.`
+                : "Start the tenancy to collect the deposit through PayPal and record move-in photos."}
+            </p>
+            <button onClick={startTenancy} disabled={starting}
+              className="rounded-xl bg-white px-4 py-2 text-[14px] font-semibold text-ink disabled:opacity-50">
+              {starting ? "Starting..." : "Start this tenancy"}
+            </button>
           </section>
         </div>
       )}
