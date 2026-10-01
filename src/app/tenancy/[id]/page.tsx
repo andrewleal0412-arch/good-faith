@@ -27,7 +27,13 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
     try {
       const live = await getInvoice(invoice.paypal_id);
       invoiceStatus = live.status;
-      if (live.status !== invoice.status) await db.from("payments").update({ status: live.status }).eq("id", invoice.id);
+      if (live.status !== invoice.status) {
+        // Keep PayPal's transaction ids: the move-out refund goes back against the original payment.
+        await db.from("payments").update({
+          status: live.status,
+          raw: { ...(invoice.raw ?? {}), transactions: live.payments?.transactions ?? [] },
+        }).eq("id", invoice.id);
+      }
     } catch { /* keep the stored status */ }
   }
 
