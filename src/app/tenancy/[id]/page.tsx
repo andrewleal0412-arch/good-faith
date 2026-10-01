@@ -4,6 +4,7 @@ import { db, signedUrl } from "@/lib/db";
 import { getInvoice } from "@/lib/paypal";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
 import { MoveInSteps } from "./move-in-steps";
+import { MoveOut, type FindingView } from "./move-out";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,10 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const photoViews = await Promise.all((photos ?? []).map(async (p) => ({
     id: p.id as string, phase: p.phase as string, room: p.room as string, url: await signedUrl("photos", p.storage_path),
   })));
+  // Move-out findings with signed before/after URLs for the side-by-side view.
+  const findings: FindingView[] = await Promise.all(((t.move_out_findings ?? []) as (Omit<FindingView, "beforeUrl" | "afterUrl"> & {
+    moveInPath: string; moveOutPath: string;
+  })[]).map(async (f) => ({ ...f, beforeUrl: await signedUrl("photos", f.moveInPath), afterUrl: await signedUrl("photos", f.moveOutPath) })));
   const terms = t.lease_terms as LeaseTerms;
   const flags = (t.lease_flags ?? []) as Flag[];
   const prop = t.properties as { address: string; owner_name: string | null };
@@ -64,6 +69,14 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
         invoice={invoice ? { id: invoice.paypal_id, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
           payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null } : null}
         photos={photoViews}
+      />
+
+      <MoveOut
+        tenancyId={id}
+        rooms={[...new Set(photoViews.filter((x) => x.phase === "move_in").map((x) => x.room))]}
+        moveOutPhotos={photoViews.filter((x) => x.phase === "move_out_before")}
+        findings={findings}
+        inspectedAt={t.move_out_inspected_at}
       />
 
       <section className="mt-10">
@@ -96,6 +109,7 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "refund_method_agreed": return `Agreed in writing to a PayPal refund (${(d?.signed_by as string[])?.join(", ")})`;
     case "deposit_invoice_sent": return `Sent a PayPal deposit invoice for ${usd(d?.amount as number)}${d?.reason === "lease over the legal cap; invoiced the cap" ? `, not the ${usd(d?.charged_by_lease as number)} the lease asks for (legal cap)` : ""}`;
     case "deposit_invoice_failed": return "PayPal rejected the deposit invoice";
+    case "move_out_inspected": return `Compared move-in and move-out photos (${(d?.rooms as string[])?.join(", ")}): ${d?.damage} damage, ${d?.cleaning} cleaning, ${d?.wear_and_tear} wear and tear (not chargeable)${(d?.unclear as number) ? `, ${d?.unclear} unclear` : ""}`;
     case "photos_added": return `Added ${d?.count} ${String(d?.phase).replace(/_/g, " ")} photo${d?.count === 1 ? "" : "s"}: ${d?.room}`;
     default: return action.replace(/_/g, " ");
   }
