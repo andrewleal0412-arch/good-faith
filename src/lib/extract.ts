@@ -6,7 +6,8 @@ import type { LeaseTerms } from "./rules";
 // Claude reads the lease and returns facts only, with the exact wording it relied on. It does not judge what is
 // lawful; src/lib/rules.ts does that, so the legal logic stays deterministic and citable.
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5-5";
+// Opus 5.5: telling wear and tear from damage is the core judgment, and the extra cost over Sonnet is a few dollars.
+const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
 const schema = z.object({
   propertyAddress: z.string().nullable(),

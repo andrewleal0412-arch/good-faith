@@ -77,7 +77,7 @@ export function LeaseCheck() {
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-[20px] font-semibold tracking-[-0.01em]">Checked against California law</h2>
               <p className="text-[13px] text-ink-3">
-                {counts.map(([s, n]) => `${n} ${SEVERITY[s].label.toLowerCase()}${n === 1 || s === "info" ? "" : "s"}`).join("  ·  ")}
+                {counts.map(([s, n]) => `${n} ${SEVERITY[s].label.toLowerCase()}${n === 1 ? "" : "s"}`).join("  ·  ")}
               </p>
             </div>
             <ul className="mt-4 space-y-3">
