@@ -33,6 +33,7 @@ function title(tool: string, input: Record<string, unknown>): string {
     case "create_refund": return `Refund ${usd(Number((input.amount as { value?: string })?.value))} against the tenants' PayPal payment`;
     case "get_refund": return "Confirmed the refund with PayPal";
     case "send_payout": return `Send ${usd(Number(input.amount))} by PayPal Payout to ${input.email}`;
+    case "get_statement_checklist": return "Checked the itemized statement";
     default: return tool.replace(/_/g, " ");
   }
 }
@@ -60,6 +61,14 @@ function detail(tool: string, out: Record<string, unknown> | null): { text: stri
     case "send_payout": {
       const p = out as { id?: string; status?: string };
       return { text: `Payout batch ${p.id}: ${p.status}`, error: false };
+    }
+    case "get_statement_checklist": {
+      const c = out as { checklist?: { state: string }[]; stillMissing?: string[] };
+      const applicable = c.checklist?.filter((i) => i.state !== "not_applicable").length ?? 0;
+      const done = c.checklist?.filter((i) => i.state === "done").length ?? 0;
+      return c.stillMissing?.length
+        ? { text: `${done} of ${applicable} items done. Still missing: ${c.stillMissing.join(" ")}`, error: false }
+        : { text: `All ${applicable} items that apply are done.`, error: false };
     }
     default: return { text: JSON.stringify(out).slice(0, 160), error: false };
   }

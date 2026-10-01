@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { missingDocs, RECEIPT_THRESHOLD, settle, statementDue, usd, type StoredDeduction } from "@/lib/deductions";
@@ -17,6 +18,7 @@ export function Settlement(p: {
   refundTo: string | null;
   deductions: StoredDeduction[];
   returned: { amount: number; kind: string; id: string; at: string } | null;
+  statement: { href: string; delivered: string | null }; // the itemized statement page, and how it went out once recorded
 }) {
   const router = useRouter();
   const [date, setDate] = useState(p.moveOutDate ?? "");
@@ -98,6 +100,17 @@ export function Settlement(p: {
             The statement lists this as a claim, not a demand for payment. The agent never collects it on its own.
           </p>
         )}
+
+        <div className="mt-4 flex flex-col items-start gap-3 border-t border-line pt-4 sm:flex-row sm:items-center">
+          <Link href={p.statement.href} className="shrink-0 rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white hover:opacity-90">
+            Open the itemized statement
+          </Link>
+          <p className="text-[13px] text-ink-2 sm:min-w-0 sm:flex-1">
+            {p.statement.delivered
+              ? <>Statement delivered by {p.statement.delivered}.</>
+              : "The 1950.5(h) statement with photos and invoices, ready to print, download as a PDF packet, and deliver."}
+          </p>
+        </div>
       </div>
 
       <div className="mt-3 space-y-2 text-[13px]">

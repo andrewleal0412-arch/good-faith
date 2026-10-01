@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "./db";
 import { missingDocs, settle, statementDue, usd, type StoredDeduction } from "./deductions";
 import { wasPaid } from "./invoice-status";
-import { getInvoice } from "./paypal";
+import { getInvoice, type Invoice } from "./paypal";
 
 // The move-out close-out, in plain code. The agent reads these facts and drives PayPal, but what may be refunded,
 // how, and to whom is decided here, and every money tool re-checks it at the moment it runs (guardRefund).
@@ -19,8 +19,8 @@ export type Rail = "refund_original_payment" | "payout" | "nothing_to_refund" | 
 export type CloseOutFacts = {
   today: string;
   tenancy: { address: string; tenants: string[]; moveOutDate: string | null; statementDue: string | null; daysLeft: number | null };
-  deposit: { invoiceId: string; status: string; amount: number; paidAt: string | null; captureId: string | null;
-    daysSincePaid: number | null; billedTo: string | null } | null;
+  deposit: { invoiceId: string; status: string; amount: number; paidAt: string | null; method: string | null; captureId: string | null;
+    daysSincePaid: number | null; billedTo: string | null; live: boolean } | null;
   refundAgreement: { paypalEmail: string; signedBy: string[]; signedAt: string } | null;
   deductions: { item: string; room: string | null; category: string; amount: number; math: string; missingDocs: string[] }[];
   totals: { depositHeld: number; deductions: number; refund: number; balanceClaimed: number; documentsRequired: boolean };
@@ -38,6 +38,8 @@ export const RULES = {
   roommates: "Civ. Code 1950.5(h)(1)(C): one refund for all adult tenants unless every adult signed an allocation agreement.",
   documents: "Civ. Code 1950.5(h)(2): the statement includes invoices or receipts, labor time and hourly rate, and the photos, unless repair and cleaning deductions total $125 or less ((h)(4)).",
   photos: "Civ. Code 1950.5(g)(2): photos of each item before and after the repair or cleaning that is deducted.",
+  estimate: "Civ. Code 1950.5(h)(3): if a repair isn't finished or a document isn't in hand within the 21 days, the statement deducts a good-faith estimate with the vendor's contact details, and the final documents follow within 14 days of completion or receipt.",
+  delivery: "Civ. Code 1950.5(h)(1)(B) and (h)(6): the statement goes by personal delivery or first-class mail to the address the tenant provided, or to the vacated unit if none; email only if the landlord and tenant agreed to it in writing.",
   wearAndTear: "Civ. Code 1950.5(b)(2) and (e)(1)-(2): ordinary wear and tear and conditions that predate the tenancy can't be deducted.",
   badFaith: "Civ. Code 1950.5(h)(7) and (m): bad-faith retention can cost up to twice the deposit in statutory damages.",
   usefulLife: "Useful-life proration and the paint schedule come from the DRE's California Tenants guide. They are guidance, not statute.",
@@ -64,18 +66,28 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   if (!moveOut) blockers.push("Set the move-out date first: it starts the 21-day clock.");
   if (daysLeft != null && daysLeft < 0) warnings.push(`The 21-day deadline passed ${-daysLeft} day(s) ago. Refund now; a late statement risks the whole deposit if a court finds bad faith (1950.5(h)(7), (m)).`);
 
-  // The deposit as PayPal reports it right now, not as we stored it.
+  // The deposit as PayPal reports it right now, not as we stored it. If PayPal can't be reached, the statement still
+  // renders from what the tenancy page last stored, but no money moves on stale facts: the outage is a blocker.
   const inv = (payments ?? []).find((p) => p.kind === "deposit_invoice");
   let deposit: CloseOutFacts["deposit"] = null;
   if (inv?.paypal_id) {
-    const live = await getInvoice(inv.paypal_id);
+    let live: Invoice, isLive = true;
+    try {
+      live = await getInvoice(inv.paypal_id);
+    } catch (e) {
+      console.error("PayPal invoice lookup failed; using the stored status", e);
+      isLive = false;
+      live = { id: inv.paypal_id, status: inv.status, payments: { transactions: (inv.raw as Invoice["payments"] | null)?.transactions ?? [] } };
+      blockers.push("PayPal couldn't be reached, so the deposit's status is as last recorded. Try again in a minute before returning any money.");
+    }
     const txn = live.payments?.transactions?.[0];
     const paidAt = txn?.payment_date_time ?? null;
     deposit = {
-      invoiceId: live.id, status: live.status, amount: Number(inv.amount), paidAt,
+      invoiceId: live.id, status: live.status, amount: Number(inv.amount), paidAt, method: txn?.method ?? null,
       captureId: txn?.payment_id ?? null,
       daysSincePaid: paidAt ? daysBetween(paidAt.slice(0, 10), today) : null,
       billedTo: live.primary_recipients?.[0]?.billing_info?.email_address ?? null,
+      live: isLive,
     };
     if (!wasPaid(live.status)) blockers.push(`The deposit invoice is ${live.status.toLowerCase().replace(/_/g, " ")} in PayPal, not paid, so there's nothing to return through PayPal.`);
   } else {

@@ -101,14 +101,16 @@ export type StoredDeduction = {
   finding: { id?: string; moveInPath?: string; moveOutPath?: string } | null;
 };
 
-/** What the statement still needs for each deduction under (h)(2) and (g)(2). Empty when it's complete. */
+/** What the statement still needs for each deduction under (h)(2) and (g)(2). Empty when it's complete.
+ *  A good-faith estimate (h)(3) stands in for the finished repair and its invoice, so it needs neither the after
+ *  photo nor the receipt yet; the vendor's name, address and phone take the invoice's place. */
 export function missingDocs(d: StoredDeduction, documentsRequired: boolean): string[] {
   const out: string[] = [];
   if (d.category === "rent") return out;
   if (!d.after_photo_paths.length && !d.is_estimate) out.push("after-repair photo");
   if (!documentsRequired) return out;
   if (d.performer === "vendor") {
-    if (!d.receipt_path) out.push("invoice or receipt");
+    if (!d.receipt_path && !d.is_estimate) out.push("invoice or receipt");
     if (!d.vendor?.name || !d.vendor?.address || !d.vendor?.phone) out.push("vendor name, address and phone");
   } else if (!d.labor_description) out.push("description of the work");
   return out;
@@ -120,7 +122,7 @@ export function settle(depositHeld: number, deductions: { category: string; amou
   const repairAndCleaning = cents(deductions.filter((d) => d.category !== "rent").reduce((s, d) => s + Number(d.amount), 0));
   const refund = cents(depositHeld - total);
   return {
-    total, refund: Math.max(0, refund), balanceClaimed: refund < 0 ? -refund : 0,
+    total, repairAndCleaning, refund: Math.max(0, refund), balanceClaimed: refund < 0 ? -refund : 0,
     documentsRequired: repairAndCleaning > RECEIPT_THRESHOLD,
   };
 }

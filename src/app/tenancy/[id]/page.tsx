@@ -8,6 +8,7 @@ import { db, signedUrl } from "@/lib/db";
 import type { StoredDeduction } from "@/lib/deductions";
 import { getInvoice } from "@/lib/paypal";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
+import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView } from "./move-out";
 import { CloseOut, type PendingView } from "./close-out";
@@ -125,6 +126,7 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
           refundTo={agreement?.paypal_email ?? null}
           deductions={deductions}
           returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, at: returned.created_at } : null}
+          statement={{ href: `/tenancy/${id}/statement`, delivered: t.statement_delivery ? describeDelivery(t.statement_delivery as DeliveryRecord) : null }}
         />
       )}
 
@@ -179,6 +181,9 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "refund_failed": return `PayPal didn't accept the ${usd(d?.amount as number)} refund`;
     case "close_out_finished": return "Finished the close-out";
     case "photos_added": return `Added ${d?.count} ${String(d?.phase).replace(/_/g, " ")} photo${d?.count === 1 ? "" : "s"}: ${d?.room}`;
+    case "statement_delivered": return `Delivered the itemized statement by ${describeDelivery(d as unknown as DeliveryRecord)}`;
+    case "statement_delivery_changed": return `Corrected the delivery record: ${describeDelivery(d?.next as DeliveryRecord)}`;
+    case "statement_packet_built": return `Built the statement PDF packet (${d?.pages} page${d?.pages === 1 ? "" : "s"})`;
     default: return action.replace(/_/g, " ");
   }
 }
