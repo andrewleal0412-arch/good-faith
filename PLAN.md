@@ -52,6 +52,14 @@ An AI agent that runs a California security deposit from move-in to refund for s
 | Oct 30-Nov 5 | Test with 2-3 student renters and 1 landlord | Design polish, AG Grid ledger, hosted on Render, README with run instructions |
 | Nov 6-8 | Film the demo (real room, staged damage) | Video edit, Devpost text, submit Nov 8; Nov 9-11 is buffer |
 
+## Sandbox findings (2026-10-01, scripts/sandbox_smoke.py)
+
+- **Keys work.** The app's token has the Invoicing, Payouts, Refunds, Disputes, Subscriptions and Vault scopes.
+- **Deposit invoice:** create (201) and send (200) work. The tenant pay link is `https://www.sandbox.paypal.com/invoice/p/#<id>`, and the invoice status is SENT.
+- **Payout to a PayPal email:** accepted (201, PENDING).
+- **Payout to Venmo:** rejected with 400 VALIDATION_ERROR, "Recipient wallet not supported in sandbox", for every recipient type (phone, handle, email). The demo refunds to the tenant's PayPal account; the Venmo branch stays in code for production and goes in the pitch. Collecting a deposit *by* Venmo through the JS SDK checkout should still be testable in sandbox (not checked yet).
+- **Next:** pay the invoice as the sandbox tenant (personal sandbox account under Testing Tools > Sandbox Accounts), then a partial refund of that captured payment, which is the 180-day path.
+
 ## Decisions still open
 
 - **Name.**
