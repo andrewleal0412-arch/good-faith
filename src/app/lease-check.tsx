@@ -19,8 +19,14 @@ export function LeaseCheck() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
+  const [dragging, setDragging] = useState(false);
 
   async function upload(file: File) {
+    if (file.type !== "application/pdf") {
+      setError("That isn't a PDF. Export the lease as a PDF and try again.");
+      setState("error");
+      return;
+    }
     setFileName(file.name);
     setState("reading");
     setError("");
@@ -43,10 +49,24 @@ export function LeaseCheck() {
 
   return (
     <div className="mt-8">
-      <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-line bg-surface px-6 py-8 text-center transition hover:border-accent">
+      <label
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const f = e.dataTransfer.files?.[0];
+          if (f) upload(f);
+        }}
+        className={`block cursor-pointer rounded-2xl border-2 border-dashed px-6 py-8 text-center transition hover:border-accent ${
+          dragging ? "border-accent bg-accent-soft" : "border-line bg-surface"
+        }`}
+      >
         <input type="file" accept="application/pdf" className="sr-only"
           onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-        <p className="text-[15px] font-semibold">{state === "reading" ? `Reading ${fileName}...` : "Upload a lease (PDF)"}</p>
+        <p className="text-[15px] font-semibold">
+          {state === "reading" ? `Reading ${fileName}...` : dragging ? "Drop the lease to check it" : "Upload a lease (PDF)"}
+        </p>
         <p className="mt-1 text-[13px] text-ink-3">
           {state === "reading" ? "Pulling out the deposit terms and checking them against the statute." : "Drop it here or click to choose a file."}
         </p>
