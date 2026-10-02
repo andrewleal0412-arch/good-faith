@@ -1,51 +1,119 @@
 @import "tailwindcss";
 
-/* Calm and trustworthy: a legal and money product. Warm paper background, ink text, one green accent for
-   money and "lawful", red for violations, amber for warnings. Light only for now. */
-:root {
-  --bg: #f6f5f1;
-  --surface: #ffffff;
-  --ink: #16181d;
-  --ink-2: #4a4f5a;
-  --ink-3: #8a8f99;
-  --line: #e4e2dc;
-  --accent: #0f6b4f;
-  --accent-soft: #e3f1ec;
-  --danger: #b42318;
-  --danger-soft: #fdecea;
-  --warn: #9a5b00;
-  --warn-soft: #fdf3e1;
-  --info: #2f5bb7;
-  --info-soft: #e9effb;
+/* Good Faith: a white canvas, neutral grays, one indigo, and green, amber and red for status only. Inter in six sizes,
+   tabular figures on every amount. The default palette, type scale, radii and shadows are cleared so nothing outside
+   this system can creep in. */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-canvas: #ffffff;
+
+  /* The one brand color: primary buttons, active nav, links, the active tab, the current step. */
+  --color-brand: #5e6ad2;
+  --color-brand-hover: #4f5bc4;
+  --color-brand-active: #4652b4;
+  --color-brand-50: #eef0fb;
+  --color-brand-100: #dfe3f8;
+  --color-brand-700: #3c47a8;
+
+  /* Ink for text, lines for borders, surfaces for soft panels and hover. */
+  --color-ink: #1b1d23;
+  --color-ink-2: #464a58;
+  --color-ink-3: #6e7385;
+  --color-ink-4: #9a9ead;
+  --color-line: #e6e8ee;
+  --color-line-2: #eff0f4;
+  --color-surface: #f7f8fa;
+  --color-surface-2: #f1f2f6;
+  --color-surface-3: #e8eaef;
+
+  /* Status only. Green: done, leased, money in. Amber: waiting on you, cleaning. Red: damage, overdue. */
+  --color-green: #1e7b45;
+  --color-green-bg: #e6f4ea;
+  --color-green-dot: #2da160;
+  --color-amber: #946200;
+  --color-amber-bg: #fcf1d6;
+  --color-amber-dot: #d99a1b;
+  --color-red: #b3261e;
+  --color-red-bg: #fbeae8;
+  --color-red-dot: #d64540;
+
+  /* Six sizes. xs: meta, chips, table headers. sm: table cells, buttons. base: body. lg: section and card titles,
+     fact values. xl: page and record titles, stat values. 2xl: heroes. */
+  --text-*: initial;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-xl: 24px;
+  --text-xl--line-height: 32px;
+  --text-xl--letter-spacing: -0.015em;
+  --text-2xl: 32px;
+  --text-2xl--line-height: 40px;
+  --text-2xl--letter-spacing: -0.02em;
+
+  /* Chips 6, buttons and inputs 8, cards 10. */
+  --radius-*: initial;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  /* Cards sit 1px off the canvas; menus and the tooltip are the only raised surfaces. */
+  --shadow-*: initial;
+  --shadow-sm: 0 1px 2px rgba(27, 29, 35, 0.04);
+  --shadow-md: 0 4px 16px rgba(27, 29, 35, 0.08), 0 1px 3px rgba(27, 29, 35, 0.06);
+
+  --container-content: 1208px;
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-ink-3: var(--ink-3);
-  --color-line: var(--line);
-  --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
-  --color-warn: var(--warn);
-  --color-warn-soft: var(--warn-soft);
-  --color-info: var(--info);
-  --color-info-soft: var(--info-soft);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-line);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    font-feature-settings: "calt", "cv11";
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--color-brand);
+  }
+  ::selection {
+    background: var(--color-brand-100);
+  }
 }
 
-/* The itemized statement prints as a plain document: white paper, no chrome. Only pieces that fit a page (the
-   header, one deduction, the totals) are kept whole; a heading is never left alone at the foot of a page. */
+/* The itemized statement and the notice drafts print as plain documents: white paper, no chrome. Only pieces that
+   fit a page (the header, one deduction, the totals) are kept whole; a heading is never left alone at the foot of a
+   page. */
 @media print {
   @page {
     size: letter;

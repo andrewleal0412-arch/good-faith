@@ -1,10 +1,12 @@
-# Deposit Agent
+# Good Faith
+
+California penalizes the "bad faith" retention of a security deposit. Good Faith makes the landlord's close-out lawful and fair to the tenant.
 
 An AI agent that runs a California security deposit from move-in to refund for small landlords: the owner of one condo, a duplex or an ADU who manages it alone. It reads the lease and flags what breaks Civil Code 1950.5, collects only the lawful deposit through a PayPal invoice, keeps the move-in and move-out photos the law now requires, has Claude compare them room by room, computes every deduction in code, writes the itemized statement with its exhibits, and returns the deposit through PayPal's Agent Toolkit once the landlord approves. Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/).
 
 It organizes records and fills in templates from the statute and published state guidance. It does not give legal advice.
 
-![The home page: the headline, the three rules the app enforces, and the four steps](docs/screenshots/home.png)
+![Properties: every unit with its status, the next step the law asks for, and the nearest 21-day deadline](docs/screenshots/home.png)
 
 ![A move-out finding: Claude's reading of the bedroom carpet next to the move-in photo, with the deduction computed in code and prorated by the carpet's age](docs/screenshots/inspection.png)
 
@@ -24,8 +26,8 @@ California rewrote the security deposit rules four times in three years, and the
 
 ## How it works
 
-1. **Check the lease** (`/`). Upload the lease PDF. Claude extracts the deposit terms as facts with the exact wording it relied on (`src/lib/extract.ts`); the rules engine (`src/lib/rules.ts`) flags violations, warnings and required steps with the statute beside each flag, and computes the lawful deposit.
-2. **Start the tenancy** (`/tenancy/[id]`). The property, tenants, rent and terms are saved with every flag.
+1. **Check the lease** (`/lease`, "Check a lease" in the sidebar). Upload the lease PDF. Claude extracts the deposit terms as facts with the exact wording it relied on (`src/lib/extract.ts`); the rules engine (`src/lib/rules.ts`) flags violations, warnings and required steps with the statute beside each flag, and computes the lawful deposit.
+2. **Start the tenancy** (`/tenancy/[id]`). The property, tenants, rent and terms are saved with every flag. Each property opens on a record header (photo, address, status, the statement and the one primary action) over five tabs: Overview, Move-out, Payments, Documents and Tenants.
 3. **Move-in.** The tenants agree in writing that the refund comes back by PayPal (AB 414). The agent sends a PayPal invoice for the lawful amount, capped at the statute, and the page shows "Paid" the moment PayPal does. Move-in photos go in room by room.
 4. **The tenants' private link** (`/t/<token>`). A page for the tenants: what they paid, the agreement, the move-in photos, a form to say they are moving out with the forwarding address the statement is mailed to, and the statement once it is delivered. The token is hashed in the database and can be revoked.
 5. **Notice.** When the tenants give notice, the app records the planned move-out, drafts the initial-inspection notice, (f)(1), and the electronic-refund notice when one is owed, and offers an `.ics` file with the window, the move-out and the 21-day deadline.
@@ -33,8 +35,8 @@ California rewrote the security deposit rules four times in three years, and the
 7. **Deductions.** One form per finding. The landlord enters the facts (a vendor invoice or own hours and rate, the item's age, the receipt, the after-repair photos) and the code computes the amount with useful-life or paint-schedule proration from the DRE guide, marks estimates under (h)(3), and tracks the $125 documentation rule (`src/lib/deductions.ts`).
 8. **Close out.** The agent (`src/lib/agent.ts`) reads the close-out facts from the rules engine, confirms the deposit invoice with PayPal, proposes the refund on the rail the rules allow (a refund of the original payment inside PayPal's 180-day window, otherwise a Payout), waits for the landlord's approval, sends it, confirms the refund, and grades the statement against the 13-item checklist.
 9. **The itemized statement.** A statement page and a one-click PDF packet with the photo exhibits and vendor invoices (`src/lib/statement.ts`, `src/lib/statement-pdf.ts`), plus a delivery record: personal delivery, first-class mail, or email by written agreement, (h)(1)(B), (h)(6).
-10. **Your units** (`/units`). Every tenancy, what it holds, and the next thing the law asks for, worked out from the dates.
-11. **The ledger** (`/ledger`). Every deposit invoice, payment, deduction, refund and payout across every unit in one AG Grid, each row tagged with the part of Civil Code 1950.5 that applies to it ((b)(2) damage, (h)(1) 21 days, and so on, with the subsection's words on hover and in the CSV). Search, filter any column, sort, and download a CSV that respects the filters; the totals follow whatever is showing. "Still held" is what was collected, less the deductions on a statement that has gone out and less what went back: drafts take nothing out yet, a refund PayPal refused moved nothing, and each tenancy is clamped at zero on its own, so the figure agrees with the units page. Each tenancy page carries its own money timeline with a way into the ledger filtered to that tenancy (not its address, so a re-let unit never shows the previous tenants' money) (`src/lib/ledger.ts`, `src/app/ledger/`).
+10. **Properties** (`/units`, the landlord's home; `/` opens it). Every tenancy, what it holds, its status and the next thing the law asks for, worked out from the dates, with the deposits held, refunded and deducted this year, recent activity, the next steps and the nearest 21-day deadline. Tenants, Documents and Move-outs list the same tenancies by person, by paper and by deadline.
+11. **Payments** (`/ledger`). Every deposit invoice, payment, deduction, refund and payout across every unit in one AG Grid, each row tagged with the part of Civil Code 1950.5 that applies to it ((b)(2) damage, (h)(1) 21 days, and so on, with the subsection's words on hover and in the CSV). Search, filter any column, sort, and download a CSV that respects the filters; the totals follow whatever is showing. "Still held" is what was collected, less the deductions on a statement that has gone out and less what went back: drafts take nothing out yet, a refund PayPal refused moved nothing, and each tenancy is clamped at zero on its own, so the figure agrees with the Properties page. Each tenancy page carries its own money timeline with a way into the ledger filtered to that tenancy (not its address, so a re-let unit never shows the previous tenants' money) (`src/lib/ledger.ts`, `src/app/(landlord)/ledger/`).
 
 Every action, by whom and with what, is written to an audit log the tenancy page shows.
 
@@ -43,21 +45,26 @@ Every action, by whom and with what, is written to an audit log the tenancy page
 | Piece | What it does |
 |---|---|
 | **Next.js 16** (App Router, TypeScript, Tailwind 4) | One app: server components read the database directly; route handlers under `src/app/api` do the writes and the money. |
+| **Design system** (`src/app/globals.css`, `src/components/`) | Tailwind 4 theme tokens: a white canvas, neutral grays, one indigo for actions, green, amber and red for status only; Inter (via `next/font`) in six sizes with tabular figures for money. Legal detail and citations live behind info icons and "Why?" popovers. |
 | **Claude via the AI SDK** (`ai` v7, `@ai-sdk/anthropic`, Claude Opus 5.5) | Three jobs. Lease extraction and the photo inspection use `generateText` with `Output.object` and a Zod schema, so Claude returns facts in a fixed shape. The close-out agent uses `generateText` with tools, a step limit, and `needsApproval` on every money tool. |
 | **PayPal Invoicing and Payouts** (`src/lib/paypal.ts`) | REST calls in the sandbox: create and send the deposit invoice, read its live status, and send a Payout when a refund against the original payment is not possible. |
 | **PayPal Agent Toolkit over MCP** (`src/lib/agent.ts`) | `@paypal/agent-toolkit/mcp` runs as an MCP server inside the process (an in-memory transport), limited to `get_invoice`, `create_refund` and `get_refund`, and the agent consumes it through `@ai-sdk/mcp`. `create_refund` is wrapped so it waits for approval and passes the rules guard before PayPal is called. |
 | **Supabase** (`src/lib/db.ts`, `supabase/migrations`) | Postgres and Storage. The server-only client uses the secret key; row level security is on with no policies, so the publishable key can read and write nothing. Three private buckets (`leases`, `photos`, `receipts`) served through one-hour signed URLs. Row-locking functions make the concurrent writes atomic. |
-| **AG Grid Community** (`ag-grid-community`, `ag-grid-react`; `src/app/ledger/ledger-grid.tsx`) | The deposit ledger: every money event and deduction across every unit, with the quick filter, text, number and date column filters, auto-height rows that wrap the unit, detail and status text, the amount column pinned on the right so a phone still shows every figure, a pinned total row and the CSV export, all from the free build (no Enterprise features, no license key). The Quartz theme takes the app's color tokens through the Theming API, and the rows arrive from the server as plain data. |
+| **AG Grid Community** (`ag-grid-community`, `ag-grid-react`; `src/app/(landlord)/ledger/ledger-grid.tsx`) | The deposit ledger: every money event and deduction across every unit, with the quick filter, text, number and date column filters, auto-height rows that wrap the unit, detail and status text, the amount column pinned on the right so a phone still shows every figure, a pinned total row and the CSV export, all from the free build (no Enterprise features, no license key). The Quartz theme takes the app's color tokens through the Theming API, and the rows arrive from the server as plain data. |
 | **pdf-lib and sharp** | The statement packet: standard fonts, photos re-encoded at 1600 px, invoices embedded as pages. |
 | **Browser uploads** (`src/lib/uploads.ts`) | Photos are downscaled on a canvas before they leave the phone, with the EXIF orientation applied, and sent in requests under the host's 4.5 MB body limit. |
 
 Where things live:
 
 ```
-src/app/page.tsx                  home: the story and the lease check
-src/app/units/page.tsx            every tenancy and what is due next
-src/app/ledger/                   the AG Grid deposit ledger
-src/app/tenancy/[id]/             the tenancy page and its client components
+src/app/(landlord)/layout.tsx     the app shell: sidebar, top bar, Test mode, notifications
+src/app/(landlord)/units/         Properties, the landlord's home
+src/app/(landlord)/lease/         Check a lease
+src/app/(landlord)/ledger/        Payments, the AG Grid deposit ledger
+src/app/(landlord)/tenancy/[id]/  one property: header, five tabs and their client components
+src/app/(landlord)/tenants/, documents/, move-outs/   the other sidebar lists
+src/components/                   the design system: buttons, chips, money, cards, tabs, tables, tooltips, the shell
+src/lib/property-view.ts          each tenancy's status chip and the one verb its next step links to
 src/app/t/[token]/                the tenants' private page
 src/app/api/                      route handlers (lease, tenancies, photos, deductions, close-out, statement, notices, tenant link)
 src/lib/rules.ts                  the lease rules, by rule id from docs/LEGAL_RULES.md

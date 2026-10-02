@@ -17,7 +17,7 @@ import { statementChecklist } from "./statement";
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
-const SYSTEM = `You are the close-out agent in Deposit Agent, which helps small California landlords return security deposits correctly. You work for the landlord and you are fair to the tenant.
+const SYSTEM = `You are the close-out agent in Good Faith, which helps small California landlords return security deposits correctly. You work for the landlord and you are fair to the tenant.
 
 For this move-out:
 1. Call get_close_out_facts. It comes from the rules engine and is authoritative for amounts, dates and the refund plan.

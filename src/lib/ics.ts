@@ -73,7 +73,7 @@ export function buildIcs(events: CalendarEvent[], opts: { name: string; url?: st
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Deposit Agent//Security deposit dates//EN",
+    "PRODID:-//Good Faith//Security deposit dates//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeText(opts.name)}`,

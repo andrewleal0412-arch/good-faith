@@ -12,8 +12,9 @@ import { describeDelivery, DISCLAIMERS, longDate, pacificDate, type Statement, t
 
 const W = 612, H = 792, M = 54; // US letter, 0.75 inch margins
 const TEXT_W = W - 2 * M;
-const INK = rgb(0.086, 0.094, 0.114), INK2 = rgb(0.29, 0.31, 0.353), INK3 = rgb(0.541, 0.561, 0.6);
-const ACCENT = rgb(0.059, 0.42, 0.31), LINE = rgb(0.894, 0.886, 0.863), WARN = rgb(0.604, 0.357, 0);
+// The app's tokens (globals.css): ink #1B1D23 / #464A58 / #6E7385, brand #5E6AD2, line #E6E8EE, amber #946200.
+const INK = rgb(0.106, 0.114, 0.137), INK2 = rgb(0.275, 0.29, 0.345), INK3 = rgb(0.431, 0.451, 0.522);
+const ACCENT = rgb(0.369, 0.416, 0.824), LINE = rgb(0.902, 0.91, 0.933), WARN = rgb(0.58, 0.384, 0);
 
 /** Photos are resized to this many pixels on the long side and re-encoded as JPEG before embedding, so a 12 MB phone
  *  photo becomes a few hundred KB and a packet with a dozen photos still fits an email. */
@@ -246,7 +247,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   const doc = await PDFDocument.create();
   doc.setTitle(`Itemized security deposit statement, ${s.property.address}`);
   doc.setAuthor(s.landlord);
-  doc.setCreator("Deposit Agent");
+  doc.setCreator("Good Faith");
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const w = new Writer(doc, font, bold);
@@ -411,7 +412,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   w.space(10);
   w.text(attached.length > 1 ? `Exhibits A through ${[...photoExhibit.values(), ...invoiceExhibit.values()].pop()} follow this statement.`
     : attached.length ? "Exhibit A follows this statement." : "No attachments.", { size: 9, color: INK2, after: 6 });
-  w.text("Prepared with Deposit Agent from the landlord's records, under California Civil Code 1950.5 and published state guidance. It is not legal advice.", { size: 8, color: INK3, lead: 11 });
+  w.text("Prepared with Good Faith from the landlord's records, under California Civil Code 1950.5 and published state guidance. It is not legal advice.", { size: 8, color: INK3, lead: 11 });
   w.text(DISCLAIMERS[1], { size: 8, color: INK3, lead: 11 });
   w.text(DISCLAIMERS[3], { size: 8, color: INK3, lead: 11 });
 

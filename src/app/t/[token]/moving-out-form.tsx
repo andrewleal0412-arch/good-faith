@@ -4,8 +4,11 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { addDays, longDate } from "@/lib/dates";
 import { FORWARDING_MAX, PLANNED_MOVE_OUT_HORIZON_DAYS, PLANNED_MOVE_OUT_PAST_DAYS, tenantMoveOutSentOn, type TenantMoveOut } from "@/lib/tenant";
+import { buttonClass } from "@/components/button";
+import { FormField } from "@/components/field";
+import { Notice, inputClass } from "@/components/ui";
 
-const input = "w-full rounded-xl border border-line bg-bg px-3 py-2 text-[14px] outline-none focus:border-accent";
+const input = inputClass;
 
 // "I'm moving out": the planned date and the forwarding address the statement is mailed to (Civ. Code 1950.5(h)(6)).
 // Sending it again changes the one record rather than adding another; the landlord sees the latest. Once the
@@ -41,17 +44,17 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
   if (!open && saved) {
     const m = saved;
     return (
-      <div className="mt-4 rounded-xl bg-accent-soft px-4 py-3 text-[14px] leading-relaxed text-ink-2">
+      <div className="mt-4 rounded-md bg-surface px-4 py-3 text-base text-ink-2">
         <b className="text-ink">{justSent ? "Sent to your landlord." : `Sent ${longDate(tenantMoveOutSentOn(m))}.`}</b>{" "}
         {m.name ? `${m.name}: ` : ""}{!dateLocked && <>moving out <b className="text-ink">{longDate(m.planned_move_out)}</b>; </>}mail the statement to <b className="text-ink">{m.forwarding_address}</b>.{" "}
-        <button onClick={() => setOpen(true)} className="text-ink-3 underline underline-offset-2 hover:text-ink">Change</button>
+        <button onClick={() => setOpen(true)} className="font-medium text-brand hover:underline">Change</button>
       </div>
     );
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-line p-4">
-      <p className="text-[14px] font-semibold">{dateLocked ? "Where to mail the statement" : "I'm moving out"}</p>
+    <div className="mt-4 rounded-md border border-line p-4">
+      <p className="text-base font-medium">{dateLocked ? "Where to mail the statement" : "I'm moving out"}</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {p.tenants.length > 1 && (
           <Field label="Your name">
@@ -73,23 +76,17 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
           </Field>
         </div>
       </div>
-      {error && <p className="mt-3 rounded-xl bg-danger-soft px-4 py-3 text-[13px] text-danger">{error}</p>}
+      {error && <Notice className="mt-3">{error}</Notice>}
       <div className="mt-4 flex gap-2">
-        <button onClick={send} disabled={busy || (!dateLocked && !date) || !address || !name} className="rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white disabled:opacity-40">
+        <button onClick={send} disabled={busy || (!dateLocked && !date) || !address || !name} className={buttonClass("primary", "md")}>
           {busy ? "Sending..." : p.existing ? "Send the change" : "Send to the landlord"}
         </button>
-        {p.existing && <button onClick={() => setOpen(false)} className="rounded-xl px-4 py-2 text-[14px] text-ink-2">Cancel</button>}
+        {p.existing && <button onClick={() => setOpen(false)} className={buttonClass("secondary", "md")}>Cancel</button>}
       </div>
     </div>
   );
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-3">{label}</p>
-      {children}
-      {hint && <p className="mt-1 text-[12px] text-ink-3">{hint}</p>}
-    </div>
-  );
+  return <FormField label={label} note={hint} labelClass="mb-1.5 block text-xs font-medium text-ink-3">{children}</FormField>;
 }

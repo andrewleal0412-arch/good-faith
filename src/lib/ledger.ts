@@ -20,14 +20,15 @@ export const KIND_LABEL: Record<LedgerKind, string> = {
   damage_invoice: "Balance invoice",
 };
 
-/** The pill for each kind, in the app's tokens: money in is green, money back is blue, what is kept is amber. */
+/** The chip for each kind, in the app's tokens: money in is green, what is kept is amber, money back and invoices
+ *  are neutral (status colors only, one indigo for actions). */
 export const KIND_TONE: Record<LedgerKind, string> = {
-  deposit_invoice: "bg-bg text-ink-2",
-  payment: "bg-accent-soft text-accent",
-  deduction: "bg-warn-soft text-warn",
-  refund: "bg-info-soft text-info",
-  payout: "bg-info-soft text-info",
-  damage_invoice: "bg-danger-soft text-danger",
+  deposit_invoice: "bg-surface-2 text-ink-2",
+  payment: "bg-green-bg text-green",
+  deduction: "bg-amber-bg text-amber",
+  refund: "bg-surface-2 text-ink-2",
+  payout: "bg-surface-2 text-ink-2",
+  damage_invoice: "bg-red-bg text-red",
 };
 
 /** What a row does to the money held for the tenants, which is what the totals add up. The security stays the

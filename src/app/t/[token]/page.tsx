@@ -8,7 +8,9 @@ import { describeDelivery, TAGS } from "@/lib/statement";
 import { tenantMoveOutSentOn } from "@/lib/tenant";
 import { resolveTenantToken } from "@/lib/tenant-links";
 import { loadTenantView, type TenantView } from "@/lib/tenant-view";
+import { InfoTip } from "@/components/info-tip";
 import { MovingOutForm } from "./moving-out-form";
+import { buttonClass } from "@/components/button";
 
 export const dynamic = "force-dynamic";
 
@@ -88,19 +90,26 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   ];
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 py-10">
-      <p className="text-[13px] font-semibold uppercase tracking-[0.14em] text-accent">Your security deposit</p>
-      <h1 className="mt-2 text-[30px] font-semibold leading-tight tracking-[-0.02em]">{v.address}</h1>
-      <p className="mt-1 text-[15px] text-ink-2">
-        {v.tenants.join(" and ") || "Tenant"}{v.startDate && <> · since {longDate(v.startDate)}</>}{v.landlord && <> · Landlord: {v.landlord}</>}
+    <>
+    <header className="border-b border-line bg-canvas print:hidden">
+      <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:px-5">
+        <span className="truncate text-base font-medium">{v.landlord ?? "Your landlord"}</span>
+        <span className="ml-auto text-sm text-ink-3">Tenant view</span>
+      </div>
+    </header>
+    <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-5">
+      <p className="text-sm text-ink-3">Your security deposit</p>
+      <h1 className="mt-1 text-xl font-medium">{v.address}</h1>
+      <p className="mt-1 text-base text-ink-2">
+        {v.tenants.join(" and ") || "Tenant"}{v.startDate && <>, since {longDate(v.startDate)}</>}
       </p>
 
-      <div className="mt-6 rounded-2xl bg-surface p-5 shadow-sm">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3">Where things stand</p>
-        <p className="mt-1 text-[18px] font-semibold leading-snug">{stand.title}</p>
-        <p className="mt-1 text-[14px] leading-relaxed text-ink-2">{stand.detail}</p>
+      <div className="mt-6 rounded-lg border border-line bg-canvas p-5 shadow-sm">
+        <p className="text-xs font-medium text-ink-3">Where things stand</p>
+        <p className="mt-1 text-lg font-medium">{stand.title}</p>
+        <p className="mt-1 text-base text-ink-2">{stand.detail}</p>
         {v.deposit?.payLink && (
-          <a href={v.deposit.payLink} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-xl bg-accent px-4 py-2 text-[14px] font-semibold text-white hover:opacity-90">
+          <a href={v.deposit.payLink} target="_blank" rel="noreferrer" className={buttonClass("primary", "md", "mt-3")}>
             Pay the deposit invoice in PayPal{SANDBOX ? " (sandbox)" : ""}
           </a>
         )}
@@ -109,28 +118,28 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
       <Section title="Your deposit" cite="Civ. Code 1950.5(c), (h)(1)">
         {v.deposit ? (
           <>
-            <p className="text-[22px] font-semibold tabular-nums">{usd(v.deposit.amount)}</p>
-            <p className="mt-1 text-[14px] text-ink-2">
+            <p className="text-xl font-medium tabular-nums">{usd(v.deposit.amount)}</p>
+            <p className="mt-1 text-base text-ink-2">
               {v.deposit.paid
-                ? <>Paid {v.deposit.paidAt ? `on ${longDate(pacificDate(v.deposit.paidAt))} ` : ""}by {payMethod(v.deposit.method)}, PayPal invoice <span className="font-mono text-[12px]">{v.deposit.invoiceId}</span>.</>
-                : <>PayPal invoice <span className="font-mono text-[12px]">{v.deposit.invoiceId}</span> is {words(v.deposit.status)}, not paid yet.</>}
+                ? <>Paid {v.deposit.paidAt ? `on ${longDate(pacificDate(v.deposit.paidAt))} ` : ""}by {payMethod(v.deposit.method)}, PayPal invoice <span className="text-xs">{v.deposit.invoiceId}</span>.</>
+                : <>PayPal invoice <span className="text-xs">{v.deposit.invoiceId}</span> is {words(v.deposit.status)}, not paid yet.</>}
             </p>
           </>
         ) : (
-          <p className="text-[14px] text-ink-2">No deposit invoice has been sent through PayPal yet.</p>
+          <p className="text-base text-ink-2">No deposit invoice has been sent through PayPal yet.</p>
         )}
       </Section>
 
       <Section title={a ? "The refund agreement you signed" : "How the refund comes back"} cite="Civ. Code 1950.5(h)(1)(A)">
         {a ? (
           <>
-            {a.text && <blockquote className="rounded-xl bg-bg px-4 py-3 text-[14px] leading-relaxed">&ldquo;{a.text}&rdquo;</blockquote>}
-            <p className={`${a.text ? "mt-3 " : ""}text-[14px] text-ink-2`}>
-              Agreed in writing by <b className="text-ink">{a.signedBy.join(" and ")}</b> {signed}. PayPal account: <span className="font-mono text-[12px]">{a.paypalEmail}</span>.
+            {a.text && <blockquote className="rounded-md bg-surface px-4 py-3 text-base">&ldquo;{a.text}&rdquo;</blockquote>}
+            <p className={`${a.text ? "mt-3 " : ""}text-base text-ink-2`}>
+              Agreed in writing by <b className="text-ink">{a.signedBy.join(" and ")}</b> {signed}. PayPal account: <span className="text-xs">{a.paypalEmail}</span>.
             </p>
           </>
         ) : (
-          <p className="text-[14px] leading-relaxed text-ink-2">
+          <p className="text-base text-ink-2">
             No written agreement on the refund method is on file.{" "}
             {v.deposit?.electronic
               ? "Because the deposit was paid electronically, the refund comes back electronically: to an account you designate in writing, or by another electronic method you agree to in writing."
@@ -140,23 +149,23 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
       </Section>
 
       <Section title="Move-in photos" cite={moveInPhotosRequired ? "Civ. Code 1950.5(g)(1)" : undefined}>
-        <p className="text-[14px] leading-relaxed text-ink-2">
+        <p className="text-base text-ink-2">
           {v.photos.length
             ? `${v.photos.length} photo${v.photos.length === 1 ? "" : "s"} of the unit at the start of the tenancy: the record of its condition on day one, which any move-out comparison is measured against.`
             : "No move-in photos are on file."}
         </p>
         {v.photos.length > 0 && (
           <>
-            <p className="mt-1 text-[12px] text-ink-3">Tap a photo to open it full size.</p>
+            <p className="mt-1 text-xs text-ink-3">Tap a photo to open it full size.</p>
             {/* One grid, in room order, each tile opening the same photo at full size through the token route. */}
             <ul className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-5">
               {rooms.flatMap((r) => v.photos.filter((p) => p.room === r)).map((p) => (
                 <li key={p.id} className="min-w-0">
-                  <a href={`/api/t/${token}/photos/${p.id}`} target="_blank" rel="noreferrer" className="block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                  <a href={`/api/t/${token}/photos/${p.id}`} target="_blank" rel="noreferrer" className="block rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`/api/t/${token}/photos/${p.id}`} alt={`${p.room}, move-in`} loading="lazy" className="aspect-square w-full rounded-lg bg-bg object-cover" />
+                    <img src={`/api/t/${token}/photos/${p.id}`} alt={`${p.room}, move-in`} loading="lazy" className="aspect-square w-full rounded-md bg-surface object-cover" />
                   </a>
-                  <p className="mt-1 truncate text-[11px] text-ink-3" title={p.room}>{p.room}</p>
+                  <p className="mt-1 truncate text-xs text-ink-3" title={p.room}>{p.room}</p>
                 </li>
               ))}
             </ul>
@@ -166,25 +175,25 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 
       <Section title="Moving out" cite="Civ. Code 1950.5(h)(6)">
         {v.moveOutDate ? (
-          <p className="text-[14px] leading-relaxed text-ink-2">
+          <p className="text-base text-ink-2">
             Your landlord recorded the move-out on <b className="text-ink">{longDate(v.moveOutDate)}</b>.
             {v.statementDue && (st
               ? <> The itemized statement was due by {longDate(v.statementDue)}, 21 calendar days later (Civ. Code 1950.5(h)(1)), and went out on {longDate(st.delivery.date)}.</>
               : <> The itemized statement and the rest of the deposit are due by {longDate(v.statementDue)}, 21 calendar days later (Civ. Code 1950.5(h)(1)).</>)}
           </p>
         ) : v.noticeGivenOn ? (
-          <p className="text-[14px] leading-relaxed text-ink-2">
+          <p className="text-base text-ink-2">
             Your landlord recorded notice given on <b className="text-ink">{longDate(v.noticeGivenOn)}</b>{v.plannedMoveOut && <>, with a planned move-out of <b className="text-ink">{longDate(v.plannedMoveOut)}</b></>}.
           </p>
         ) : null}
         {st ? (
-          <p className={`${v.moveOutDate || v.noticeGivenOn ? "mt-2 " : ""}text-[14px] leading-relaxed text-ink-2`}>
+          <p className={`${v.moveOutDate || v.noticeGivenOn ? "mt-2 " : ""}text-base text-ink-2`}>
             {v.moveOut && <>You sent on {longDate(tenantMoveOutSentOn(v.moveOut))}: {v.moveOutDate ? "" : `moving out ${longDate(v.moveOut.planned_move_out)}, with `}{v.moveOut.forwarding_address} as the forwarding address. </>}
             The itemized statement {v.moveOutDate ? "has gone out" : <>went out on {longDate(st.delivery.date)}</>}, so these details can&apos;t be changed here. If something is wrong, contact your landlord directly.
           </p>
         ) : (
           <>
-            <p className={`${v.moveOutDate || v.noticeGivenOn ? "mt-2 " : ""}text-[14px] leading-relaxed text-ink-2`}>
+            <p className={`${v.moveOutDate || v.noticeGivenOn ? "mt-2 " : ""}text-base text-ink-2`}>
               {v.moveOutDate
                 ? <>Where should the itemized statement be mailed? It goes to the address you give; with none, to the unit you left (Civ. Code 1950.5(h)(6)).</>
                 : <>Tell your landlord when you are leaving and where to mail the itemized statement. It is mailed to the address you give; with none, it goes to the unit you are leaving (Civ. Code 1950.5(h)(6)).</>}
@@ -196,39 +205,39 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 
       {st && (
         <Section title="Itemized statement" cite="Civ. Code 1950.5(h)">
-          <p className="text-[14px] text-ink-2">Delivered by {describeDelivery(st.delivery)}.</p>
+          <p className="text-base text-ink-2">Delivered by {describeDelivery(st.delivery)}.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <a href={pdf} target="_blank" rel="noreferrer" className="rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white hover:opacity-90">Open the statement (PDF)</a>
-            <a href={`${pdf}?download=1`} className="rounded-xl border border-line bg-surface px-4 py-2 text-[14px] font-semibold text-ink hover:bg-bg">Download</a>
+            <a href={pdf} target="_blank" rel="noreferrer" className={buttonClass("primary", "md")}>Open the statement (PDF)</a>
+            <a href={`${pdf}?download=1`} className={buttonClass("secondary", "md")}>Download</a>
           </div>
           {/* Built fresh from the landlord's records on each request (no copy of the mailed PDF is kept), so the copy says so. */}
-          <p className="mt-2 text-[12px] text-ink-3">The PDF is built from your landlord&apos;s records as they stand, dated the day the statement went out, with the photo exhibits and copies of any invoices. The paper or email you received is the statement itself.</p>
+          <p className="mt-2 text-xs text-ink-3">The PDF is built from your landlord&apos;s records as they stand, dated the day the statement went out, with the photo exhibits and copies of any invoices. The paper or email you received is the statement itself.</p>
 
           {st.deductions.length ? (
             <ol className="mt-4 divide-y divide-line border-t border-line">
               {st.deductions.map((d, i) => (
                 <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-[14px] font-semibold">{d.item}{d.room && <span className="font-normal text-ink-3"> · {d.room}</span>}</p>
-                    <p className="text-[12px] text-ink-3">{TAGS[d.category].tag} {TAGS[d.category].label}</p>
+                    <p className="text-base font-medium">{d.item}{d.room && <span className="font-normal text-ink-3">, {d.room}</span>}</p>
+                    <p className="text-xs text-ink-3">{TAGS[d.category].tag} {TAGS[d.category].label}</p>
                   </div>
-                  <p className="text-[14px] font-semibold tabular-nums">{usd(d.amount)}</p>
+                  <p className="text-base font-medium tabular-nums">{usd(d.amount)}</p>
                 </li>
               ))}
             </ol>
           ) : (
-            <p className="mt-4 border-t border-line pt-3 text-[14px] text-ink-2">No deductions.</p>
+            <p className="mt-4 border-t border-line pt-3 text-base text-ink-2">No deductions.</p>
           )}
-          <dl className="mt-2 space-y-1.5 border-t border-line pt-4 text-[14px]">
+          <dl className="mt-2 space-y-1.5 border-t border-line pt-4 text-base">
             <Row label="Security held">{usd(st.depositHeld)}</Row>
             <Row label="Total deductions">{st.total ? `-${usd(st.total)}` : usd(0)}</Row>
             {st.balanceClaimed > 0
               ? <Row label="Balance claimed" strong>{usd(st.balanceClaimed)}</Row>
               : <Row label={v.returned ? "Returned" : "Refund"} strong>{usd(v.returned?.amount ?? st.refund)}</Row>}
           </dl>
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+          <p className="mt-3 text-base text-ink-2">
             {v.returned
-              ? <>{usd(v.returned.amount)} was returned by PayPal {v.returned.kind === "payout" ? "Payout" : "refund"} on {longDate(pacificDate(v.returned.at))}{v.returned.paypalId && <> (id <span className="font-mono text-[12px]">{v.returned.paypalId}</span>)</>}; PayPal reports it as {words(v.returned.status)}.</>
+              ? <>{usd(v.returned.amount)} was returned by PayPal {v.returned.kind === "payout" ? "Payout" : "refund"} on {longDate(pacificDate(v.returned.at))}{v.returned.paypalId && <> (id <span className="text-xs">{v.returned.paypalId}</span>)</>}; PayPal reports it as {words(v.returned.status)}.</>
               : st.refund > 0
                 ? <>{usd(st.refund)} is to be returned{a ? <> by PayPal to {a.paypalEmail}</> : null}{v.statementDue ? `, due by ${longDate(v.statementDue)}` : ""}.</>
                 : st.balanceClaimed > 0
@@ -236,7 +245,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
                   : <>The deductions used the whole deposit, so nothing is left to return.</>}
           </p>
           {st.deductions.some((d) => d.category !== "rent") && (
-            <p className="mt-2 text-[13px] leading-relaxed text-ink-3">
+            <p className="mt-2 text-sm text-ink-3">
               {st.documentsRequired
                 ? "Repair and cleaning deductions total more than $125, so the law requires the invoices, receipts, labor records and photos with the statement (Civ. Code 1950.5(h)(2)). The PDF lists exactly what it holds."
                 : "Repair and cleaning deductions total $125 or less, so those documents are not required with the statement. You may request them within 14 days of receiving it, and the landlord then has 14 days to provide them (Civ. Code 1950.5(h)(4)-(5))."}
@@ -246,21 +255,21 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
       )}
 
       <Section title="Your rights, as the statute states them">
-        <p className="text-[13px] leading-relaxed text-ink-3">
+        <p className="text-sm text-ink-3">
           California Civil Code section 1950.5 in plain words, with the facts on file for this tenancy where they fit. Nothing here is advice about your situation.
         </p>
         <ul className="mt-4 space-y-4">
           {rights.map((r, i) => (
-            <li key={i}>
-              <p className="text-[14px] leading-relaxed">{r.text}</p>
-              <p className="mt-0.5 text-[12px] text-ink-3">{r.cite}</p>
+            <li key={i} className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-base">{r.text}</p>
+              <InfoTip align="end" title="Where the law says it" cite={r.cite} />
             </li>
           ))}
         </ul>
       </Section>
 
-      <footer className="mt-10 space-y-2 border-t border-line pt-5 text-[12px] leading-relaxed text-ink-3">
-        <p>This page shows the records your landlord keeps with Deposit Agent and the rules as California Civil Code 1950.5 states them. It is not legal advice and does not evaluate your situation.</p>
+      <footer className="mt-10 space-y-2 border-t border-line pt-5 text-xs text-ink-3">
+        <p>Prepared with Good Faith. This page shows the records your landlord keeps with Good Faith and the rules as California Civil Code 1950.5 states them. It is not legal advice and does not evaluate your situation.</p>
         <p>
           If you and your landlord disagree about a deduction, the California courts&apos;{" "}
           <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">self-help guide to security deposits</a>{" "}
@@ -268,6 +277,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
         </p>
       </footer>
     </main>
+    </>
   );
 }
 
@@ -301,18 +311,18 @@ function standing(v: TenantView): { title: string; detail: string } {
 function Section({ title, cite, children }: { title: string; cite?: string; children: React.ReactNode }) {
   return (
     <section className="mt-8">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[18px] font-semibold tracking-[-0.01em]">{title}</h2>
-        {cite && <span className="ml-auto text-[12px] text-ink-3">{cite}</span>}
+      <div className="flex items-center gap-1.5">
+        <h2 className="text-lg font-medium">{title}</h2>
+        {cite && <InfoTip title={title} cite={cite} />}
       </div>
-      <div className="mt-3 rounded-2xl bg-surface p-5 shadow-sm">{children}</div>
+      <div className="mt-3 rounded-lg border border-line bg-canvas p-5 shadow-sm">{children}</div>
     </section>
   );
 }
 
 function Row({ label, strong, children }: { label: string; strong?: boolean; children: React.ReactNode }) {
   return (
-    <div className={`flex justify-between gap-4 ${strong ? "text-[16px] font-semibold" : "text-ink-2"}`}>
+    <div className={`flex justify-between gap-4 ${strong ? "text-lg font-medium" : "text-ink-2"}`}>
       <dt>{label}</dt>
       <dd className="tabular-nums">{children}</dd>
     </div>

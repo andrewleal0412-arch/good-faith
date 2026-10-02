@@ -1,4 +1,4 @@
-# Hosting Deposit Agent on Vercel and Supabase
+# Hosting Good Faith on Vercel and Supabase
 
 The steps, in order, to take the app from a laptop to a URL the judges can open. Nothing in this file has been run against a live project yet; it is the plan for the first deploy, written so each step is one screen.
 

@@ -1,0 +1,126 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import { Button, ButtonLink } from "@/components/button";
+import { Icon } from "@/components/icons";
+import { InfoTip } from "@/components/info-tip";
+import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
+import { longDate, pacificDate } from "@/lib/dates";
+
+// The private tenant link: made here, copied once, turned off here. The token is shown the one time it is made,
+// since only its hash is kept; making another replaces the live one. "Email it" opens the landlord's own mail app
+// with the link in a draft to the tenants on file: the app itself sends nothing.
+export function TenantLinkPanel(p: {
+  tenancyId: string;
+  address: string;
+  contacts: { name: string; email: string | null }[];
+  active: { id: string; createdAt: string; lastSeenAt: string | null } | null;
+}) {
+  const router = useRouter();
+  const field = useRef<HTMLInputElement>(null);
+  const [url, setUrl] = useState<string | null>(null); // the link just made, held until the page is left
+  const [copied, setCopied] = useState(false);
+  const [copyNote, setCopyNote] = useState(""); // shown under the field when the clipboard is unavailable
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const api = `/api/tenancies/${p.tenancyId}/tenant-link`;
+
+  async function create() {
+    if (p.active && !confirm("Make a new link? The current one stops working the moment the new one exists.")) return;
+    setBusy("create");
+    setError("");
+    setCopied(false);
+    setCopyNote("");
+    const r = await fetch(api, { method: "POST" });
+    const j = await r.json().catch(() => ({}));
+    setBusy(null);
+    if (!r.ok) return setError(j.error ?? "Couldn't create the link.");
+    setUrl(`${window.location.origin}${j.path}`);
+    router.refresh();
+  }
+
+  async function revoke() {
+    if (!confirm("Turn the tenant link off? Anyone opening it sees a plain not-found page from then on.")) return;
+    setBusy("revoke");
+    setError("");
+    const r = await fetch(api, { method: "DELETE" });
+    setBusy(null);
+    if (!r.ok) return setError((await r.json().catch(() => ({}))).error ?? "Couldn't turn the link off.");
+    setUrl(null);
+    router.refresh();
+  }
+
+  /** The clipboard API exists only on secure origins (localhost or https), so over plain http the field is selected
+   *  and the older copy command tried before falling back to copying by hand. */
+  async function copy() {
+    if (!url) return;
+    setCopyNote("");
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      return;
+    } catch { /* fall through */ }
+    field.current?.focus();
+    field.current?.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    if (ok) setCopied(true);
+    else setCopyNote("Couldn't copy automatically. The link is selected: copy it with Cmd+C or Ctrl+C.");
+  }
+
+  const names = p.contacts.map((c) => c.name);
+  const emails = p.contacts.map((c) => c.email?.trim()).filter((e): e is string => !!e);
+  const who = names.join(" and ") || "the tenants";
+  // Times on the landlord's pages are Pacific, where the tenancies are; pinning it also keeps the server and browser renders identical.
+  const when = (ts: string) => new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
+  const mailto = url && emails.length
+    ? `mailto:${emails.join(",")}?subject=${encodeURIComponent(`Your security deposit at ${p.address}`)}&body=${encodeURIComponent(
+      `Here is your private page for the ${p.address} deposit: ${url}\n\nIt shows the deposit you paid, the agreement you signed, the move-in photos and, later, the itemized statement. You can tell me there when you are moving out and where to mail the statement.`,
+    )}`
+    : null;
+
+  return (
+    <Card>
+      <CardHead title="Tenant link"
+        right={<InfoTip align="end" title={`A private page for ${who}`}>
+          The deposit they paid, the agreement they signed, the move-in photos and, once it goes out, the itemized statement. From
+          it they can say they are moving out and where to mail the statement. It shows none of your notes, flags or activity.
+        </InfoTip>} />
+      <div className="px-5 py-4">
+        {error && <Notice className="mb-3">{error}</Notice>}
+        {url ? (
+          <div>
+            <p className="text-sm font-medium">Copy the link now</p>
+            <p className="mt-0.5 text-xs text-ink-3">It is shown once: only a fingerprint of it is stored.</p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input ref={field} readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Tenant link"
+                className={`${inputClass} min-w-0 flex-1 text-sm`} />
+              <Button variant="primary" onClick={copy}><Icon name="copy" />{copied ? "Copied" : "Copy"}</Button>
+              {mailto && <ButtonLink plain href={mailto}><Icon name="mail" />Email it</ButtonLink>}
+            </div>
+            {copyNote && <p className="mt-1.5 text-xs text-ink-3">{copyNote}</p>}
+          </div>
+        ) : p.active ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <StatusChip tone="green">Active</StatusChip>
+            <span className="text-ink-3">Since {longDate(pacificDate(p.active.createdAt))}, {p.active.lastSeenAt ? `last opened ${when(p.active.lastSeenAt)}` : "not opened yet"}</span>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-3">No link yet</p>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {!url && (
+            <Button variant={p.active ? "secondary" : "primary"} onClick={create} disabled={busy === "create"}>
+              <Icon name="link" />{busy === "create" ? "Making it..." : p.active ? "Make a new link" : "Create tenant link"}
+            </Button>
+          )}
+          {p.active && (
+            <Button onClick={revoke} disabled={busy === "revoke"}>{busy === "revoke" ? "Turning it off..." : "Turn off"}</Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}

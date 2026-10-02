@@ -1,0 +1,61 @@
+import Link from "next/link";
+import type { Metadata } from "next";
+import { ButtonLink } from "@/components/button";
+import { Icon } from "@/components/icons";
+import { Card, EmptyState, PageHead, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
+import { db } from "@/lib/db";
+import { pacificDate, shortDate } from "@/lib/dates";
+import { propertyStatus, splitAddress, tabHref } from "@/lib/property-view";
+import { loadUnits } from "@/lib/units";
+
+export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Tenants" };
+
+// Every tenant on every lease: where they live, the refund agreement they signed and the PayPal account it names.
+export default async function TenantsPage() {
+  const [{ units }, { data }] = await Promise.all([
+    loadUnits(),
+    db.from("tenancies").select("id, tenants, refund_agreement"),
+  ]);
+  const extra = new Map(((data ?? []) as { id: string; tenants: { name: string; email: string | null }[] | null; refund_agreement: { paypal_email: string; signed_by: string[]; signed_at: string } | null }[])
+    .map((t) => [t.id, t]));
+  const rows = units.flatMap((u) => {
+    const t = extra.get(u.summary.id);
+    const status = propertyStatus(u.summary, u.next);
+    const street = splitAddress(u.summary.address, u.summary.city).street;
+    return (t?.tenants ?? []).map((c) => ({ id: u.summary.id, name: c.name, email: c.email, street, status, agreement: t?.refund_agreement ?? null }));
+  });
+
+  return (
+    <>
+      <PageHead title="Tenants" />
+      <Card>
+        {rows.length ? (
+          <Table minWidth={760}>
+            <thead><tr><Th first>Tenant</Th><Th>Property</Th><Th>Status</Th><Th>Refund agreement</Th><Th last>Refund to</Th></tr></thead>
+            <tbody>
+              {rows.map((r) => {
+                const signed = r.agreement?.signed_by.includes(r.name);
+                return (
+                  <tr key={`${r.id}-${r.name}`} className={trClass}>
+                    <Td first>
+                      <div className="font-medium">{r.name}</div>
+                      <div className="text-xs text-ink-3">{r.email ?? "No email on file"}</div>
+                    </Td>
+                    <Td className="whitespace-nowrap"><Link href={tabHref(r.id, "tenants")} className="hover:underline">{r.street}</Link></Td>
+                    <Td><StatusChip tone={r.status.tone}>{r.status.label}</StatusChip></Td>
+                    <Td className="whitespace-nowrap">{signed ? `Signed ${shortDate(pacificDate(r.agreement!.signed_at))}` : <span className="text-ink-3">Not signed</span>}</Td>
+                    <Td last>{r.agreement ? `PayPal, ${r.agreement.paypal_email}` : <span className="text-ink-3">--</span>}</Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        ) : (
+          <EmptyState icon="users" title="No tenants yet" sub="Tenants come in with the lease."
+            action={<ButtonLink variant="primary" href="/lease"><Icon name="file-check" />Check a lease</ButtonLink>} />
+        )}
+      </Card>
+    </>
+  );
+}

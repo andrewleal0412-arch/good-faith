@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { db } from "./db";
 import { daysBetween, pacificToday } from "./dates";
 import { tenancyEvents, type CalendarEvent } from "./ics";
@@ -97,7 +98,8 @@ export type Upcoming = CalendarEvent & { tenancyId: string; daysAway: number };
 /** How far ahead the units page looks. */
 export const UPCOMING_DAYS = 120;
 
-export async function loadUnits(): Promise<{ today: string; units: UnitRow[]; upcoming: Upcoming[] }> {
+/** Every unit, most urgent first. Cached per request, so the app shell's notifications and the page share one read. */
+export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow[]; upcoming: Upcoming[] }> => {
   const today = pacificToday();
   const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, city, owner_name)").order("created_at"),
@@ -116,4 +118,38 @@ export async function loadUnits(): Promise<{ today: string; units: UnitRow[]; up
     .filter((e) => e.daysAway >= 0 && e.daysAway <= UPCOMING_DAYS)
     .sort((a, b) => a.daysAway - b.daysAway);
   return { today, units, upcoming };
+});
+
+/** One move-in photo per tenancy for its thumbnail (the living room when there is one), as short-lived signed URLs. */
+export async function loadThumbnails(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  const { data } = await db.from("photos").select("tenancy_id, room, storage_path").eq("phase", "move_in").in("tenancy_id", ids).order("created_at");
+  const pick = new Map<string, { room: string; path: string }>();
+  for (const p of (data ?? []) as { tenancy_id: string; room: string; storage_path: string }[]) {
+    const had = pick.get(p.tenancy_id);
+    if (!had || (!/living/i.test(had.room) && /living/i.test(p.room))) pick.set(p.tenancy_id, { room: p.room, path: p.storage_path });
+  }
+  const paths = ids.map((id) => pick.get(id)?.path).filter((x): x is string => !!x);
+  if (!paths.length) return out;
+  const { data: signed } = await db.storage.from("photos").createSignedUrls(paths, 3600);
+  const byPath = new Map((signed ?? []).map((s) => [s.path, s.signedUrl]));
+  for (const id of ids) {
+    const path = pick.get(id)?.path;
+    const url = path ? byPath.get(path) : null;
+    if (url) out.set(id, url);
+  }
+  return out;
+}
+
+export type ActivityRow = { id: string; tenancyId: string; actor: string; action: string; detail: Record<string, unknown> | null; createdAt: string };
+
+/** The latest audit entries across every tenancy, newest first, leaving out the actions in `quiet`. */
+export async function loadRecentActivity(limit: number, quiet: string[]): Promise<ActivityRow[]> {
+  // The quiet actions are left out here rather than in the query: a few extra rows are cheaper than a dynamic filter.
+  const { data } = await db.from("audit_log").select("id, tenancy_id, actor, action, detail, created_at").not("tenancy_id", "is", null)
+    .order("created_at", { ascending: false }).limit(limit * 3);
+  return ((data ?? []) as { id: string; tenancy_id: string; actor: string; action: string; detail: Record<string, unknown> | null; created_at: string }[])
+    .filter((r) => !quiet.includes(r.action)).slice(0, limit)
+    .map((r) => ({ id: r.id, tenancyId: r.tenancy_id, actor: r.actor, action: r.action, detail: r.detail, createdAt: r.created_at }));
 }

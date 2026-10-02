@@ -23,6 +23,11 @@ export const longDate = (iso: string) =>
 export const shortDate = (iso: string) =>
   new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
+/** A list's date column: "Oct 1" within today's year, "Oct 1, 2025" for any other year. */
+export const dayLabel = (iso: string, today: string) => (iso.slice(0, 4) === today.slice(0, 4)
+  ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+  : shortDate(iso));
+
 /** A real calendar date in YYYY-MM-DD: it has to survive a round trip through Date, so 2026-02-31 is refused. */
 export function realDate(d: unknown): d is string {
   if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
