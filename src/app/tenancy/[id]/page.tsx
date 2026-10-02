@@ -6,19 +6,22 @@ import { guardRefund } from "@/lib/closeout";
 import { wasPaid } from "@/lib/invoice-status";
 import { db, signedUrl } from "@/lib/db";
 import type { StoredDeduction } from "@/lib/deductions";
-import { getInvoice } from "@/lib/paypal";
+import { refreshDepositInvoice } from "@/lib/deposit";
 import { pacificToday } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { closedOut } from "@/lib/next-step";
 import { NOTICE_INFO, NOTICE_METHOD_LABEL, type NoticeKind, type NoticeMethod } from "@/lib/notices";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
+import type { TenantMoveOut } from "@/lib/tenant";
+import { activeTenantLink } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView } from "./move-out";
 import { CloseOut, type PendingView } from "./close-out";
 import { NoticeSection } from "./notice";
 import { Settlement } from "./settlement";
+import { TenantLinkPanel } from "./tenant-link";
 
 export const dynamic = "force-dynamic";
 
@@ -29,31 +32,21 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const { id } = await params;
   const { data: t } = await db.from("tenancies").select("*, properties(*)").eq("id", id).single();
   if (!t) notFound();
-  const [{ data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }] = await Promise.all([
+  const [{ data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink] = await Promise.all([
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("deductions").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("audit_log").select("*").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(40),
     db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1),
+    activeTenantLink(id),
   ]);
 
-  // Live invoice status from PayPal, so "Paid" shows the moment the tenant pays.
-  const invoice = (payments ?? []).find((p) => p.kind === "deposit_invoice");
-  let invoiceStatus: string | null = invoice?.status ?? null;
-  if (invoice?.paypal_id) {
-    try {
-      const live = await getInvoice(invoice.paypal_id);
-      invoiceStatus = live.status;
-      if (live.status !== invoice.status) {
-        // Keep PayPal's transaction ids: the move-out refund goes back against the original payment.
-        const raw = { ...(invoice.raw ?? {}), transactions: live.payments?.transactions ?? [] };
-        await db.from("payments").update({ status: live.status, raw }).eq("id", invoice.id);
-        // The summary below reads the same row, so it sees what PayPal just said rather than the stale copy.
-        invoice.status = live.status;
-        invoice.raw = raw;
-      }
-    } catch { /* keep the stored status */ }
-  }
+  // Live invoice status from PayPal, so "Paid" shows the moment the tenant pays. The refreshed row takes the stored
+  // one's place in the list the summary reads, so it sees what PayPal just said rather than the stale copy.
+  const storedInvoice = (payments ?? []).find((p) => p.kind === "deposit_invoice");
+  const invoice = storedInvoice ? await refreshDepositInvoice(storedInvoice) : null;
+  const invoiceStatus: string | null = invoice?.status ?? null;
+  const paymentRows = (payments ?? []).map((p) => (invoice && p.id === invoice.id ? invoice : p));
 
   const photoViews = await Promise.all((photos ?? []).map(async (p) => ({
     id: p.id as string, phase: p.phase as string, room: p.room as string, url: await signedUrl("photos", p.storage_path),
@@ -93,8 +86,9 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const flags = (t.lease_flags ?? []) as Flag[];
   const prop = t.properties as { address: string; owner_name: string | null };
   // The same summary the units page reads: the notice state and the dates for the calendar.
-  const summary = summarizeTenancy(t, payments ?? [], photos ?? [], deductions);
+  const summary = summarizeTenancy(t, paymentRows, photos ?? [], deductions);
   const today = pacificToday();
+  const tenantMoveOut = (t.tenant_move_out ?? null) as TenantMoveOut | null;
 
   return (
     <main className="mx-auto w-full max-w-3xl px-5 py-10">
@@ -118,6 +112,8 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
         photos={photoViews}
       />
 
+      <TenantLinkPanel tenancyId={id} address={prop.address} contacts={(t.tenants ?? []) as { name: string; email: string | null }[]} active={tenantLink} />
+
       <NoticeSection
         tenancyId={id}
         today={today}
@@ -130,6 +126,7 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
         refundNotice={summary.refundNotice}
         events={tenancyEvents(summary).map((e) => ({ kind: e.kind, date: e.date, label: e.label }))}
         closed={closedOut(summary)}
+        tenantMoveOut={tenantMoveOut}
       />
 
       <MoveOut
@@ -168,7 +165,7 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
           {(log ?? []).map((e) => (
             <li key={e.id} className="flex gap-3 text-[13px]">
               <span className="w-[112px] shrink-0 whitespace-nowrap tabular-nums text-ink-3">
-                {new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                {new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" })}
               </span>
               <span className={`w-[72px] shrink-0 font-semibold ${e.actor === "agent" ? "text-accent" : e.actor === "tenant" ? "text-info" : "text-ink-2"}`}>
                 {e.actor}
@@ -217,6 +214,11 @@ function describe(action: string, d: Record<string, unknown> | null): string {
       return `Gave the ${NOTICE_INFO[kind]?.short ?? "notice"} by ${NOTICE_METHOD_LABEL[method] ?? method}${d?.to ? ` to ${d.to}` : ""} on ${d?.date}`;
     }
     case "notice_given_removed": return `Removed the record that the ${NOTICE_INFO[d?.kind as NoticeKind]?.short ?? "notice"} was given`;
+    case "tenant_link_created": return (d?.replaced as string[])?.length ? "Made a new tenant link; the old one stopped working" : "Made the tenant link";
+    case "tenant_link_revoked": return "Turned the tenant link off";
+    case "tenant_moving_out": return `${d?.name ?? "The tenants"} sent through the tenant link: moving out ${d?.planned_move_out}; forwarding address ${d?.forwarding_address}`;
+    case "tenant_moving_out_changed": return `${d?.name ?? "The tenants"} changed their move-out details through the tenant link: moving out ${d?.planned_move_out}; forwarding address ${d?.forwarding_address}`;
+    case "tenant_opened_statement": return "Opened the itemized statement through the tenant link";
     default: return action.replace(/_/g, " ");
   }
 }

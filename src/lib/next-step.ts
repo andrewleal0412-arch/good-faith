@@ -32,6 +32,7 @@ export type TenancySummary = {
   returned: { amount: number; kind: string } | null;
   notices: Notices;
   refundNotice: RefundNoticeStatus;
+  tenantMoveOut: { name: string | null; plannedMoveOut: string; forwardingAddress: string; sentOn: string } | null; // what the tenants sent through their link
 };
 
 export type Level = "overdue" | "urgent" | "soon" | "later" | "done";
@@ -113,6 +114,14 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
     if (!t.moveOutInspectedAt) return withOpen(dated("Compare move-in and move-out photos", "Then decide the deductions and build the itemized statement.", "Civ. Code 1950.5(h)(1)", due));
     if (t.returned) return withOpen(dated("Record the statement delivery", `${usd(t.returned.amount)} went back by PayPal; the itemized statement still has to reach the tenants.`, "Civ. Code 1950.5(h)(1)(B)", due));
     return withOpen(dated("Send the itemized statement and refund", `Due 21 calendar days after the ${longDate(t.moveOutDate)} move-out.`, "Civ. Code 1950.5(h)(1)", due));
+  }
+
+  // The tenants said through their link that they are leaving and no notice is recorded yet: the landlord records it
+  // so the two written notices and every later date follow. It needs attention now, however far off the date is.
+  if (t.tenantMoveOut && !t.noticeGivenOn) {
+    const m = t.tenantMoveOut;
+    const detail = `${m.name ?? "The tenants"} wrote through the tenant link on ${longDate(m.sentOn)}: moving out ${longDate(m.plannedMoveOut)}, with a forwarding address for the statement. Record the notice so the inspection and refund notices follow.`;
+    return withOpen({ ...dated("Record the tenants' notice", detail, "Civ. Code 1950.5(f)(1)", m.plannedMoveOut, false, "Planned move-out"), level: "urgent" });
   }
 
   // Notice given: the two written notices, then the inspection window and the move-out (D11, D17). The statute asks

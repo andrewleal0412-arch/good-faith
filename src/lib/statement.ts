@@ -4,6 +4,7 @@ import { db } from "./db";
 import { missingDocs, RECEIPT_THRESHOLD, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
 import { paidElectronically, wasPaid } from "./invoice-status";
 import { lawfulDeposit, MOVE_IN_PHOTOS_FROM, totalSecurity, type LeaseTerms } from "./rules";
+import { tenantMoveOutUpdatedOn, type TenantMoveOut } from "./tenant";
 
 // The itemized security deposit statement (Civ. Code 1950.5(h)): everything the document needs, from the database and
 // PayPal's live state, in the order of docs/LEGAL_RULES.md section B. The rules themselves live in closeout.ts and
@@ -86,6 +87,7 @@ export type Statement = {
   interest: { city: string | null; known: boolean; note: string; checkReason: string };
   delivery: DeliveryRecord | null;
   deliveredAt: string | null;
+  tenantForwarding: { address: string; name: string | null; date: string } | null; // given by the tenants through their link, for (h)(6)
   checklist: ChecklistItem[];
 };
 
@@ -273,10 +275,14 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     ? { amount: totals.balanceClaimed, text: `The deductions exceed the security held by ${usd(totals.balanceClaimed)}. This statement records that amount as a claim. It is not a demand for immediate payment.` }
     : null;
 
+  // 13. Where the statement is mailed: the forwarding address the tenants gave through their link, if they did ((h)(6)),
+  // dated by its latest change, since the address as it stands is what matters here.
+  const tm = (t.tenant_move_out ?? null) as TenantMoveOut | null;
   const s: Statement = {
     tenancyId, today: facts.today, statementDate, landlord, property: { address: prop.address, city }, tenants, tenantContacts,
     moveOutDate: facts.tenancy.moveOutDate, statementDue: facts.tenancy.statementDue, daysLeft: delivery ? null : facts.tenancy.daysLeft,
     security, deductions, totals, documents, refund, balanceClaimed, interest: localInterest(city), delivery, deliveredAt,
+    tenantForwarding: tm ? { address: tm.forwarding_address, name: tm.name, date: tenantMoveOutUpdatedOn(tm) } : null,
     checklist: [],
   };
   s.checklist = checklist(s, moveInPhotosRequired);

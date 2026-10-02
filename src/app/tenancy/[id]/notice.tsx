@@ -7,6 +7,7 @@ import { longDate, shortDate } from "@/lib/dates";
 import { statementDue } from "@/lib/deductions";
 import type { EventKind } from "@/lib/ics";
 import { inspectionWindowOpens, NOTICE_INFO, NOTICE_SLUG, type NoticeKind, type Notices, type RefundNoticeStatus } from "@/lib/notices";
+import { describeTenantMoveOut, tenantMoveOutSentOn, type TenantMoveOut } from "@/lib/tenant";
 import { NoticeGivenForm } from "./notice-given-form";
 
 const input = "rounded-xl border border-line bg-bg px-3 py-1.5 text-[14px] outline-none focus:border-accent";
@@ -27,12 +28,15 @@ export function NoticeSection(p: {
   refundNotice: RefundNoticeStatus;
   events: EventView[];
   closed: boolean; // closed out: the statement went out and nothing is left to return
+  tenantMoveOut: TenantMoveOut | null; // what the tenants sent through their link, if anything
 }) {
   const router = useRouter();
   const [end, setEnd] = useState(p.endDate ?? "");
   const [editing, setEditing] = useState(false);
-  const [given, setGiven] = useState(p.noticeGivenOn ?? p.today);
-  const [planned, setPlanned] = useState(p.plannedMoveOut ?? p.endDate ?? "");
+  // Until a notice is recorded, the form starts from what the tenants sent through their link: the day they sent it
+  // and the move-out date they named. The landlord still records it.
+  const [given, setGiven] = useState(p.noticeGivenOn ?? (p.tenantMoveOut ? tenantMoveOutSentOn(p.tenantMoveOut) : p.today));
+  const [planned, setPlanned] = useState(p.plannedMoveOut ?? p.tenantMoveOut?.planned_move_out ?? p.endDate ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -87,6 +91,13 @@ export function NoticeSection(p: {
 
         {/* The notice: who gave it is not recorded, since (f)(1) and (h)(1)(A)(ii)(II) run from "either party's" notice. */}
         <div className="mt-4 border-t border-line pt-4">
+          {p.tenantMoveOut && (
+            <div className="mb-4 rounded-xl bg-info-soft px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+              <b className="text-ink">From the tenant link.</b> {describeTenantMoveOut(p.tenantMoveOut)}. Forwarding address for the statement:{" "}
+              <b className="text-ink">{p.tenantMoveOut.forwarding_address}</b>.
+              {showForm && !p.moveOutDate && " The form below is filled in from it."}
+            </div>
+          )}
           {showForm ? (
             <div>
               <p className="text-[14px] font-semibold">Tenant gave notice</p>

@@ -6,6 +6,7 @@ import { paidElectronically } from "./invoice-status";
 import { byUrgency, nextStep, type NextStep, type TenancySummary } from "./next-step";
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
+import { tenantMoveOutSentOn, type TenantMoveOut } from "./tenant";
 
 // Every tenancy as the landlord's home base sees it, from the database alone: no PayPal round trip per row, so the
 // deposit's status is as last stored (the tenancy page refreshes it from PayPal whenever it is opened).
@@ -25,6 +26,7 @@ export type TenancyRow = {
   refund_agreement: { paypal_email: string; signed_by: string[]; signed_at: string } | null;
   lease_terms: LeaseTerms | null;
   notices: Notices | null;
+  tenant_move_out: TenantMoveOut | null;
   properties: { address: string; city: string | null; owner_name: string | null } | null;
 };
 export type PaymentRow = { kind: string; paypal_id: string | null; amount: number | string; status: string; raw: { transactions?: { method?: string }[] } | null };
@@ -70,6 +72,9 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
     returned: returned ? { amount: Number(returned.amount), kind: returned.kind } : null,
     notices: t.notices ?? {},
     refundNotice: refundNoticeStatus(agreement, evidence),
+    tenantMoveOut: t.tenant_move_out
+      ? { name: t.tenant_move_out.name, plannedMoveOut: t.tenant_move_out.planned_move_out, forwardingAddress: t.tenant_move_out.forwarding_address, sentOn: tenantMoveOutSentOn(t.tenant_move_out) }
+      : null,
   };
 }
 

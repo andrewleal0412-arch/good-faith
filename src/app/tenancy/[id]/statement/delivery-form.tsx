@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { longDate } from "@/lib/dates";
 import type { DeliveryRecord } from "@/lib/statement";
 
 const input = "w-full rounded-xl border border-line bg-bg px-3 py-2 text-[14px] outline-none focus:border-accent";
@@ -16,18 +17,23 @@ export function DeliveryForm(p: {
   unitAddress: string;
   today: string;
   existing: DeliveryRecord | null;
+  forwarding: { address: string; name: string | null; date: string } | null; // what the tenants gave through their link
 }) {
   const router = useRouter();
   const emailOf = (name: string) => p.tenants.find((t) => t.name === name)?.email ?? "";
   // A mailing to the vacated unit was the fallback, so the forwarding field starts empty for it. Records from
   // before the kind was stored count as forwarding only when the address differs from the unit's.
-  const forwarding = p.existing?.method === "mail" && !!p.existing.address && p.existing.address_kind !== "unit"
+  const mailedForwarding = p.existing?.method === "mail" && !!p.existing.address && p.existing.address_kind !== "unit"
     && (p.existing.address_kind === "forwarding" || p.existing.address !== p.unitAddress);
   const [open, setOpen] = useState(!p.existing);
   const [method, setMethod] = useState<DeliveryRecord["method"]>(p.existing?.method ?? "mail");
   const [date, setDate] = useState(p.existing?.date ?? p.today);
   const [to, setTo] = useState(p.existing?.to ?? p.tenants[0]?.name ?? "");
-  const [address, setAddress] = useState(forwarding ? p.existing!.address! : "");
+  // With no record yet, the field starts from the forwarding address the tenants gave through their link ((h)(6)).
+  const [address, setAddress] = useState(mailedForwarding ? p.existing!.address! : p.existing ? "" : p.forwarding?.address ?? "");
+  const mailHint = p.forwarding
+    ? `${p.forwarding.name ?? "The tenants"} gave this forwarding address through the tenant link on ${longDate(p.forwarding.date)}. Leave it blank to use the vacated unit, ${p.unitAddress} (Civ. Code 1950.5(h)(6)).`
+    : `The forwarding address the tenant gave. Leave it blank to use the vacated unit, ${p.unitAddress} (Civ. Code 1950.5(h)(6)).`;
   const [email, setEmail] = useState(p.existing?.email ?? emailOf(p.existing?.to ?? p.tenants[0]?.name ?? ""));
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -80,7 +86,7 @@ export function DeliveryForm(p: {
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {method === "mail" && (
           <div className="sm:col-span-2">
-            <Field label="Mailed to" hint={`The forwarding address the tenant gave. Leave it blank to use the vacated unit, ${p.unitAddress} (Civ. Code 1950.5(h)(6)).`}>
+            <Field label="Mailed to" hint={mailHint}>
               <input className={input} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Forwarding address" />
             </Field>
           </div>

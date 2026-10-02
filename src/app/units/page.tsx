@@ -88,6 +88,7 @@ export default async function UnitsPage() {
                     <Fact label="Lease">{s.endDate ? `Ends ${shortDate(s.endDate)}` : "Month to month"}</Fact>
                     <Fact label="Deposit">{dep.text}</Fact>
                     {s.noticeGivenOn && <Fact label="Notice">Given {shortDate(s.noticeGivenOn)}{s.plannedMoveOut ? `, out ${shortDate(s.plannedMoveOut)}` : ""}</Fact>}
+                    {s.tenantMoveOut && !s.moveOutDate && <Fact label="From tenant">Out {shortDate(s.tenantMoveOut.plannedMoveOut)}; forwarding address on file</Fact>}
                     {s.moveOutDate && <Fact label="Moved out">{shortDate(s.moveOutDate)}</Fact>}
                     {s.startDate && !s.noticeGivenOn && !s.moveOutDate && <Fact label="Since">{shortDate(s.startDate)}</Fact>}
                   </dl>

@@ -228,7 +228,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
               <p className="text-[14px] text-ink-3">To be recorded when the statement goes out.</p>
             )}
             <div className="print:hidden">
-              <DeliveryForm tenancyId={id} tenants={s.tenantContacts} unitAddress={s.property.address} today={s.today} existing={s.delivery} />
+              <DeliveryForm tenancyId={id} tenants={s.tenantContacts} unitAddress={s.property.address} today={s.today} existing={s.delivery} forwarding={s.tenantForwarding} />
             </div>
           </Section>
 
