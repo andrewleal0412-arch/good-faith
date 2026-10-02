@@ -1,5 +1,5 @@
 import { audit, db } from "@/lib/db";
-import { inspectRoom, type Finding } from "@/lib/inspect";
+import { inspectRoom, type Finding, type InspectPhoto } from "@/lib/inspect";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -19,19 +19,32 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const ready = [...rooms.entries()].filter(([, r]) => r.in.length && r.out.length);
   if (!ready.length) return Response.json({ error: "Add move-out photos for a room that has move-in photos." }, { status: 400 });
 
-  const bytes = async (path: string) => {
+  // The stored content type travels with the bytes: it was read from the file itself when it was uploaded, and Claude
+  // refuses an image whose declared type does not match.
+  const photo = async (path: string): Promise<InspectPhoto> => {
     const { data, error } = await db.storage.from("photos").download(path);
     if (error || !data) throw new Error(`couldn't load ${path}`);
-    return new Uint8Array(await data.arrayBuffer());
+    return { data: new Uint8Array(await data.arrayBuffer()), mediaType: data.type || "image/jpeg" };
   };
-  try {
-    const results = await Promise.all(ready.map(async ([room, r]) => {
-      const [inB, outB] = await Promise.all([Promise.all(r.in.map(bytes)), Promise.all(r.out.map(bytes))]);
-      const findings = await inspectRoom(room, inB, outB);
+  // Each room reports its own failure, so the error names the room instead of the whole inspection. Nothing is saved
+  // unless every room finished: a partial set would silently drop the rooms that failed.
+  const results = await Promise.all(ready.map(async ([room, r]) => {
+    try {
+      const [inP, outP] = await Promise.all([Promise.all(r.in.map(photo)), Promise.all(r.out.map(photo))]);
+      const findings = await inspectRoom(room, inP, outP);
       // Attach the actual photo paths so the statement can show each before/after pair (AB 2801).
-      return findings.map((f) => ({ ...f, id: crypto.randomUUID(), moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] }));
-    }));
-    const findings: (Finding & { id: string; moveInPath: string; moveOutPath: string })[] = results.flat();
+      return { room, findings: findings.map((f) => ({ ...f, id: crypto.randomUUID(), moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] })) };
+    } catch (e) {
+      console.error(`inspection failed for ${room}`, e);
+      return { room, findings: null };
+    }
+  }));
+  const failed = results.filter((r) => !r.findings).map((r) => r.room);
+  if (failed.length) {
+    return Response.json({ error: `The inspection of the ${failed.join(" and the ")} didn't finish. Try again.` }, { status: 500 });
+  }
+  try {
+    const findings: (Finding & { id: string; moveInPath: string; moveOutPath: string })[] = results.flatMap((r) => r.findings ?? []);
     await db.from("tenancies").update({ move_out_findings: findings, move_out_inspected_at: new Date().toISOString(), status: "moving_out" }).eq("id", id);
     await audit(id, "agent", "move_out_inspected", {
       rooms: ready.map(([room]) => room),

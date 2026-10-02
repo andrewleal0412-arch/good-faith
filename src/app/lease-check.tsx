@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Flag, LeaseTerms } from "@/lib/rules";
+import { mb, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
 
 type Result = {
   terms: LeaseTerms; totalSecurity: number; smallLandlordExempt: boolean | null; flags: Flag[];
@@ -45,19 +46,24 @@ export function LeaseCheck() {
       setState("error");
       return;
     }
+    // The host refuses a bigger request body (src/lib/uploads.ts), so say so here in plain words.
+    if (file.size > UPLOAD_BUDGET) {
+      setError(`That PDF is ${mb(file.size)}; the limit is ${mb(UPLOAD_BUDGET)}. Export the lease as a smaller PDF (text, not scanned pages) and try again.`);
+      setState("error");
+      return;
+    }
     setFileName(file.name);
     setState("reading");
     setError("");
     const body = new FormData();
     body.append("file", file);
     const r = await fetch("/api/lease", { method: "POST", body });
-    const j = await r.json();
     if (!r.ok) {
-      setError(j.error ?? "Something went wrong.");
+      setError(await uploadError(r, "Something went wrong.", "That PDF was too large for the server. Export the lease as a smaller PDF and try again."));
       setState("error");
       return;
     }
-    setResult(j);
+    setResult(await r.json());
     setState("done");
   }
 

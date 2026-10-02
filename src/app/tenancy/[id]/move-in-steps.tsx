@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { wasPaid } from "@/lib/invoice-status";
+import { uploadPhotos } from "@/lib/uploads";
 
 type Props = {
   tenancyId: string;
@@ -34,6 +35,20 @@ export function MoveInSteps(p: Props) {
     router.refresh();
   }
 
+  // Photos are shrunk in the browser and sent in requests under the host's body limit (src/lib/uploads.ts). The input is
+  // cleared first, so choosing the same files again after a failure fires a change event.
+  async function addPhotos(input: HTMLInputElement) {
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    if (!files.length) return;
+    setBusy("photos");
+    setError("");
+    const res = await uploadPhotos(`/api/tenancies/${p.tenancyId}/photos`, { phase: "move_in", room }, files);
+    setBusy(null);
+    if (!res.ok) setError(res.error);
+    router.refresh();
+  }
+
   const moveIn = p.photos.filter((x) => x.phase === "move_in");
   const rooms = [...new Set(moveIn.map((x) => x.room))];
   const oneEach = rooms.length > 0 && rooms.every((r) => moveIn.filter((x) => x.room === r).length === 1);
@@ -59,8 +74,8 @@ export function MoveInSteps(p: Props) {
         ) : (
           <div className="space-y-3">
             <p className="text-[14px] text-ink-2">
-              Since 2026, a deposit paid electronically must come back electronically, and by PayPal only with the tenant&apos;s
-              written agreement. With more than one adult, every one of them signs.
+              Since 2026, when the deposit or the rent was paid electronically the deposit must come back electronically, and
+              by PayPal only with the tenant&apos;s written agreement. With more than one adult, every one of them signs.
             </p>
             <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Tenant's PayPal email"
               className="w-full rounded-xl border border-line bg-bg px-3 py-2 text-[14px] outline-none focus:border-accent" />
@@ -124,15 +139,7 @@ export function MoveInSteps(p: Props) {
           </select>
           <label className="cursor-pointer rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white">
             {busy === "photos" ? "Uploading..." : "Add photos"}
-            <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => {
-              const files = e.target.files;
-              if (!files?.length) return;
-              const fd = new FormData();
-              fd.append("phase", "move_in");
-              fd.append("room", room);
-              for (const f of Array.from(files)) fd.append("files", f);
-              act("photos", `/api/tenancies/${p.tenancyId}/photos`, { method: "POST", body: fd });
-            }} />
+            <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => addPhotos(e.currentTarget)} />
           </label>
         </div>
         {oneEach ? (

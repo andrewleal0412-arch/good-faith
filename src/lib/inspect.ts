@@ -35,9 +35,12 @@ const GUIDE = `California Civil Code 1950.5 and the DRE's California Tenants gui
 - Professional carpet cleaning is chargeable only when needed to restore move-in condition, never as a routine charge.
 Report only what the photos show. If lighting or angle makes it uncertain, say "unclear".`;
 
+/** A photo's bytes with the media type they were stored under (read from the bytes at upload, src/lib/images.ts). */
+export type InspectPhoto = { data: Uint8Array; mediaType: string };
+
 /** Compare one room. Photos are passed as bytes, move-in first. */
-export async function inspectRoom(room: string, moveIn: Uint8Array[], moveOut: Uint8Array[]): Promise<Finding[]> {
-  const img = (data: Uint8Array) => ({ type: "file" as const, mediaType: "image/jpeg", data });
+export async function inspectRoom(room: string, moveIn: InspectPhoto[], moveOut: InspectPhoto[]): Promise<Finding[]> {
+  const img = (p: InspectPhoto) => ({ type: "file" as const, mediaType: p.mediaType, data: p.data });
   const { output } = await generateText({
     model: anthropic(MODEL),
     output: Output.object({ schema: z.object({ findings: z.array(findingSchema) }) }),

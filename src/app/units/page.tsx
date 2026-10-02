@@ -45,7 +45,7 @@ export default async function UnitsPage() {
             Every tenancy and the next thing the law asks for, worked out from its dates. As of {longDate(today)}.
           </p>
         </div>
-        <Link href="/" className="rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white hover:opacity-90">Check a lease to add a unit</Link>
+        <Link href="/#lease" className="rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white hover:opacity-90">Check a lease to add a unit</Link>
       </div>
 
       {units.length > 0 && (
@@ -63,7 +63,7 @@ export default async function UnitsPage() {
             Check a lease to start the first tenancy. The agent reads the deposit terms, flags what breaks Civil Code 1950.5
             and collects the deposit through PayPal. From then on this page keeps the dates.
           </p>
-          <Link href="/" className="mt-5 inline-block rounded-xl bg-accent px-4 py-2 text-[14px] font-semibold text-white">Check a lease</Link>
+          <Link href="/#lease" className="mt-5 inline-block rounded-xl bg-accent px-4 py-2 text-[14px] font-semibold text-white">Check a lease</Link>
         </div>
       ) : (
         <ul className="mt-6 space-y-3">

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { extractLeaseTerms } from "@/lib/extract";
 import { evaluateLease, lawfulDeposit, smallLandlordExempt, totalSecurity } from "@/lib/rules";
+import { mb, UPLOAD_BUDGET } from "@/lib/uploads";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -13,8 +14,9 @@ export async function POST(req: Request) {
   if (!(file instanceof File) || file.type !== "application/pdf") {
     return Response.json({ error: "Upload the lease as a PDF." }, { status: 400 });
   }
-  if (file.size > 15 * 1024 * 1024) {
-    return Response.json({ error: "That PDF is over 15 MB." }, { status: 400 });
+  // The same limit everywhere the app runs, so a lease that works on a laptop also works once hosted.
+  if (file.size > UPLOAD_BUDGET) {
+    return Response.json({ error: `That PDF is over ${mb(UPLOAD_BUDGET)}. Export the lease as a smaller PDF and try again.` }, { status: 400 });
   }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());

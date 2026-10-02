@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { chargeable, defaultProration, suggestedLife, usd, type Performer, type Proration, type Work } from "@/lib/deductions";
+import { mb, notAPhoto, shrinkPhoto, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
 
 type Finding = { id: string; room: string; item: string; classification: string; remedy: string };
 
@@ -43,11 +44,27 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
     fd.append("proration", proration);
     fd.append("isEstimate", String(isEstimate));
     for (const [k, val] of Object.entries(v)) fd.append(k, val);
-    if (receipt) fd.append("receipt", receipt);
-    for (const f of after) fd.append("after", f);
+    // One deduction is one request, so its files are shrunk in the browser (a PDF receipt stays as it is) and the
+    // total is checked against the host's body limit before anything is sent (src/lib/uploads.ts). A file the browser
+    // can't decode is refused here rather than stored blind.
+    const receiptFile = receipt && receipt.type.startsWith("image/") ? await shrinkPhoto(receipt) : receipt;
+    if (receipt && !receiptFile) { setBusy(false); return setError(notAPhoto(receipt.name)); }
+    const afterFiles: File[] = [];
+    for (const f of after) {
+      const s = await shrinkPhoto(f);
+      if (!s) { setBusy(false); return setError(notAPhoto(f.name)); }
+      afterFiles.push(s);
+    }
+    const bytes = (receiptFile?.size ?? 0) + afterFiles.reduce((s, f) => s + f.size, 0);
+    if (bytes > UPLOAD_BUDGET) {
+      setBusy(false);
+      return setError(`The receipt and photos total ${mb(bytes)}; one deduction can carry ${mb(UPLOAD_BUDGET)}. Add fewer after-repair photos, or a smaller receipt.`);
+    }
+    if (receiptFile) fd.append("receipt", receiptFile);
+    for (const f of afterFiles) fd.append("after", f);
     const r = await fetch(`/api/tenancies/${tenancyId}/deductions`, { method: "POST", body: fd });
     setBusy(false);
-    if (!r.ok) return setError((await r.json().catch(() => ({}))).error ?? "Couldn't save it.");
+    if (!r.ok) return setError(await uploadError(r, "Couldn't save it.", "That receipt and those photos are too large for one request. Add fewer after-repair photos, or a smaller receipt."));
     onDone();
   }
 

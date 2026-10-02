@@ -1,23 +1,133 @@
-# Deposit agent
+# Deposit Agent
 
-An AI agent that runs a California security deposit from move-in to refund for small landlords: the owner of one condo, a duplex or an ADU who manages it alone. It reads the lease and flags what breaks Civil Code 1950.5, collects only the lawful deposit through a PayPal invoice, keeps the move-in and move-out photos the law now requires, has Claude compare them room by room, computes the deductions in code, writes the itemized statement with its exhibits, and returns the deposit through PayPal's Agent Toolkit with the landlord's approval. Built for the PayPal AI Hackathon.
+An AI agent that runs a California security deposit from move-in to refund for small landlords: the owner of one condo, a duplex or an ADU who manages it alone. It reads the lease and flags what breaks Civil Code 1950.5, collects only the lawful deposit through a PayPal invoice, keeps the move-in and move-out photos the law now requires, has Claude compare them room by room, computes every deduction in code, writes the itemized statement with its exhibits, and returns the deposit through PayPal's Agent Toolkit once the landlord approves. Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/).
 
 It organizes records and fills in templates from the statute and published state guidance. It does not give legal advice.
 
-## Run it locally
+![The home page: the headline, the three rules the app enforces, and the four steps](docs/screenshots/home.png)
 
-Next.js 16 (App Router), Supabase, PayPal sandbox and Claude through the AI SDK.
+![A move-out finding: Claude's reading of the bedroom carpet next to the move-in photo, with the deduction computed in code and prorated by the carpet's age](docs/screenshots/inspection.png)
+
+![The itemized statement, graded against the 13-item checklist](docs/screenshots/statement.png)
+
+Demo video: [to be added before submission]
+
+## The problem
+
+California rewrote the security deposit rules four times in three years, and the people most likely to get them wrong are landlords with one unit who keep everything in texts and Venmo screenshots. The rules the app enforces (all citations are to Civil Code 1950.5; the full spec is [docs/LEGAL_RULES.md](docs/LEGAL_RULES.md)):
+
+- **The cap.** Security is everything charged at the start of the tenancy except first month's rent, however it is labeled, and it may not exceed one month's rent. A landlord who is a natural person (or an LLC of natural persons) with no more than two rental properties and four units may take two months. (a), (b), (c)(1), (c)(5), AB 12, for deposits demanded on or after July 1, 2024. No part of it may be called nonrefundable, (n).
+- **Photos.** For tenancies that began on or after July 1, 2025, the landlord must photograph the unit at move-in, (g)(1). For any repair or cleaning deducted after April 1, 2025, photos before the work and after it, (g)(2). AB 2801. Without them, the documentation the statement must include, (h)(2)(D), cannot be met.
+- **Electronic refunds.** Since January 1, 2026, a landlord who received the deposit or rent electronically must refund the deposit electronically, to an account the tenant designates or "by any electronic or virtual method available to the landlord if agreed to in writing by the tenant", (h)(1)(A), AB 414. PayPal qualifies only with that written agreement, so the app records it at move-in. The statute also calls for a written notice of the right to an electronic refund after notice to terminate, (h)(1)(A)(ii)(II), unless the parties already agreed in writing on the method of return; the app treats the signed PayPal agreement as that agreement and drafts the notice when there is none.
+- **21 days.** The itemized statement and the refund are due within 21 calendar days after the tenant vacates, (h)(1), with the invoices, receipts, labor time and rates, and the photos attached, (h)(2)(A)-(D), unless repair and cleaning deductions total $125 or less, (h)(4).
+- **The penalty.** Bad-faith retention can cost up to twice the deposit in statutory damages on top of actual damages, and the landlord bears the burden of proving every deduction was reasonable, (h)(7), (m).
+
+## How it works
+
+1. **Check the lease** (`/`). Upload the lease PDF. Claude extracts the deposit terms as facts with the exact wording it relied on (`src/lib/extract.ts`); the rules engine (`src/lib/rules.ts`) flags violations, warnings and required steps with the statute beside each flag, and computes the lawful deposit.
+2. **Start the tenancy** (`/tenancy/[id]`). The property, tenants, rent and terms are saved with every flag.
+3. **Move-in.** The tenants agree in writing that the refund comes back by PayPal (AB 414). The agent sends a PayPal invoice for the lawful amount, capped at the statute, and the page shows "Paid" the moment PayPal does. Move-in photos go in room by room.
+4. **The tenants' private link** (`/t/<token>`). A page for the tenants: what they paid, the agreement, the move-in photos, a form to say they are moving out with the forwarding address the statement is mailed to, and the statement once it is delivered. The token is hashed in the database and can be revoked.
+5. **Notice.** When the tenants give notice, the app records the planned move-out, drafts the initial-inspection notice, (f)(1), and the electronic-refund notice when one is owed, and offers an `.ics` file with the window, the move-out and the 21-day deadline.
+6. **Move-out.** Photos of each room before any repair or cleaning. Claude compares them with move-in, room by room, and classifies each change as wear and tear (never chargeable), damage, cleaning, or unclear (`src/lib/inspect.ts`). It classifies; it does not price.
+7. **Deductions.** One form per finding. The landlord enters the facts (a vendor invoice or own hours and rate, the item's age, the receipt, the after-repair photos) and the code computes the amount with useful-life or paint-schedule proration from the DRE guide, marks estimates under (h)(3), and tracks the $125 documentation rule (`src/lib/deductions.ts`).
+8. **Close out.** The agent (`src/lib/agent.ts`) reads the close-out facts from the rules engine, confirms the deposit invoice with PayPal, proposes the refund on the rail the rules allow (a refund of the original payment inside PayPal's 180-day window, otherwise a Payout), waits for the landlord's approval, sends it, confirms the refund, and grades the statement against the 13-item checklist.
+9. **The itemized statement.** A statement page and a one-click PDF packet with the photo exhibits and vendor invoices (`src/lib/statement.ts`, `src/lib/statement-pdf.ts`), plus a delivery record: personal delivery, first-class mail, or email by written agreement, (h)(1)(B), (h)(6).
+10. **Your units** (`/units`). Every tenancy, what it holds, and the next thing the law asks for, worked out from the dates.
+
+Every action, by whom and with what, is written to an audit log the tenancy page shows.
+
+## Architecture
+
+| Piece | What it does |
+|---|---|
+| **Next.js 16** (App Router, TypeScript, Tailwind 4) | One app: server components read the database directly; route handlers under `src/app/api` do the writes and the money. |
+| **Claude via the AI SDK** (`ai` v7, `@ai-sdk/anthropic`, Claude Opus 5.5) | Three jobs. Lease extraction and the photo inspection use `generateText` with `Output.object` and a Zod schema, so Claude returns facts in a fixed shape. The close-out agent uses `generateText` with tools, a step limit, and `needsApproval` on every money tool. |
+| **PayPal Invoicing and Payouts** (`src/lib/paypal.ts`) | REST calls in the sandbox: create and send the deposit invoice, read its live status, and send a Payout when a refund against the original payment is not possible. |
+| **PayPal Agent Toolkit over MCP** (`src/lib/agent.ts`) | `@paypal/agent-toolkit/mcp` runs as an MCP server inside the process (an in-memory transport), limited to `get_invoice`, `create_refund` and `get_refund`, and the agent consumes it through `@ai-sdk/mcp`. `create_refund` is wrapped so it waits for approval and passes the rules guard before PayPal is called. |
+| **Supabase** (`src/lib/db.ts`, `supabase/migrations`) | Postgres and Storage. The server-only client uses the secret key; row level security is on with no policies, so the publishable key can read and write nothing. Three private buckets (`leases`, `photos`, `receipts`) served through one-hour signed URLs. Row-locking functions make the concurrent writes atomic. |
+| **pdf-lib and sharp** | The statement packet: standard fonts, photos re-encoded at 1600 px, invoices embedded as pages. |
+| **Browser uploads** (`src/lib/uploads.ts`) | Photos are downscaled on a canvas before they leave the phone, with the EXIF orientation applied, and sent in requests under the host's 4.5 MB body limit. |
+
+Where things live:
+
+```
+src/app/page.tsx                  home: the story and the lease check
+src/app/units/page.tsx            every tenancy and what is due next
+src/app/tenancy/[id]/             the tenancy page and its client components
+src/app/t/[token]/                the tenants' private page
+src/app/api/                      route handlers (lease, tenancies, photos, deductions, close-out, statement, notices, tenant link)
+src/lib/rules.ts                  the lease rules, by rule id from docs/LEGAL_RULES.md
+src/lib/deductions.ts             deduction math, proration, the $125 rule
+src/lib/closeout.ts               close-out facts, the refund plan, guardRefund
+src/lib/agent.ts                  the close-out agent and the PayPal toolkit over MCP
+src/lib/statement.ts, statement-pdf.ts   the itemized statement and its PDF packet
+docs/LEGAL_RULES.md               the 30-rule legal spec the code enforces
+docs/DEPLOY.md                    hosting on Vercel and Supabase
+supabase/migrations/              the database schema, in order
+scripts/                          setup scripts, the demo seed and reset, the sandbox payer
+demo/                             the fictional lease, photos and receipts
+```
+
+## Safety design
+
+Money and law are handled in four layers, so the model never decides an amount and never moves money on its own.
+
+1. **Code decides the amounts.** The cap comes from `rules.ts`, each deduction from `deductions.ts`, and the refund plan (rail, amount, the PayPal capture id or the designated email) from `closeout.ts`. The agent is told that these facts are authoritative.
+2. **The agent operates.** Claude reads the facts, confirms the invoice with PayPal, proposes the refund with the plan's exact amount, confirms the refund and grades the statement. It cites only the citations the facts carry, never from memory.
+3. **The landlord approves.** `create_refund` and `send_payout` carry `needsApproval`; the run pauses, the proposal is shown next to what the rules say, and nothing moves until the landlord clicks approve. A run is claimed atomically so a double click cannot resume it twice, and after a decline the run resumes with no money moved and the agent says so. Today that click is not behind a sign-in: the app has no landlord login, so the close-out routes refuse a `LIVE` PayPal environment and move sandbox money only (see [docs/DEPLOY.md](docs/DEPLOY.md)).
+4. **guardRefund re-checks.** At the moment a money tool executes, `guardRefund` recomputes the facts from the database and PayPal and blocks any rail, amount, capture id or email that does not match, writing the reason to the audit log. A deduction edited after the proposal, a second click, or a model mistake all stop there.
+
+Beyond money: the app never holds funds (the landlord's PayPal business account does); every action is audited with its actor; the tenants' page shows them their own records only, through a revocable hashed token; and the copy presents rules and facts, never advice (section F of the legal spec).
+
+## Legal sources and the disclaimer
+
+The rules come from the current text of Civil Code 1950.5 on [leginfo.legislature.ca.gov](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=1950.5), as amended by AB 12 (2023), AB 2801 (2024), SB 611 (2024) and AB 414 (2025), the DRE's California Tenants guide (2026 edition), the Courts' self-help guide and the Attorney General's fact sheet. [docs/LEGAL_RULES.md](docs/LEGAL_RULES.md) lists every source, each rule with its subsection, the statement checklist, the wear-and-tear guide, the edge cases, and the guardrails. Useful-life proration and the paint schedule are DRE guidance, not statute, and the app says so wherever it uses them.
+
+The disclaimer the app shows: "This tool organizes your records and fills in templates based on California Civil Code 1950.5 and published state guidance. It does not give legal advice, does not evaluate your specific situation, and is not a substitute for a California attorney."
+
+## Setup
+
+### Environment variables
+
+All of them live in `.env.local`, which is gitignored. The setup scripts below write it; nothing else should. No values here, ever.
+
+| Variable | Used for | Set by |
+|---|---|---|
+| `SUPABASE_URL` | The Supabase project URL | `scripts/setup-supabase.sh` |
+| `SUPABASE_SECRET_KEY` | The project's secret key (`sb_secret_...`); server only, bypasses RLS | `scripts/setup-supabase.sh` |
+| `PAYPAL_ENVIRONMENT` | `SANDBOX` (the default) or `LIVE`. The close-out routes refuse `LIVE` until a landlord sign-in exists | `scripts/setup-sandbox.sh` |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | The PayPal app's credentials | `scripts/setup-sandbox.sh` |
+| `ANTHROPIC_API_KEY` | The app's own Claude calls | `scripts/setup-anthropic.sh` |
+| `ANTHROPIC_MODEL` | Optional. Overrides `claude-opus-5-5` for all three Claude jobs | by hand |
+| `PAYPAL_SANDBOX_BUYER_EMAIL`, `PAYPAL_SANDBOX_BUYER_PASSWORD` | Optional. The sandbox personal account that pays the demo invoice | `scripts/setup-sandbox-tenant.sh` |
+| `PLAYWRIGHT_PYTHON` | Optional. The Python with Playwright the demo seed uses | by hand |
+| `DEMO_BASE_URL` | Optional. Where the demo seed sends its requests (default `http://localhost:3210`) | by hand |
+
+### Run it locally
 
 ```bash
 npm install
 scripts/setup-supabase.sh        # SUPABASE_URL and SUPABASE_SECRET_KEY
 scripts/setup-sandbox.sh         # PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (sandbox)
-scripts/setup-sandbox-tenant.sh  # the sandbox personal account that plays the tenant
+scripts/setup-sandbox-tenant.sh  # the sandbox personal account that plays the tenant (demo seed only)
 scripts/setup-anthropic.sh       # ANTHROPIC_API_KEY
 npm run dev -- -p 3210
 ```
 
-Secrets live in `.env.local`, which is gitignored. The scripts above write it; nothing else should.
+Each script asks for its values with the secrets hidden, writes them to `.env.local` with mode 600, and checks them against the service before it says saved.
+
+The database schema is in `supabase/migrations`, one file per change, in order. Run them in the Supabase SQL editor from the first to the last. The first one also creates the private buckets. Hosting, including what to set in Supabase, PayPal and Vercel, is in [docs/DEPLOY.md](docs/DEPLOY.md).
+
+### Checks
+
+```bash
+npx tsc --noEmit
+npx eslint src --max-warnings=0
+npx next build        # in a copy of the repo, not next to a running dev server
+```
+
+`next build` needs `.env.local` (or the same variables in the environment): the server modules create their clients when they load, and the build collects every route. Build in a copy of the repo so it does not clobber the dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; a symlinked `node_modules` is refused by Turbopack) and `.env.local` copied over.
 
 ## Demo
 
@@ -63,6 +173,6 @@ Options:
 
 The photos in `demo/photos` show a stained carpet and a few nail holes in the bedroom, a hole in the living room wall, and a grimy range and counter in the kitchen (credits in `demo/photos/CREDITS.md`). The inspection sorts what it sees into damage, cleaning and wear and tear; the nail holes come back as wear and tear and are never charged. The seed then deducts the carpet replacement prorated over its useful life ($1,800 invoice, 6 of 10 years used: $720), the drywall repair ($140) and three hours of the landlord's own cleaning of the range ($150), leaving $3,790 to return. Claude's reading varies a little from run to run: on the carpet it may say to try cleaning first, and the deduction then carries a note that spot cleaning did not lift the stain, which goes on the statement with the cost. A planned deduction whose finding the inspection did not make, or marked unclear, is skipped and named in the output, to add by hand. The receipts in `demo/receipts` are made up.
 
-## Law
+## License
 
-`docs/LEGAL_RULES.md` is the rule spec the code enforces: the deposit cap and the small-landlord exception, the photo requirements, wear and tear, the 21-day statement, the electronic-refund rule, the $125 documentation threshold, and the guardrails that keep the product to rules and facts. Its section E describes the demo scenario above.
+MIT, see [LICENSE](LICENSE).

@@ -153,7 +153,7 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
 
   // Move-in steps still open (D16, D3, D13).
   if (!t.agreement) {
-    return undated("Record the tenants' refund agreement", "A deposit paid electronically comes back electronically, and by PayPal only with every adult tenant's written agreement.",
+    return undated("Record the tenants' refund agreement", "When the deposit or the rent was paid electronically, the deposit comes back electronically, and by PayPal only with every adult tenant's written agreement.",
       "Civ. Code 1950.5(h)(1)(A), (h)(1)(C)", started ? "urgent" : "soon");
   }
   if (!t.deposit) return undated("Send the PayPal deposit invoice", "For the lawful amount: the agent caps it at the legal maximum.", "Civ. Code 1950.5(c)", started ? "urgent" : "soon");

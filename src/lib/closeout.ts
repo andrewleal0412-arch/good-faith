@@ -34,7 +34,7 @@ export type CloseOutFacts = {
 /** The only citations the agent may use. It cites from this list, never from memory (it mixed up (g) and (h)). */
 export const RULES = {
   deadline: "Civ. Code 1950.5(h)(1): the itemized statement and the refund are due within 21 days after the tenant vacates.",
-  electronicRefund: "Civ. Code 1950.5(h)(1)(A): a deposit paid electronically is refunded electronically, and by PayPal only if the tenant agreed in writing.",
+  electronicRefund: "Civ. Code 1950.5(h)(1)(A): when the landlord received the deposit or the rent electronically, the deposit is refunded electronically, and by PayPal only if the tenant agreed in writing.",
   roommates: "Civ. Code 1950.5(h)(1)(C): one refund for all adult tenants unless every adult signed an allocation agreement.",
   documents: "Civ. Code 1950.5(h)(2): the statement includes invoices or receipts, labor time and hourly rate, and the photos, unless repair and cleaning deductions total $125 or less ((h)(4)).",
   photos: "Civ. Code 1950.5(g)(2): photos of each item before and after the repair or cleaning that is deducted.",

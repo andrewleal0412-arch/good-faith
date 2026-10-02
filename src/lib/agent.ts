@@ -158,7 +158,14 @@ async function advance(runId: string, tenancyId: string, messages: ModelMessage[
   }
 }
 
+/** The landlord pages have no sign-in yet, so the routes that start and approve a close-out accept any caller. Until
+ *  there is one, the agent moves sandbox money only: a LIVE PayPal environment is refused here, before a run exists. */
+function refuseLiveWithoutSignIn() {
+  if (!SANDBOX) throw new Error("This build has no landlord sign-in, so it won't move live money. Set PAYPAL_ENVIRONMENT=SANDBOX (docs/DEPLOY.md).");
+}
+
 export async function startCloseOut(tenancyId: string) {
+  refuseLiveWithoutSignIn();
   const { data: run, error } = await db.from("agent_runs").insert({ tenancy_id: tenancyId, kind: "close_out", status: "running" }).select("id").single();
   if (error || !run) throw new Error(error?.message ?? "couldn't start the run");
   await audit(tenancyId, "agent", "close_out_started", { run_id: run.id });
@@ -168,6 +175,7 @@ export async function startCloseOut(tenancyId: string) {
 
 /** The landlord's answer to a pending money movement. The run resumes either way; on a decline nothing moves. */
 export async function answerApproval(tenancyId: string, runId: string, approved: boolean) {
+  refuseLiveWithoutSignIn();
   const { data: run } = await db.from("agent_runs").select("*").eq("id", runId).eq("tenancy_id", tenancyId).single();
   if (!run) throw new Error("No such run.");
   const pending = run.pending as Pending | null;

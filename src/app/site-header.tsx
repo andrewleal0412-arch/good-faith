@@ -26,7 +26,8 @@ export function SiteHeader() {
         <Link href="/" className="text-[13px] font-semibold uppercase tracking-[0.14em] text-accent">Deposit Agent</Link>
         <nav className="ml-auto flex items-center gap-1 text-[14px] font-semibold">
           <Link href="/units" aria-current={onUnits ? "page" : undefined} className={tab(onUnits)}>Your units</Link>
-          <Link href="/" aria-current={onHome ? "page" : undefined} className={tab(onHome)}>Check a lease</Link>
+          {/* Straight to the drop zone: the home page's story sits above it. */}
+          <Link href="/#lease" aria-current={onHome ? "page" : undefined} className={tab(onHome)}>Check a lease</Link>
         </nav>
       </div>
     </header>

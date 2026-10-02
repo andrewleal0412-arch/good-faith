@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { usd } from "@/lib/deductions";
+import { uploadPhotos } from "@/lib/uploads";
 import { DeductionForm } from "./deduction-form";
 
 export type FindingView = {
@@ -41,16 +42,17 @@ export function MoveOut(p: {
   const [room, setRoom] = useState(p.rooms[0] ?? "Living room");
   const [open, setOpen] = useState<string | null>(null);
 
-  async function upload(files: FileList) {
+  // Photos are shrunk in the browser and sent in requests under the host's body limit (src/lib/uploads.ts). The input is
+  // cleared first, so choosing the same files again after a failure fires a change event.
+  async function upload(input: HTMLInputElement) {
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    if (!files.length) return;
     setBusy("photos");
     setError("");
-    const fd = new FormData();
-    fd.append("phase", "move_out_before");
-    fd.append("room", room);
-    for (const f of Array.from(files)) fd.append("files", f);
-    const r = await fetch(`/api/tenancies/${p.tenancyId}/photos`, { method: "POST", body: fd });
+    const res = await uploadPhotos(`/api/tenancies/${p.tenancyId}/photos`, { phase: "move_out_before", room }, files);
     setBusy(null);
-    if (!r.ok) setError((await r.json()).error ?? "Upload failed.");
+    if (!res.ok) setError(res.error);
     router.refresh();
   }
 
@@ -91,7 +93,7 @@ export function MoveOut(p: {
           </select>
           <label className="cursor-pointer rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white">
             {busy === "photos" ? "Uploading..." : "Add move-out photos"}
-            <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => e.target.files?.length && upload(e.target.files)} />
+            <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => upload(e.currentTarget)} />
           </label>
           <button onClick={inspect} disabled={!p.moveOutPhotos.length || busy === "inspect"}
             className="ml-auto rounded-xl bg-accent px-4 py-2 text-[14px] font-semibold text-white disabled:opacity-40">

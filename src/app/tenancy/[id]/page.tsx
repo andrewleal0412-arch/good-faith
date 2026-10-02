@@ -209,7 +209,8 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "refund_sent": return `Returned ${usd(d?.amount as number)} through PayPal (${d?.refund_id ? `refund ${d.refund_id}` : `payout ${d?.payout_batch_id}`}, ${String(d?.status).toLowerCase()})`;
     case "refund_failed": return `PayPal didn't accept the ${usd(d?.amount as number)} refund`;
     case "close_out_finished": return "Finished the close-out";
-    case "photos_added": return `Added ${d?.count} ${String(d?.phase).replace(/_/g, " ")} photo${d?.count === 1 ? "" : "s"}: ${d?.room}`;
+    // A big selection arrives in several requests, each logged; "of N" is the whole selection.
+    case "photos_added": return `Added ${d?.count}${d?.total ? ` of ${d.total}` : ""} ${String(d?.phase).replace(/_/g, " ")} photo${d?.count === 1 && !d?.total ? "" : "s"}: ${d?.room}`;
     case "statement_delivered": return `Delivered the itemized statement by ${describeDelivery(d as unknown as DeliveryRecord)}`;
     case "statement_delivery_changed": return `Corrected the delivery record: ${describeDelivery(d?.next as DeliveryRecord)}`;
     case "statement_packet_built": return `Built the statement PDF packet (${d?.pages} page${d?.pages === 1 ? "" : "s"})`;

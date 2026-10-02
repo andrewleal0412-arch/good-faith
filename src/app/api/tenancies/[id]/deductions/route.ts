@@ -1,5 +1,6 @@
 import { audit, db } from "@/lib/db";
 import { chargeable, type DeductionInput, type Performer, type Proration, type Work } from "@/lib/deductions";
+import { imageType, notAPhotoServer } from "@/lib/images";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -44,20 +45,38 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const c = chargeable(input);
   if ("error" in c) return Response.json({ error: c.error }, { status: 400 });
 
-  // Receipt (vendor bill or materials) and after-repair photos (AB 2801, (g)(2)) go to private buckets.
+  // Receipt (vendor bill or materials) and after-repair photos (AB 2801, (g)(2)) go to private buckets. Every image is
+  // checked against its bytes before anything is stored (src/lib/images.ts), so a refused file leaves nothing behind.
   const receipt = form.get("receipt");
-  let receiptPath: string | null = null;
+  let receiptBytes: Uint8Array | null = null, receiptType = "application/pdf";
   if (receipt instanceof File && receipt.size) {
-    const ext = (receipt.name.split(".").pop() || "pdf").toLowerCase();
+    receiptBytes = new Uint8Array(await receipt.arrayBuffer());
+    if (receipt.type.startsWith("image/")) {
+      const type = await imageType(receiptBytes);
+      if (!type) return Response.json({ error: notAPhotoServer(receipt.name) }, { status: 400 });
+      receiptType = type;
+    } else if (receipt.type) {
+      receiptType = receipt.type;
+    }
+  }
+  const afterFiles: { bytes: Uint8Array; type: string }[] = [];
+  for (const f of form.getAll("after").filter((f): f is File => f instanceof File && f.type.startsWith("image/"))) {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const type = await imageType(bytes);
+    if (!type) return Response.json({ error: notAPhotoServer(f.name) }, { status: 400 });
+    afterFiles.push({ bytes, type });
+  }
+  let receiptPath: string | null = null;
+  if (receipt instanceof File && receiptBytes) {
+    const ext = receiptType.startsWith("image/") ? receiptType.slice("image/".length) : (receipt.name.split(".").pop() || "pdf").toLowerCase();
     receiptPath = `${id}/${crypto.randomUUID()}.${ext}`;
-    const up = await db.storage.from("receipts").upload(receiptPath, new Uint8Array(await receipt.arrayBuffer()), { contentType: receipt.type || "application/pdf" });
+    const up = await db.storage.from("receipts").upload(receiptPath, receiptBytes, { contentType: receiptType });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
   }
   const afterPaths: string[] = [];
-  for (const f of form.getAll("after").filter((f): f is File => f instanceof File && f.type.startsWith("image/"))) {
-    const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
-    const path = `${id}/move_out_after/${crypto.randomUUID()}.${ext}`;
-    const up = await db.storage.from("photos").upload(path, new Uint8Array(await f.arrayBuffer()), { contentType: f.type });
+  for (const { bytes, type } of afterFiles) {
+    const path = `${id}/move_out_after/${crypto.randomUUID()}.${type.slice("image/".length)}`;
+    const up = await db.storage.from("photos").upload(path, bytes, { contentType: type });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
     afterPaths.push(path);
   }

@@ -1,4 +1,5 @@
 import { audit, db } from "@/lib/db";
+import { imageType, notAPhotoServer } from "@/lib/images";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,16 +18,27 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   if (!room) return Response.json({ error: "Name the room." }, { status: 400 });
   if (!files.length) return Response.json({ error: "Add at least one photo." }, { status: 400 });
 
-  const rows = [];
+  // Every file is checked before any is stored, so a refused one leaves nothing behind.
+  const checked: { file: File; bytes: Uint8Array; type: string }[] = [];
   for (const f of files) {
-    const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const type = await imageType(bytes);
+    if (!type) return Response.json({ error: notAPhotoServer(f.name) }, { status: 400 });
+    checked.push({ file: f, bytes, type });
+  }
+
+  const rows = [];
+  for (const { file, bytes, type } of checked) {
+    const ext = type.slice("image/".length);
     const path = `${id}/${phase}/${crypto.randomUUID()}.${ext}`;
-    const up = await db.storage.from("photos").upload(path, new Uint8Array(await f.arrayBuffer()), { contentType: f.type });
+    const up = await db.storage.from("photos").upload(path, bytes, { contentType: type });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
-    rows.push({ tenancy_id: id, phase, room, storage_path: path, caption: f.name });
+    rows.push({ tenancy_id: id, phase, room, storage_path: path, caption: file.name });
   }
   const { error } = await db.from("photos").insert(rows);
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  await audit(id, "landlord", "photos_added", { phase, room, count: rows.length });
+  // The browser sends a big selection in several requests; "total" is the whole selection, so the log can say 4 of 6.
+  const total = Number(form.get("total"));
+  await audit(id, "landlord", "photos_added", { phase, room, count: rows.length, ...(Number.isInteger(total) && total > rows.length ? { total } : {}) });
   return Response.json({ ok: true, count: rows.length });
 }
