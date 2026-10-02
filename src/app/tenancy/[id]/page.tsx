@@ -7,11 +7,17 @@ import { wasPaid } from "@/lib/invoice-status";
 import { db, signedUrl } from "@/lib/db";
 import type { StoredDeduction } from "@/lib/deductions";
 import { getInvoice } from "@/lib/paypal";
+import { pacificToday } from "@/lib/dates";
+import { tenancyEvents } from "@/lib/ics";
+import { closedOut } from "@/lib/next-step";
+import { NOTICE_INFO, NOTICE_METHOD_LABEL, type NoticeKind, type NoticeMethod } from "@/lib/notices";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
+import { summarizeTenancy } from "@/lib/units";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView } from "./move-out";
 import { CloseOut, type PendingView } from "./close-out";
+import { NoticeSection } from "./notice";
 import { Settlement } from "./settlement";
 
 export const dynamic = "force-dynamic";
@@ -40,10 +46,11 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
       invoiceStatus = live.status;
       if (live.status !== invoice.status) {
         // Keep PayPal's transaction ids: the move-out refund goes back against the original payment.
-        await db.from("payments").update({
-          status: live.status,
-          raw: { ...(invoice.raw ?? {}), transactions: live.payments?.transactions ?? [] },
-        }).eq("id", invoice.id);
+        const raw = { ...(invoice.raw ?? {}), transactions: live.payments?.transactions ?? [] };
+        await db.from("payments").update({ status: live.status, raw }).eq("id", invoice.id);
+        // The summary below reads the same row, so it sees what PayPal just said rather than the stale copy.
+        invoice.status = live.status;
+        invoice.raw = raw;
       }
     } catch { /* keep the stored status */ }
   }
@@ -85,10 +92,13 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const terms = t.lease_terms as LeaseTerms;
   const flags = (t.lease_flags ?? []) as Flag[];
   const prop = t.properties as { address: string; owner_name: string | null };
+  // The same summary the units page reads: the notice state and the dates for the calendar.
+  const summary = summarizeTenancy(t, payments ?? [], photos ?? [], deductions);
+  const today = pacificToday();
 
   return (
     <main className="mx-auto w-full max-w-3xl px-5 py-10">
-      <Link href="/" className="text-[13px] font-semibold uppercase tracking-[0.14em] text-accent">Deposit Agent</Link>
+      <Link href="/units" className="text-[13px] font-semibold uppercase tracking-[0.14em] text-accent">Your units</Link>
       <h1 className="mt-2 text-[30px] font-semibold leading-tight tracking-[-0.02em]">{prop.address}</h1>
       <p className="mt-1 text-[15px] text-ink-2">
         {(t.tenants as { name: string }[]).map((x) => x.name).join(" and ")} · since {t.start_date ?? "--"} · rent {usd(t.monthly_rent)}
@@ -108,6 +118,20 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
         photos={photoViews}
       />
 
+      <NoticeSection
+        tenancyId={id}
+        today={today}
+        tenants={summary.tenants}
+        endDate={summary.endDate}
+        noticeGivenOn={summary.noticeGivenOn}
+        plannedMoveOut={summary.plannedMoveOut}
+        moveOutDate={summary.moveOutDate}
+        notices={summary.notices}
+        refundNotice={summary.refundNotice}
+        events={tenancyEvents(summary).map((e) => ({ kind: e.kind, date: e.date, label: e.label }))}
+        closed={closedOut(summary)}
+      />
+
       <MoveOut
         tenancyId={id}
         rooms={[...new Set(photoViews.filter((x) => x.phase === "move_in").map((x) => x.room))]}
@@ -120,7 +144,7 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
       {t.move_out_inspected_at && (
         <Settlement
           tenancyId={id}
-          today={new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })}
+          today={today}
           moveOutDate={t.move_out_date}
           depositHeld={paid && invoice ? Number(invoice.amount) : null}
           refundTo={agreement?.paypal_email ?? null}
@@ -184,6 +208,15 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "statement_delivered": return `Delivered the itemized statement by ${describeDelivery(d as unknown as DeliveryRecord)}`;
     case "statement_delivery_changed": return `Corrected the delivery record: ${describeDelivery(d?.next as DeliveryRecord)}`;
     case "statement_packet_built": return `Built the statement PDF packet (${d?.pages} page${d?.pages === 1 ? "" : "s"})`;
+    case "lease_end_set": return d?.end_date ? `Set the lease end to ${d.end_date}` : "Set the lease to month to month";
+    case "notice_recorded":
+    case "notice_changed":
+      return `${action === "notice_changed" ? "Changed" : "Recorded"} the notice to end the tenancy: given ${d?.notice_given_on}, planned move-out ${d?.planned_move_out}; inspection window opens ${d?.inspection_window_opens}`;
+    case "notice_given": {
+      const kind = d?.kind as NoticeKind, method = d?.method as NoticeMethod;
+      return `Gave the ${NOTICE_INFO[kind]?.short ?? "notice"} by ${NOTICE_METHOD_LABEL[method] ?? method}${d?.to ? ` to ${d.to}` : ""} on ${d?.date}`;
+    }
+    case "notice_given_removed": return `Removed the record that the ${NOTICE_INFO[d?.kind as NoticeKind]?.short ?? "notice"} was given`;
     default: return action.replace(/_/g, " ");
   }
 }

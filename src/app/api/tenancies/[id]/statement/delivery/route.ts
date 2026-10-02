@@ -1,3 +1,4 @@
+import { pacificToday, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import type { DeliveryRecord } from "@/lib/statement";
 
@@ -5,12 +6,6 @@ export const runtime = "nodejs";
 
 const MAX_LEN = 200;
 const str = (v: unknown) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim() : "");
-/** A real calendar date in YYYY-MM-DD: it has to survive a round trip through Date, so 2026-02-31 is refused. */
-const realDate = (d: string) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
-  const t = new Date(`${d}T12:00:00Z`);
-  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
-};
 
 // Records how and when the itemized statement was delivered: personal delivery, first-class mail to the address the
 // tenant provided or to the vacated unit when there is none (Civ. Code 1950.5(h)(1)(B), (h)(6)), or email, which is
@@ -18,11 +13,13 @@ const realDate = (d: string) => {
 // ((h)(1)(C)). Recording it moves the tenancy to statement_sent.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/statement/delivery">) {
   const { id } = await ctx.params;
-  const b = (await req.json().catch(() => ({}))) as Partial<DeliveryRecord>;
+  const body: unknown = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send how and when the statement was delivered." }, { status: 400 });
+  const b = body as Partial<DeliveryRecord>;
   const method = b.method;
   if (method !== "personal" && method !== "mail" && method !== "email") return Response.json({ error: "Pick how the statement was delivered." }, { status: 400 });
   const date = str(b.date);
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  const today = pacificToday();
   if (!realDate(date)) return Response.json({ error: "Pick a real delivery date." }, { status: 400 });
   if (date > today) return Response.json({ error: "The delivery date can't be in the future." }, { status: 400 });
   const to = str(b.to), address = str(b.address), email = str(b.email);

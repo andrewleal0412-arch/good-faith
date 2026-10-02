@@ -13,6 +13,7 @@ export type LeaseTerms = {
   ownerUnitCount: number | null; // units across those properties
   tenants: string[]; // adults named on the lease
   tenancyStartDate: string | null; // YYYY-MM-DD
+  leaseEndDate?: string | null; // YYYY-MM-DD end of a fixed term; null when month to month or not stated (absent on older records)
   monthlyRent: number | null;
   securityDeposit: number | null;
   otherMoveInCharges: { label: string; amount: number; refundable: boolean | null; quote: string }[];
@@ -33,6 +34,9 @@ export type Flag = {
 };
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** D13, (g)(1): move-in photos are required for tenancies that began on or after this date. */
+export const MOVE_IN_PHOTOS_FROM = "2025-07-01";
 
 /** D4: the two-month allowance applies only to a natural person (or an LLC of natural persons) with at most
  *  two residential rental properties and four units, and never to a service member (D5). */
@@ -95,7 +99,7 @@ export function evaluateLease(t: LeaseTerms): Flag[] {
   }
 
   // D13: move-in photos for tenancies beginning on or after 2025-07-01.
-  if (t.tenancyStartDate && t.tenancyStartDate >= "2025-07-01") {
+  if (t.tenancyStartDate && t.tenancyStartDate >= MOVE_IN_PHOTOS_FROM) {
     flags.push({ id: "D13", severity: "info", title: "Move-in photos are required",
       detail: "This tenancy began on or after July 1, 2025, so the landlord must photograph the unit immediately before or at the start of the tenancy. Without them, deductions are hard to support at move-out.",
       cite: "Civ. Code 1950.5(g)(1) (AB 2801)" });

@@ -101,6 +101,7 @@ export function LeaseCheck() {
               <Row k="Landlord" v={result.terms.landlordName ?? "--"} />
               <Row k="Tenants" v={result.terms.tenants.join(", ") || "--"} />
               <Row k="Tenancy starts" v={result.terms.tenancyStartDate ?? "--"} />
+              <Row k="Lease ends" v={result.terms.leaseEndDate ?? "Month to month, or not stated"} />
               <Row k="Monthly rent" v={usd(result.terms.monthlyRent)} />
               <Row k="Security deposit" v={usd(result.terms.securityDeposit)} />
               {result.terms.otherMoveInCharges.map((c) => (

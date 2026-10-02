@@ -2,15 +2,12 @@ import "server-only";
 import { closeOutFacts, type CloseOutFacts } from "./closeout";
 import { db } from "./db";
 import { missingDocs, RECEIPT_THRESHOLD, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
-import { wasPaid } from "./invoice-status";
-import { lawfulDeposit, totalSecurity, type LeaseTerms } from "./rules";
+import { paidElectronically, wasPaid } from "./invoice-status";
+import { lawfulDeposit, MOVE_IN_PHOTOS_FROM, totalSecurity, type LeaseTerms } from "./rules";
 
 // The itemized security deposit statement (Civ. Code 1950.5(h)): everything the document needs, from the database and
 // PayPal's live state, in the order of docs/LEGAL_RULES.md section B. The rules themselves live in closeout.ts and
 // deductions.ts; this file arranges their answers and grades the 13-item checklist so the page can show completeness.
-
-/** (g)(1): move-in photos are required for tenancies that began on or after this date. */
-export const MOVE_IN_PHOTOS_FROM = "2025-07-01";
 
 export type Category = "rent" | "damage" | "cleaning";
 
@@ -143,10 +140,6 @@ function localInterest(city: string | null): Statement["interest"] {
   return { city, known: false, note, checkReason: note };
 }
 
-// What PayPal records as the way an invoice was paid. An invoice paid online is PAID with one of these; one the
-// landlord marked paid offline (MARKED_AS_PAID) carries whatever method the landlord entered, such as CASH or CHECK.
-const ELECTRONIC_METHODS = ["PAYPAL", "BANK_TRANSFER", "CREDIT_CARD", "DEBIT_CARD", "WIRE_TRANSFER"];
-
 type Row = StoredDeduction & { hours: number | null; hourly_rate: number | null };
 
 const ORDER: Record<Category, number> = { rent: 0, damage: 1, cleaning: 2 };
@@ -188,7 +181,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
   }
   const security: Statement["security"] = dep ? {
     amount: dep.amount, paid: wasPaid(dep.status),
-    electronic: wasPaid(dep.status) && (dep.status !== "MARKED_AS_PAID" || (!!dep.method && ELECTRONIC_METHODS.includes(dep.method))),
+    electronic: paidElectronically(dep.status, dep.method),
     live: dep.live, paidAt: dep.paidAt, method: dep.method, invoiceId: dep.invoiceId, invoiceStatus: dep.status,
     leaseAsked: lawful?.charged ?? null, cap: lawful?.cap ?? null, basisNote,
   } : null;

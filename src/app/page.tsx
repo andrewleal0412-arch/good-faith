@@ -3,7 +3,7 @@ import { LeaseCheck } from "./lease-check";
 export default function Home() {
   return (
     <main className="mx-auto w-full max-w-3xl px-5 py-12 sm:py-16">
-      <p className="text-[13px] font-semibold uppercase tracking-[0.14em] text-accent">Deposit Agent</p>
+      <p className="text-[13px] font-semibold uppercase tracking-[0.14em] text-ink-3">Check a lease to add a unit</p>
       <h1 className="mt-2 text-[34px] sm:text-[40px] font-semibold leading-[1.1] tracking-[-0.02em]">
         California security deposits, from move-in to refund.
       </h1>

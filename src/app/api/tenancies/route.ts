@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     property_id: property.id,
     tenants: terms.tenants.map((name) => ({ name, email: null })),
     monthly_rent: terms.monthlyRent, deposit_amount: terms.securityDeposit, other_charges: terms.otherMoveInCharges,
-    start_date: terms.tenancyStartDate, lease_pdf_path: leasePath, lease_terms: terms, lease_flags: flags,
+    start_date: terms.tenancyStartDate, end_date: terms.leaseEndDate ?? null, lease_pdf_path: leasePath, lease_terms: terms, lease_flags: flags,
   }).select("id").single();
   if (tErr) return Response.json({ error: tErr.message }, { status: 500 });
 

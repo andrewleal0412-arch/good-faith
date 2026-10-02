@@ -19,6 +19,7 @@ const schema = z.object({
   ownerUnitCount: z.number().nullable().describe("Units across those properties, only if stated"),
   tenants: z.array(z.string()).describe("Adult tenants named on the lease"),
   tenancyStartDate: z.string().nullable().describe("Start of the tenancy, YYYY-MM-DD"),
+  leaseEndDate: z.string().nullable().describe("End of the fixed lease term, YYYY-MM-DD; null if the lease is month to month or states no end date"),
   monthlyRent: z.number().nullable(),
   securityDeposit: z.number().nullable().describe("The amount labeled security deposit"),
   otherMoveInCharges: z.array(z.object({
