@@ -11,3 +11,10 @@ export const ELECTRONIC_METHODS = ["PAYPAL", "BANK_TRANSFER", "CREDIT_CARD", "DE
  *  (Civ. Code 1950.5(h)(1)(A)(ii)). */
 export const paidElectronically = (status: string | null | undefined, method: string | null | undefined) =>
   wasPaid(status) && (status !== "MARKED_AS_PAID" || (!!method && ELECTRONIC_METHODS.includes(method)));
+
+// A refund or Payout PayPal finished, and one it refused or reversed (a refund can end FAILED or CANCELLED, a payout
+// batch DENIED or CANCELED, a payout item BLOCKED, RETURNED or REVERSED). Any other status is still in flight.
+export const RETURN_COMPLETED_STATUSES = ["COMPLETED", "SUCCESS"];
+export const RETURN_FAILED_STATUSES = ["FAILED", "CANCELLED", "CANCELED", "DENIED", "RETURNED", "REVERSED", "BLOCKED"];
+export const returnCompleted = (status: string | null | undefined) => !!status && RETURN_COMPLETED_STATUSES.includes(status);
+export const returnFailed = (status: string | null | undefined) => !!status && RETURN_FAILED_STATUSES.includes(status);

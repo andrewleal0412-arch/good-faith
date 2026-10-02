@@ -18,14 +18,18 @@ export function SiteHeader() {
     );
   }
   const onUnits = path === "/units" || path.startsWith("/tenancy");
+  const onLedger = path === "/ledger";
   const onHome = path === "/";
   const tab = (active: boolean) => `rounded-xl px-3 py-1.5 transition ${active ? "bg-bg text-ink" : "text-ink-2 hover:text-ink"}`;
   return (
     <header className="border-b border-line bg-surface print:hidden">
-      <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-5 py-3">
+      {/* Three tabs no longer fit beside the wordmark on a phone, so the row wraps and the tabs take the next row, spread
+          across it rather than bunched under the right edge. */}
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3">
         <Link href="/" className="text-[13px] font-semibold uppercase tracking-[0.14em] text-accent">Deposit Agent</Link>
-        <nav className="ml-auto flex items-center gap-1 text-[14px] font-semibold">
+        <nav className="ml-auto flex items-center gap-1 text-[14px] font-semibold max-sm:ml-0 max-sm:basis-full max-sm:justify-between">
           <Link href="/units" aria-current={onUnits ? "page" : undefined} className={tab(onUnits)}>Your units</Link>
+          <Link href="/ledger" aria-current={onLedger ? "page" : undefined} className={tab(onLedger)}>Ledger</Link>
           {/* Straight to the drop zone: the home page's story sits above it. */}
           <Link href="/#lease" aria-current={onHome ? "page" : undefined} className={tab(onHome)}>Check a lease</Link>
         </nav>

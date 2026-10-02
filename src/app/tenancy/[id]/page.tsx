@@ -9,6 +9,7 @@ import type { StoredDeduction } from "@/lib/deductions";
 import { refreshDepositInvoice } from "@/lib/deposit";
 import { longDate, pacificToday } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
+import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
 import { closedOut } from "@/lib/next-step";
 import { NOTICE_INFO, NOTICE_METHOD_LABEL, type NoticeKind, type NoticeMethod } from "@/lib/notices";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
@@ -16,6 +17,7 @@ import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import type { TenantMoveOut } from "@/lib/tenant";
 import { activeTenantLink } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
+import { MoneyTimeline } from "./money";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView } from "./move-out";
 import { CloseOut, type PendingView } from "./close-out";
@@ -89,6 +91,8 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
   const summary = summarizeTenancy(t, paymentRows, photos ?? [], deductions);
   const today = pacificToday();
   const tenantMoveOut = (t.tenant_move_out ?? null) as TenantMoveOut | null;
+  // This unit's money events, from the refreshed invoice row and the deductions, as the ledger lists them.
+  const money = ledgerRows(t, paymentRows, (deductionRows ?? []) as LedgerDeduction[]);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-5 py-10">
@@ -161,6 +165,8 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
           run={run ? { id: run.id, status: run.status, error: run.error, items: timeline(run.messages), pending: pendingView } : null}
         />
       )}
+
+      <MoneyTimeline tenancyId={id} rows={money} />
 
       <section className="mt-10">
         <h2 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink-3">Activity</h2>

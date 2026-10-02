@@ -34,6 +34,7 @@ California rewrote the security deposit rules four times in three years, and the
 8. **Close out.** The agent (`src/lib/agent.ts`) reads the close-out facts from the rules engine, confirms the deposit invoice with PayPal, proposes the refund on the rail the rules allow (a refund of the original payment inside PayPal's 180-day window, otherwise a Payout), waits for the landlord's approval, sends it, confirms the refund, and grades the statement against the 13-item checklist.
 9. **The itemized statement.** A statement page and a one-click PDF packet with the photo exhibits and vendor invoices (`src/lib/statement.ts`, `src/lib/statement-pdf.ts`), plus a delivery record: personal delivery, first-class mail, or email by written agreement, (h)(1)(B), (h)(6).
 10. **Your units** (`/units`). Every tenancy, what it holds, and the next thing the law asks for, worked out from the dates.
+11. **The ledger** (`/ledger`). Every deposit invoice, payment, deduction, refund and payout across every unit in one AG Grid, each row tagged with the part of Civil Code 1950.5 that applies to it ((b)(2) damage, (h)(1) 21 days, and so on, with the subsection's words on hover and in the CSV). Search, filter any column, sort, and download a CSV that respects the filters; the totals follow whatever is showing. "Still held" is what was collected, less the deductions on a statement that has gone out and less what went back: drafts take nothing out yet, a refund PayPal refused moved nothing, and each tenancy is clamped at zero on its own, so the figure agrees with the units page. Each tenancy page carries its own money timeline with a way into the ledger filtered to that tenancy (not its address, so a re-let unit never shows the previous tenants' money) (`src/lib/ledger.ts`, `src/app/ledger/`).
 
 Every action, by whom and with what, is written to an audit log the tenancy page shows.
 
@@ -46,6 +47,7 @@ Every action, by whom and with what, is written to an audit log the tenancy page
 | **PayPal Invoicing and Payouts** (`src/lib/paypal.ts`) | REST calls in the sandbox: create and send the deposit invoice, read its live status, and send a Payout when a refund against the original payment is not possible. |
 | **PayPal Agent Toolkit over MCP** (`src/lib/agent.ts`) | `@paypal/agent-toolkit/mcp` runs as an MCP server inside the process (an in-memory transport), limited to `get_invoice`, `create_refund` and `get_refund`, and the agent consumes it through `@ai-sdk/mcp`. `create_refund` is wrapped so it waits for approval and passes the rules guard before PayPal is called. |
 | **Supabase** (`src/lib/db.ts`, `supabase/migrations`) | Postgres and Storage. The server-only client uses the secret key; row level security is on with no policies, so the publishable key can read and write nothing. Three private buckets (`leases`, `photos`, `receipts`) served through one-hour signed URLs. Row-locking functions make the concurrent writes atomic. |
+| **AG Grid Community** (`ag-grid-community`, `ag-grid-react`; `src/app/ledger/ledger-grid.tsx`) | The deposit ledger: every money event and deduction across every unit, with the quick filter, text, number and date column filters, auto-height rows that wrap the unit, detail and status text, the amount column pinned on the right so a phone still shows every figure, a pinned total row and the CSV export, all from the free build (no Enterprise features, no license key). The Quartz theme takes the app's color tokens through the Theming API, and the rows arrive from the server as plain data. |
 | **pdf-lib and sharp** | The statement packet: standard fonts, photos re-encoded at 1600 px, invoices embedded as pages. |
 | **Browser uploads** (`src/lib/uploads.ts`) | Photos are downscaled on a canvas before they leave the phone, with the EXIF orientation applied, and sent in requests under the host's 4.5 MB body limit. |
 
@@ -54,12 +56,14 @@ Where things live:
 ```
 src/app/page.tsx                  home: the story and the lease check
 src/app/units/page.tsx            every tenancy and what is due next
+src/app/ledger/                   the AG Grid deposit ledger
 src/app/tenancy/[id]/             the tenancy page and its client components
 src/app/t/[token]/                the tenants' private page
 src/app/api/                      route handlers (lease, tenancies, photos, deductions, close-out, statement, notices, tenant link)
 src/lib/rules.ts                  the lease rules, by rule id from docs/LEGAL_RULES.md
 src/lib/deductions.ts             deduction math, proration, the $125 rule
 src/lib/closeout.ts               close-out facts, the refund plan, guardRefund
+src/lib/ledger.ts                 ledger rows with their 1950.5 tags, and the totals
 src/lib/agent.ts                  the close-out agent and the PayPal toolkit over MCP
 src/lib/statement.ts, statement-pdf.ts   the itemized statement and its PDF packet
 docs/LEGAL_RULES.md               the 30-rule legal spec the code enforces

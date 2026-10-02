@@ -1,6 +1,14 @@
 // Copy shared by the pages and the statement, with no server imports, so the static home page can print the
 // disclaimer without pulling in the database and PayPal clients.
 
+/** The (b) category each deduction is tagged with on the statement and in the ledger; `short` is the one word the
+ *  ledger prints beside the tag. */
+export const TAGS = {
+  rent: { tag: "(b)(1)", short: "rent", label: "Unpaid rent" },
+  damage: { tag: "(b)(2)", short: "damage", label: "Damage beyond ordinary wear and tear" },
+  cleaning: { tag: "(b)(3)", short: "cleaning", label: "Cleaning to the move-in level" },
+} as const satisfies Record<"rent" | "damage" | "cleaning", { tag: string; short: string; label: string }>;
+
 /** LEGAL_RULES section F, word for word. The first and third speak to the landlord; the statement prints the other two. */
 export const DISCLAIMERS = [
   "This tool organizes your records and fills in templates based on California Civil Code 1950.5 and published state guidance. It does not give legal advice, does not evaluate your specific situation, and is not a substitute for a California attorney.",

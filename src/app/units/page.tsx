@@ -24,8 +24,13 @@ function depositLine(s: TenancySummary): { text: string; held: number } {
   if (!s.deposit) return { text: "Not collected yet", held: 0 };
   if (s.returned) return { text: `${usd(s.returned.amount)} of ${usd(s.deposit.amount)} returned`, held: 0 };
   if (wasPaid(s.deposit.status)) {
-    // Once the statement is out and the deductions used the whole deposit, nothing is held for the tenants any more.
-    if (s.statementDeliveredAt && refundLeft(s) === 0) return { text: `${usd(s.deposit.amount)} applied to deductions`, held: 0 };
+    // Once the statement is out, the deductions on it have been claimed of the security (1950.5(e)(1)); what is held is
+    // the rest, still to be returned, and nothing when the deductions used the whole deposit. The ledger counts the same way.
+    if (s.statementDeliveredAt) {
+      const left = refundLeft(s);
+      if (left === 0) return { text: `${usd(s.deposit.amount)} applied to deductions`, held: 0 };
+      if (left != null && left < s.deposit.amount) return { text: `${usd(left)} of ${usd(s.deposit.amount)} to return`, held: left };
+    }
     return { text: `${usd(s.deposit.amount)} held`, held: s.deposit.amount };
   }
   return { text: `${usd(s.deposit.amount)} invoiced, ${s.deposit.status.toLowerCase().replace(/_/g, " ")}`, held: 0 };
@@ -45,7 +50,10 @@ export default async function UnitsPage() {
             Every tenancy and the next thing the law asks for, worked out from its dates. As of {longDate(today)}.
           </p>
         </div>
-        <Link href="/#lease" className="rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white hover:opacity-90">Check a lease to add a unit</Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/ledger" className="rounded-xl border border-line bg-surface px-4 py-2 text-[14px] font-semibold text-ink hover:bg-bg">Ledger</Link>
+          <Link href="/#lease" className="rounded-xl bg-ink px-4 py-2 text-[14px] font-semibold text-white hover:opacity-90">Check a lease to add a unit</Link>
+        </div>
       </div>
 
       {units.length > 0 && (

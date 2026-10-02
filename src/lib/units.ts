@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "./db";
 import { daysBetween, pacificToday } from "./dates";
 import { tenancyEvents, type CalendarEvent } from "./ics";
-import { paidElectronically } from "./invoice-status";
+import { paidElectronically, returnFailed } from "./invoice-status";
 import { byUrgency, nextStep, type NextStep, type TenancySummary } from "./next-step";
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
@@ -35,7 +35,8 @@ export type DeductionRow = { category: string; amount: number | string };
 
 export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: PhotoRow[], deductions: DeductionRow[]): TenancySummary {
   const inv = payments.find((p) => p.kind === "deposit_invoice") ?? null;
-  const returned = payments.find((p) => p.kind === "refund" || p.kind === "payout") ?? null;
+  // A refund PayPal refused or reversed returned nothing, so it does not close the tenancy out (the ledger counts the same way).
+  const returned = payments.find((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status)) ?? null;
   const terms = t.lease_terms;
   const agreement: RefundAgreementSummary | null = t.refund_agreement
     ? { paypalEmail: t.refund_agreement.paypal_email, signedBy: t.refund_agreement.signed_by, signedAt: t.refund_agreement.signed_at }

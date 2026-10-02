@@ -1,5 +1,6 @@
 import "server-only";
 import { closeOutFacts, type CloseOutFacts } from "./closeout";
+import { TAGS } from "./copy";
 import { db } from "./db";
 import { missingDocs, RECEIPT_THRESHOLD, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
 import { paidElectronically, wasPaid } from "./invoice-status";
@@ -12,12 +13,8 @@ import { tenantMoveOutUpdatedOn, type TenantMoveOut } from "./tenant";
 
 export type Category = "rent" | "damage" | "cleaning";
 
-/** The (b) category each deduction is tagged with on the statement. */
-export const TAGS: Record<Category, { tag: string; label: string }> = {
-  rent: { tag: "(b)(1)", label: "Unpaid rent" },
-  damage: { tag: "(b)(2)", label: "Damage beyond ordinary wear and tear" },
-  cleaning: { tag: "(b)(3)", label: "Cleaning to the move-in level" },
-};
+// The (b) tags live in copy.ts, which has no server imports, so the ledger grid can read them in the browser too.
+export { TAGS } from "./copy";
 
 export type ChecklistState = "done" | "missing" | "not_applicable";
 export type ChecklistItem = { n: number; title: string; cite: string; state: ChecklistState; reason: string };
