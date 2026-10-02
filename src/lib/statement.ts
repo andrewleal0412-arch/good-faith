@@ -35,6 +35,7 @@ export type StatementDeduction = {
   work: Work;
   amount: number;
   explanation: string; // the stored math: the written explanation of the cost, (h)(2)(D)
+  note: string | null; // why the work was done, in the landlord's words: the rest of that explanation
   proration: Proration;
   guidance: boolean; // prorated by useful life or the paint schedule, which is DRE guidance and not statute
   isEstimate: boolean;
@@ -201,7 +202,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     const rent = d.category === "rent";
     return {
       id: d.id, n: i + 1, category: d.category, tag: TAGS[d.category].tag, tagLabel: TAGS[d.category].label,
-      room: d.room, item: d.item, work: d.work, amount: d.amount, explanation: d.math, proration: d.proration,
+      room: d.room, item: d.item, work: d.work, amount: d.amount, explanation: d.math, note: d.note ?? null, proration: d.proration,
       guidance: d.proration !== "none", isEstimate: d.is_estimate,
       labor: !rent && d.performer === "own_labor"
         ? { description: d.labor_description, hours: d.hours == null ? null : Number(d.hours), hourlyRate: d.hourly_rate == null ? null : Number(d.hourly_rate) }

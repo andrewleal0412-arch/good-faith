@@ -341,6 +341,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     const at = M + 14;
     // The stored math already carries its own label when it is a plain invoice ("Vendor invoice: $140.00").
     w.text(`${d.explanation.includes("=") ? `Cost: ${d.explanation}` : d.explanation}${d.guidance ? ` (prorated by ${d.proration === "useful_life" ? "useful life" : "the paint schedule"}: DRE guidance, not statute)` : ""}`, { size: 9.5, color: INK2, x: at });
+    if (d.note) w.text(`Why this work: ${d.note}`, { size: 9.5, color: INK2, x: at });
     if (d.labor) {
       w.text(`Work by the landlord: ${d.labor.description ?? "no description recorded"}. ${d.labor.hours ?? "?"} hour${d.labor.hours === 1 ? "" : "s"} at ${d.labor.hourlyRate == null ? "an unrecorded rate" : `${usd(d.labor.hourlyRate)} an hour`}.`, { size: 9.5, color: INK2, x: at });
     }
@@ -431,7 +432,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     firstExhibit = false;
     w.text(`EXHIBIT ${L}`, { size: 9, font: bold, color: ACCENT, lead: 16 });
     w.text(`Photos for item ${d.n}: ${d.item}${d.room ? ` (${d.room})` : ""}`, { size: 13, font: bold, lead: 18 });
-    w.text(`${d.tag} ${d.tagLabel}. ${d.explanation}`, { size: 9.5, color: INK2, after: 10 });
+    w.text(`${d.tag} ${d.tagLabel}. ${d.explanation}${d.note ? ` ${d.note}` : ""}`, { size: 9.5, color: INK2, after: 10 });
     for (let i = 0; i < slots.length; i += cols) {
       const row = slots.slice(i, i + cols), h = rowH(row);
       if (w.y - h < M) w.newPage();

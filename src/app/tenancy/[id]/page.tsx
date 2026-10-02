@@ -7,7 +7,7 @@ import { wasPaid } from "@/lib/invoice-status";
 import { db, signedUrl } from "@/lib/db";
 import type { StoredDeduction } from "@/lib/deductions";
 import { refreshDepositInvoice } from "@/lib/deposit";
-import { pacificToday } from "@/lib/dates";
+import { longDate, pacificToday } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { closedOut } from "@/lib/next-step";
 import { NOTICE_INFO, NOTICE_METHOD_LABEL, type NoticeKind, type NoticeMethod } from "@/lib/notices";
@@ -59,7 +59,7 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
     const d = deductions.find((x) => f.id && x.finding?.id === f.id);
     return {
       ...f, beforeUrl: await signedUrl("photos", f.moveInPath), afterUrl: await signedUrl("photos", f.moveOutPath),
-      deduction: d ? { id: d.id, amount: d.amount, math: d.math } : null,
+      deduction: d ? { id: d.id, amount: d.amount, math: d.math, note: d.note ?? null } : null,
     };
   }));
   const paid = wasPaid(invoiceStatus);
@@ -94,8 +94,11 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
     <main className="mx-auto w-full max-w-3xl px-5 py-10">
       <Link href="/units" className="text-[13px] font-semibold uppercase tracking-[0.14em] text-accent">Your units</Link>
       <h1 className="mt-2 text-[30px] font-semibold leading-tight tracking-[-0.02em]">{prop.address}</h1>
-      <p className="mt-1 text-[15px] text-ink-2">
-        {(t.tenants as { name: string }[]).map((x) => x.name).join(" and ")} · since {t.start_date ?? "--"} · rent {usd(t.monthly_rent)}
+      {/* Separate spans rather than one line with dots between, so a line that wraps on a phone never starts with a dot. */}
+      <p className="mt-1 flex flex-wrap gap-x-3 text-[15px] text-ink-2">
+        <span>{(t.tenants as { name: string }[]).map((x) => x.name).join(" and ")}</span>
+        <span>since {t.start_date ? longDate(t.start_date) : "--"}</span>
+        <span>rent {usd(t.monthly_rent)}</span>
       </p>
 
       <MoveInSteps
@@ -164,8 +167,10 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
         <ul className="mt-3 space-y-2">
           {(log ?? []).map((e) => (
             <li key={e.id} className="flex gap-3 text-[13px]">
+              {/* The day with its year over the time: a tenancy's log spans a year or more, so "Oct 1" alone is ambiguous. */}
               <span className="w-[112px] shrink-0 whitespace-nowrap tabular-nums text-ink-3">
-                {new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" })}
+                <span className="block">{new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" })}</span>
+                <span className="block text-[12px]">{new Date(e.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" })}</span>
               </span>
               <span className={`w-[72px] shrink-0 font-semibold ${e.actor === "agent" ? "text-accent" : e.actor === "tenant" ? "text-info" : "text-ink-2"}`}>
                 {e.actor}
@@ -178,6 +183,9 @@ export default async function TenancyPage({ params }: PageProps<"/tenancy/[id]">
     </main>
   );
 }
+
+/** A YYYY-MM-DD from the log spelled out, the way every other surface shows dates; anything else as it is. */
+const day = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? longDate(v) : String(v ?? "--"));
 
 function describe(action: string, d: Record<string, unknown> | null): string {
   switch (action) {
@@ -192,7 +200,7 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "move_out_inspected": return `Compared move-in and move-out photos (${(d?.rooms as string[])?.join(", ")}): ${d?.damage} damage, ${d?.cleaning} cleaning, ${d?.wear_and_tear} wear and tear (not chargeable)${(d?.unclear as number) ? `, ${d?.unclear} unclear` : ""}`;
     case "deduction_added": return `Deducted ${usd(d?.amount as number)} for ${String(d?.item).toLowerCase()}: ${d?.math}`;
     case "deduction_removed": return `Removed the ${usd(d?.amount as number)} deduction for ${String(d?.item).toLowerCase()}`;
-    case "move_out_date_set": return `Tenant moved out ${d?.move_out_date}; statement and refund due by ${d?.statement_due}`;
+    case "move_out_date_set": return `Tenant moved out ${day(d?.move_out_date)}; statement and refund due by ${day(d?.statement_due)}`;
     case "close_out_started": return "Started the close-out";
     case "refund_proposed": return `Asked you to approve a ${usd(d?.amount as number)} refund`;
     case "refund_approved": return `Approved the ${usd(d?.amount as number)} refund`;
@@ -205,19 +213,19 @@ function describe(action: string, d: Record<string, unknown> | null): string {
     case "statement_delivered": return `Delivered the itemized statement by ${describeDelivery(d as unknown as DeliveryRecord)}`;
     case "statement_delivery_changed": return `Corrected the delivery record: ${describeDelivery(d?.next as DeliveryRecord)}`;
     case "statement_packet_built": return `Built the statement PDF packet (${d?.pages} page${d?.pages === 1 ? "" : "s"})`;
-    case "lease_end_set": return d?.end_date ? `Set the lease end to ${d.end_date}` : "Set the lease to month to month";
+    case "lease_end_set": return d?.end_date ? `Set the lease end to ${day(d.end_date)}` : "Set the lease to month to month";
     case "notice_recorded":
     case "notice_changed":
-      return `${action === "notice_changed" ? "Changed" : "Recorded"} the notice to end the tenancy: given ${d?.notice_given_on}, planned move-out ${d?.planned_move_out}; inspection window opens ${d?.inspection_window_opens}`;
+      return `${action === "notice_changed" ? "Changed" : "Recorded"} the notice to end the tenancy: given ${day(d?.notice_given_on)}, planned move-out ${day(d?.planned_move_out)}; inspection window opens ${day(d?.inspection_window_opens)}`;
     case "notice_given": {
       const kind = d?.kind as NoticeKind, method = d?.method as NoticeMethod;
-      return `Gave the ${NOTICE_INFO[kind]?.short ?? "notice"} by ${NOTICE_METHOD_LABEL[method] ?? method}${d?.to ? ` to ${d.to}` : ""} on ${d?.date}`;
+      return `Gave the ${NOTICE_INFO[kind]?.short ?? "notice"} by ${NOTICE_METHOD_LABEL[method] ?? method}${d?.to ? ` to ${d.to}` : ""} on ${day(d?.date)}`;
     }
     case "notice_given_removed": return `Removed the record that the ${NOTICE_INFO[d?.kind as NoticeKind]?.short ?? "notice"} was given`;
     case "tenant_link_created": return (d?.replaced as string[])?.length ? "Made a new tenant link; the old one stopped working" : "Made the tenant link";
     case "tenant_link_revoked": return "Turned the tenant link off";
-    case "tenant_moving_out": return `${d?.name ?? "The tenants"} sent through the tenant link: moving out ${d?.planned_move_out}; forwarding address ${d?.forwarding_address}`;
-    case "tenant_moving_out_changed": return `${d?.name ?? "The tenants"} changed their move-out details through the tenant link: moving out ${d?.planned_move_out}; forwarding address ${d?.forwarding_address}`;
+    case "tenant_moving_out": return `${d?.name ?? "The tenants"} sent through the tenant link: moving out ${day(d?.planned_move_out)}; forwarding address ${d?.forwarding_address}`;
+    case "tenant_moving_out_changed": return `${d?.name ?? "The tenants"} changed their move-out details through the tenant link: moving out ${day(d?.planned_move_out)}; forwarding address ${d?.forwarding_address}`;
     case "tenant_opened_statement": return "Opened the itemized statement through the tenant link";
     default: return action.replace(/_/g, " ");
   }

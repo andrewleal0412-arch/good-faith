@@ -36,6 +36,7 @@ export function MoveInSteps(p: Props) {
 
   const moveIn = p.photos.filter((x) => x.phase === "move_in");
   const rooms = [...new Set(moveIn.map((x) => x.room))];
+  const oneEach = rooms.length > 0 && rooms.every((r) => moveIn.filter((x) => x.room === r).length === 1);
   const paid = wasPaid(p.invoice?.status);
 
   return (
@@ -134,7 +135,19 @@ export function MoveInSteps(p: Props) {
             }} />
           </label>
         </div>
-        {rooms.map((r) => (
+        {oneEach ? (
+          // One photo per room: the rooms sit side by side with the room under each, instead of a block per room
+          // holding a lone thumbnail.
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {moveIn.map((x) => x.url && (
+              <figure key={x.id}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={x.url} alt={x.room} className="aspect-square w-full rounded-lg object-cover" />
+                <figcaption className="mt-1 truncate text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3">{x.room}</figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : rooms.map((r) => (
           <div key={r} className="mt-4">
             <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-3">{r}</p>
             <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">

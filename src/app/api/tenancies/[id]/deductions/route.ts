@@ -68,11 +68,15 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const vendor = input.performer === "vendor"
     ? { name: str(form.get("vendorName")) || undefined, address: str(form.get("vendorAddress")) || undefined, phone: str(form.get("vendorPhone")) || undefined }
     : null;
+  // Why the work was done, in the landlord's words: it goes on the statement with the cost as part of the written
+  // explanation ((h)(2)(D)), e.g. that cleaning was tried before the carpet was replaced.
+  const note = str(form.get("note")).slice(0, 600) || null;
   const { data: row, error } = await db.from("deductions").insert({
     tenancy_id: id, category: input.category, room: finding.room, item: finding.item, finding,
     work: input.work, performer: input.performer, billed: input.performer === "vendor" ? input.invoiceTotal : (input.hours ?? 0) * (input.hourlyRate ?? 0),
     hours: input.performer === "own_labor" ? input.hours : null, hourly_rate: input.performer === "own_labor" ? input.hourlyRate : null,
     labor_description: input.performer === "own_labor" ? str(form.get("laborDescription")) || null : null,
+    note,
     vendor, proration: input.proration, item_age_years: input.itemAgeYears, useful_life_years: input.usefulLifeYears,
     amount: c.amount, math: c.math, is_estimate: form.get("isEstimate") === "true",
     receipt_path: receiptPath, after_photo_paths: afterPaths,

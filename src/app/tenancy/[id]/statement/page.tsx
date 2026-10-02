@@ -107,6 +107,11 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
                       {d.explanation.includes("=") ? <><span className="font-semibold text-ink">Cost: </span>{d.explanation}</> : d.explanation}
                       {d.guidance && <span className="text-ink-3"> (prorated by {d.proration === "useful_life" ? "useful life" : "the paint schedule"}: DRE guidance, not statute)</span>}
                     </p>
+                    {d.note && (
+                      <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+                        <span className="font-semibold text-ink">Why this work: </span>{d.note}
+                      </p>
+                    )}
                     {d.labor && (
                       <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
                         <span className="font-semibold text-ink">Work by the landlord: </span>

@@ -101,25 +101,26 @@ The statute never defines "ordinary wear and tear"; it only bars charging for it
 
 ## E. Demo scenario (Orange, CA)
 
+This is the scenario `npm run demo:seed` builds (README.md, "Demo"): a fictional lease, landlord, tenants and address. Its dates run from the day the seed is run.
+
 **The setup:**
-- Single-family home in the City of Orange. The owner is one natural person with one rental, so a small landlord.
-- Rent $2,800. Tenancy began 2025-08-01, with move-in photos taken.
-- Deposit $4,200 (1.5 months). That's allowed under (c)(5); it would be blocked for a non-exempt owner or a service member.
-- The tenant paid rent by Zelle.
+- Single-family house in the City of Orange. The owner is one natural person with one rental, so the two-month cap applies (D4, (c)(5)(A)).
+- Rent $2,400, so the cap is $4,800. The one-year tenancy began 2025-10-01, with move-in photos taken (D13).
+- The lease asks a $4,800 deposit plus a $300 "nonrefundable" cleaning fee for professional cleaning at the end of the tenancy. Everything charged at the start counts as security (D1), so the $5,100 asked is $300 over the cap (D3, D4); no security may be called nonrefundable (D8, (n)); and professional cleaning can't be required regardless of condition (D10, (e)(2)(C)). A $120 late fee the lease lets the landlord take from the deposit gets a warning (D26).
+- The agent invoices the $4,800 cap through PayPal and the tenants pay it there, so the refund must be electronic (D16). Both adult tenants signed the PayPal refund agreement at move-in, so the electronic-refund notice (D17) is not owed and the tool says so.
 
 **The timeline:**
-- The tenant gave notice 2026-08-28. The tool drafted the initial-inspection notice (f)(1) and the electronic-refund notice (h)(1)(A)(ii)(II).
-- Inspection 2026-09-17 with 48 hours' written notice. Items listed: a pet stain on the bedroom carpet, a snapped blind slat, a greasy oven, "touch up walls".
-- Move-out 2026-09-30, so the statement is due 2026-10-21.
+- The tenants gave notice 30 days before the move-out. The tool drafted the initial-inspection notice (D11, (f)(1)), recorded as mailed two days later.
+- Move-out on the day the seed runs, so the statement and refund are due 21 days later (D15). PayPal dates the sandbox payment that same day; every other record is dated the day it belongs to.
 - No local interest. Orange has no rent or deposit ordinance, and no Orange County city requires deposit interest as far as could be found (medium-high confidence) [S15].
 
-**The outcome** (before and after photos taken):
-1. Small nail holes and faded paint: wear and tear, $0 (D9; DRE p. 85).
-2. Bedroom carpet with pet urine, replaced: $1,800 invoice. The carpet is 6 years old with a 10-year life, so 4 years remain: **$720** (DRE p. 84 proration, marked as guidance).
-3. Snapped blind slat: handyman invoice $140, with name, address and phone: **$140**.
-4. Oven and range cleaning by the landlord: 3 hours at $50, described: **$150**. No professional cleaning was billed, so (e)(2)(C) is satisfied.
+**The outcome** (move-in, before and after photos on file):
+1. A few small nail holes in the bedroom: wear and tear, $0 (D9; DRE p. 85).
+2. Bedroom carpet with a large stain, replaced: $1,800 invoice. The carpet is 6 years old with a 10-year life, so 4 years remain: **$720** (DRE p. 84 proration, marked as guidance). The inspection may say to try cleaning first; the deduction then carries the landlord's note that spot cleaning did not lift the stain, as part of the written explanation of the cost (D20, (h)(2)(D)).
+3. Hole in the living room wall, patched by a handyman: invoice $140, with name, address and phone: **$140**.
+4. Range cleaning by the landlord: 3 hours at $50, described: **$150**. No professional cleaning was billed, so (e)(2)(C) is satisfied.
 
-**Total deductions: $1,010.** That's over $125, so the invoices, labor description, photos and cost explanation are attached. **Refund: $3,190**, sent electronically by 2026-10-21. It goes by PayPal because the tenant signed the method agreement at move-in. The statement goes by first-class mail, or by email under the recorded agreement.
+**Total deductions: $1,010.** That's over $125, so the invoices, labor description, photos and cost explanation are attached (D20, D22). **Refund: $3,790**, by PayPal under the written agreement, within 21 days of the move-out (D15, D16). The statement goes by first-class mail, or by email under a recorded agreement (D18).
 
 ## F. Disclaimers and UPL guardrails
 

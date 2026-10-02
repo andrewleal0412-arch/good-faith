@@ -17,7 +17,7 @@ export type FindingView = {
   confidence: number;
   beforeUrl: string | null;
   afterUrl: string | null;
-  deduction: { id: string; amount: number; math: string } | null;
+  deduction: { id: string; amount: number; math: string; note: string | null } | null;
 };
 
 const KIND = {
@@ -132,13 +132,17 @@ export function MoveOut(p: {
                   <p className="mt-3 text-[14px] leading-relaxed text-ink-2">{f.observation}</p>
                   <p className="mt-1 text-[13px] leading-relaxed text-ink-3">{f.reason}</p>
                   {f.deduction ? (
-                    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-bg px-4 py-3">
-                      <p className="text-[14px] font-semibold">Deducting {usd(f.deduction.amount)}</p>
-                      <p className="text-[13px] text-ink-2">{f.deduction.math}</p>
-                      {!p.locked && (
-                        <button onClick={() => removeDeduction(f.deduction!.id)} disabled={busy === `remove-${f.deduction.id}`}
-                          className="ml-auto text-[13px] font-semibold text-danger disabled:opacity-40">Remove</button>
-                      )}
+                    <div className="mt-4 rounded-xl bg-bg px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <p className="text-[14px] font-semibold">Deducting {usd(f.deduction.amount)}</p>
+                        <p className="text-[13px] text-ink-2">{f.deduction.math}</p>
+                        {!p.locked && (
+                          <button onClick={() => removeDeduction(f.deduction!.id)} disabled={busy === `remove-${f.deduction.id}`}
+                            className="ml-auto text-[13px] font-semibold text-danger disabled:opacity-40">Remove</button>
+                        )}
+                      </div>
+                      {/* The landlord's reason for the work, which the statement carries with the cost ((h)(2)(D)). */}
+                      {f.deduction.note && <p className="mt-1 text-[13px] leading-relaxed text-ink-2">Why this work: {f.deduction.note}</p>}
                     </div>
                   ) : f.classification === "wear_and_tear" || p.locked ? null : f.id && open === f.id ? (
                     <DeductionForm tenancyId={p.tenancyId} finding={{ ...f, id: f.id }}

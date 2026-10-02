@@ -98,6 +98,7 @@ export type StoredDeduction = {
   after_photo_paths: string[];
   vendor: { name?: string; address?: string; phone?: string } | null;
   labor_description: string | null;
+  note?: string | null; // why the work was done, for the statement with the cost ((h)(2)(D)); absent on older rows
   finding: { id?: string; moveInPath?: string; moveOutPath?: string } | null;
 };
 

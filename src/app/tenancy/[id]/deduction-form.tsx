@@ -17,7 +17,7 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
   const [proration, setProration] = useState<Proration>(defaultProration(startWork));
   const [v, setV] = useState({
     invoiceTotal: "", hours: "", hourlyRate: "", itemAgeYears: "", usefulLifeYears: String(suggestedLife(finding.item) ?? ""),
-    vendorName: "", vendorAddress: "", vendorPhone: "", laborDescription: "",
+    vendorName: "", vendorAddress: "", vendorPhone: "", laborDescription: "", note: "",
   });
   const [isEstimate, setIsEstimate] = useState(false);
   const [receipt, setReceipt] = useState<File | null>(null);
@@ -83,6 +83,10 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
           </div>
         </div>
       )}
+
+      <Field label="Why this work (optional)" hint="Goes on the statement with the cost, as part of the written explanation (Civ. Code 1950.5(h)(2)(D))">
+        <textarea className={input} rows={2} placeholder="Spot cleaning didn't lift the stain, so the carpet was replaced" value={v.note} onChange={set("note")} />
+      </Field>
 
       <Field label="Prorate by age" hint="Guidance from the DRE's California Tenants guide, not the statute">
         <Segmented value={proration} onChange={setProration}

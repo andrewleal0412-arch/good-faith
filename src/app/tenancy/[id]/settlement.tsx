@@ -91,9 +91,14 @@ export function Settlement(p: {
           ) : p.returned ? (
             <Row label={`Refunded by PayPal ${p.returned.kind === "payout" ? "Payout" : "refund"} on ${longDate(p.returned.at.slice(0, 10))}`} strong>{usd(p.returned.amount)}</Row>
           ) : (
-            <Row label={`Refund${p.refundTo ? ` by PayPal to ${p.refundTo}` : ""}`} strong>{usd(s.refund)}</Row>
+            <Row label={p.refundTo ? "Refund by PayPal" : "Refund"} strong>{usd(s.refund)}</Row>
           )}
         </dl>
+        {/* The PayPal address on its own line in small mono type, as the statement shows it, so the amount keeps its
+            line on a phone instead of sharing it with a long address that breaks mid-word. */}
+        {!p.returned && s.balanceClaimed <= 0 && p.refundTo && (
+          <p className="mt-0.5 break-all font-mono text-[12px] text-ink-3">to {p.refundTo}</p>
+        )}
         {p.returned && <p className="mt-1 text-right font-mono text-[11px] text-ink-3">{p.returned.id}</p>}
         {s.balanceClaimed > 0 && (
           <p className="mt-2 text-[12px] text-ink-3">
@@ -130,8 +135,9 @@ export function Settlement(p: {
 function Row({ label, strong, children }: { label: string; strong?: boolean; children: React.ReactNode }) {
   return (
     <div className={`flex justify-between gap-4 ${strong ? "text-[16px] font-semibold" : "text-ink-2"}`}>
-      <dt>{label}</dt>
-      <dd className="tabular-nums">{children}</dd>
+      {/* A long PayPal address in the label wraps rather than pushing the amount off a phone screen. */}
+      <dt className="min-w-0 break-words">{label}</dt>
+      <dd className="shrink-0 tabular-nums">{children}</dd>
     </div>
   );
 }
