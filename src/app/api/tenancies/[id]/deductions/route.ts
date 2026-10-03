@@ -1,6 +1,8 @@
 import { audit, db } from "@/lib/db";
 import { chargeable, type DeductionInput, type Performer, type Proration, type Work } from "@/lib/deductions";
-import { imageType, notAPhotoServer } from "@/lib/images";
+import { imageType, notAPhotoServer, readForm, sniff, UNREADABLE } from "@/lib/images";
+import { takeAllowance, uploadUnits } from "@/lib/limits";
+import { AFTER_PHOTOS_MAX, mb, UPLOAD_BUDGET } from "@/lib/uploads";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,7 +17,18 @@ const num = (v: FormDataEntryValue | null) => (str(v) === "" ? null : Number(str
 // so the statement's numbers always match its explanation. Ordinary wear and tear can't be deducted at all.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/deductions">) {
   const { id } = await ctx.params;
-  const form = await req.formData();
+  const form = await readForm(req);
+  if (!form) return Response.json({ error: UNREADABLE }, { status: 400 });
+  // The files first, by count and size, before anything is read from the database. The messages are the browser's
+  // own (src/app/(landlord)/tenancy/[id]/deduction-form.tsx).
+  const receipts = form.getAll("receipt").filter((f): f is File => f instanceof File && f.size > 0);
+  const afters = form.getAll("after").filter((f): f is File => f instanceof File && f.size > 0);
+  if (receipts.length > 1) return Response.json({ error: "Add one receipt per deduction." }, { status: 400 });
+  if (afters.length > AFTER_PHOTOS_MAX) return Response.json({ error: `Add at most ${AFTER_PHOTOS_MAX} after-repair photos.` }, { status: 400 });
+  const bytes = [...receipts, ...afters].reduce((n, f) => n + f.size, 0);
+  if (bytes > UPLOAD_BUDGET) {
+    return Response.json({ error: `The receipt and photos total ${mb(bytes)}; one deduction can carry ${mb(UPLOAD_BUDGET)}. Add fewer after-repair photos, or a smaller receipt.` }, { status: 413 });
+  }
   const findingId = str(form.get("findingId"));
 
   const { data: t } = await db.from("tenancies").select("move_out_findings").eq("id", id).single();
@@ -46,30 +59,39 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const c = chargeable(input);
   if ("error" in c) return Response.json({ error: c.error }, { status: 400 });
 
-  // Receipt (vendor bill or materials) and after-repair photos (AB 2801, (g)(2)) go to private buckets. Every image is
-  // checked against its bytes before anything is stored (src/lib/images.ts), so a refused file leaves nothing behind.
-  const receipt = form.get("receipt");
+  // Receipt (vendor bill or materials) and after-repair photos (AB 2801, (g)(2)) go to private buckets. Every file is
+  // checked against its bytes before anything is stored (src/lib/images.ts), so a refused file leaves nothing behind:
+  // the receipt is a PDF or a photo, by its signature, whatever the browser declared.
+  const receipt = receipts[0] ?? null;
   let receiptBytes: Uint8Array | null = null, receiptType = "application/pdf";
-  if (receipt instanceof File && receipt.size) {
+  if (receipt) {
     receiptBytes = new Uint8Array(await receipt.arrayBuffer());
-    if (receipt.type.startsWith("image/")) {
+    const signed = sniff(receiptBytes);
+    if (signed === "application/pdf") receiptType = signed;
+    else if (signed) {
       const type = await imageType(receiptBytes);
       if (!type) return Response.json({ error: notAPhotoServer(receipt.name) }, { status: 400 });
       receiptType = type;
-    } else if (receipt.type) {
-      receiptType = receipt.type;
+    } else {
+      return Response.json({ error: `${receipt.name} isn't a PDF or a photo. Add the receipt as a PDF or a photo.` }, { status: 400 });
     }
   }
   const afterFiles: { bytes: Uint8Array; type: string }[] = [];
-  for (const f of form.getAll("after").filter((f): f is File => f instanceof File && f.type.startsWith("image/"))) {
+  for (const f of afters) {
     const bytes = new Uint8Array(await f.arrayBuffer());
     const type = await imageType(bytes);
     if (!type) return Response.json({ error: notAPhotoServer(f.name) }, { status: 400 });
     afterFiles.push({ bytes, type });
   }
+  // Today's allowance of stored upload megabytes, as for photos (src/lib/limits.ts).
+  const stored = (receiptBytes?.length ?? 0) + afterFiles.reduce((n, f) => n + f.bytes.length, 0);
+  if (stored) {
+    const run = await takeAllowance("upload_mb", uploadUnits(stored));
+    if (run.refused) return run.refused;
+  }
   let receiptPath: string | null = null;
-  if (receipt instanceof File && receiptBytes) {
-    const ext = receiptType.startsWith("image/") ? receiptType.slice("image/".length) : (receipt.name.split(".").pop() || "pdf").toLowerCase();
+  if (receipt && receiptBytes) {
+    const ext = receiptType.slice(receiptType.indexOf("/") + 1);
     receiptPath = `${id}/${crypto.randomUUID()}.${ext}`;
     const up = await db.storage.from("receipts").upload(receiptPath, receiptBytes, { contentType: receiptType });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });

@@ -19,6 +19,7 @@ export type ShellData = {
   sandbox: boolean;
   alerts: ShellAlert[];
   disclaimer: string;
+  signOut: boolean; // the demo access gate is on, so there is a session to end (src/proxy.ts)
 };
 
 const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) => boolean } | { group: string })[] = [
@@ -181,6 +182,14 @@ function AccountCard({ data }: { data: ShellData }) {
         <div className="mt-2 px-1 text-xs text-ink-3">
           Owners on file: {data.owners.join(", ")}
         </div>
+      )}
+      {data.signOut && (
+        <form method="post" action="/api/access/sign-out" className="mt-1.5 border-t border-line-2 pt-1.5">
+          <button type="submit" role="menuitem"
+            className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 hover:bg-surface hover:text-ink">
+            <Icon name="sign-out" className="size-[15px] text-ink-3" />Sign out
+          </button>
+        </form>
       )}
     </div>
   );

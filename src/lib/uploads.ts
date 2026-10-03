@@ -9,6 +9,13 @@
  *  assumed) and the multipart framing and text fields ride on top, so every file check uses this budget and the
  *  person sees a plain message instead of the host's 413 page. */
 export const UPLOAD_BUDGET = 4 * 1024 * 1024;
+/** The largest request body any route takes, the budget plus room for the form framing and text fields. The proxy
+ *  answers a bigger declared body with a 413 once it has arrived (src/proxy.ts). */
+export const REQUEST_LIMIT = UPLOAD_BUDGET + 512 * 1024;
+/** Photos in one request; the browser splits a bigger selection, and the server refuses more. */
+export const PHOTOS_PER_REQUEST = 20;
+/** After-repair photos on one deduction. */
+export const AFTER_PHOTOS_MAX = 10;
 /** Photos are downscaled to this many pixels on the long side and re-encoded as JPEG at this quality. */
 export const PHOTO_MAX_SIDE = 2000;
 export const PHOTO_QUALITY = 0.85;
@@ -76,13 +83,13 @@ export async function shrinkPhoto(file: File): Promise<File | null> {
   }
 }
 
-/** Files grouped so each group's bytes stay under the budget, in the order given. A file over the budget by itself
- *  gets a group of its own; callers check for that first. */
-export function batchFiles<T extends { size: number }>(files: T[], budget = UPLOAD_BUDGET): T[][] {
+/** Files grouped so each group's bytes stay under the budget and its count under PHOTOS_PER_REQUEST, in the order
+ *  given. A file over the budget by itself gets a group of its own; callers check for that first. */
+export function batchFiles<T extends { size: number }>(files: T[], budget = UPLOAD_BUDGET, most = PHOTOS_PER_REQUEST): T[][] {
   const groups: T[][] = [];
   let group: T[] = [], bytes = 0;
   for (const f of files) {
-    if (group.length && bytes + f.size > budget) {
+    if (group.length && (bytes + f.size > budget || group.length >= most)) {
       groups.push(group);
       group = [];
       bytes = 0;

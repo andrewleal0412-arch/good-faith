@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
@@ -9,7 +10,7 @@ import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBo
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
 import { wasPaid } from "@/lib/invoice-status";
-import { db, signedUrl } from "@/lib/db";
+import { db, signedUrls } from "@/lib/db";
 import { settle, statementDue, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
@@ -34,10 +35,12 @@ import { TenantLinkPanel } from "./tenant-link";
 
 export const dynamic = "force-dynamic";
 
+/** The tenancy row with its property, read once per request: the page title and the page share it. */
+const loadTenancy = cache(async (id: string) => (await db.from("tenancies").select("*, properties(*)").eq("id", id).maybeSingle()).data);
+
 export async function generateMetadata({ params }: PageProps<"/tenancy/[id]">): Promise<Metadata> {
   const { id } = await params;
-  const { data } = await db.from("tenancies").select("properties(address, city)").eq("id", id).maybeSingle();
-  const p = (data?.properties ?? null) as { address: string; city: string | null } | null;
+  const p = ((await loadTenancy(id))?.properties ?? null) as { address: string; city: string | null } | null;
   return { title: p ? splitAddress(p.address, p.city).street : "Property" };
 }
 
@@ -50,59 +53,85 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const sp = await searchParams;
   const tab: TabKey = TABS.some((x) => x.key === sp.tab) ? (sp.tab as TabKey) : "overview";
 
-  const { data: t } = await db.from("tenancies").select("*, properties(*)").eq("id", id).single();
-  if (!t) notFound();
-  const [{ data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink] = await Promise.all([
+  // One round of reads, all at once. Each tab loads what it shows: the activity on Overview, the latest close-out run on
+  // Move-out, the tenant link on Tenants. The rest (payments, photos, deductions) feeds the record header's status on
+  // every tab.
+  const [t, { data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink] = await Promise.all([
+    loadTenancy(id),
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("deductions").select("*").eq("tenancy_id", id).order("created_at"),
-    db.from("audit_log").select("*").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(40),
-    db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1),
-    activeTenantLink(id),
+    tab === "overview"
+      ? db.from("audit_log").select("*").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(40)
+      : Promise.resolve({ data: [] }),
+    tab === "move-out"
+      ? db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1)
+      : Promise.resolve({ data: [] }),
+    tab === "tenants" ? activeTenantLink(id) : Promise.resolve(null),
   ]);
+  if (!t) notFound();
 
-  // Live invoice status from PayPal, so "Paid" shows the moment the tenant pays. The refreshed row takes the stored
-  // one's place in the list the summary reads, so it sees what PayPal just said rather than the stale copy.
+  const deductions = (deductionRows ?? []).map((d) => ({ ...d, amount: Number(d.amount) })) as StoredDeduction[];
+  const photoRows = (photos ?? []) as { id: string; storage_path: string; phase: string; room: string; taken_at: string | null; created_at: string }[];
+  const moveInRows = photoRows.filter((x) => x.phase === "move_in");
+  const thumbRow = moveInRows.find((x) => /living/i.test(x.room)) ?? moveInRows[0] ?? null;
+  // Move-out findings in page order and numbered; rooms the comparison looked at and found nothing in, by their first
+  // move-in and move-out photos, so a finding can still be added by hand.
+  const stored = inPageOrder((t.move_out_findings ?? []) as StoredFinding[]);
+  const inspectedAt = t.move_out_inspected_at as string | null;
+  const quietPairs = inspectedAt ? [...new Set(photoRows.filter((x) => x.phase === "move_out_before" && x.created_at <= inspectedAt).map((x) => x.room))]
+    .filter((r) => !stored.some((f) => f.room === r))
+    .flatMap((r) => {
+      const i = photoRows.find((x) => x.room === r && x.phase === "move_in"), o = photoRows.find((x) => x.room === r && x.phase === "move_out_before");
+      return i && o ? [{ r, i, o }] : [];
+    }) : [];
+
+  // Two slow calls, run together and only for the tabs that show them. PayPal's live invoice status, so "Paid" shows
+  // the moment the tenant pays: on Overview and Move-out while the deposit is not yet stored as paid (once it is, they
+  // show only that it was paid, which a refund does not change), and always on Payments, whose rows name the refund
+  // state PayPal reports. Documents and Tenants read it as stored, like the Properties page. The refreshed row takes
+  // the stored one's place in the list the summary reads. And the photos' signed links, in one request: the header's
+  // thumbnail on every tab, the move-in photos on Overview, the move-out photos and every finding's pair on Move-out.
   const storedInvoice = (payments ?? []).find((p) => p.kind === "deposit_invoice");
-  const invoice = storedInvoice ? await refreshDepositInvoice(storedInvoice) : null;
+  const refresh = !!storedInvoice && (tab === "payments" || ((tab === "overview" || tab === "move-out") && !wasPaid(storedInvoice.status)));
+  const toSign = [
+    ...(thumbRow ? [thumbRow.storage_path] : []),
+    ...(tab === "overview" ? moveInRows.map((x) => x.storage_path) : []),
+    ...(tab === "move-out" ? [
+      ...photoRows.filter((x) => x.phase === "move_out_before").map((x) => x.storage_path),
+      ...stored.flatMap((f) => [f.moveInPath, f.moveOutPath]),
+      ...quietPairs.flatMap(({ i, o }) => [i.storage_path, o.storage_path]),
+    ] : []),
+  ];
+  const [invoice, urlOf] = await Promise.all([
+    refresh ? refreshDepositInvoice(storedInvoice) : Promise.resolve(storedInvoice ?? null),
+    signedUrls("photos", toSign),
+  ]);
   const invoiceStatus: string | null = invoice?.status ?? null;
   const paymentRows = (payments ?? []).map((p) => (invoice && p.id === invoice.id ? invoice : p));
 
-  const photoViews = await Promise.all((photos ?? []).map(async (p) => ({
-    id: p.id as string, phase: p.phase as string, room: p.room as string, url: await signedUrl("photos", p.storage_path),
-  })));
-  const deductions = (deductionRows ?? []).map((d) => ({ ...d, amount: Number(d.amount) })) as StoredDeduction[];
-  // Each photo's signed URL and the day it was taken, by storage path, for the comparison cards.
-  const photoRows = (photos ?? []) as { storage_path: string; phase: string; room: string; taken_at: string | null; created_at: string }[];
-  const urlOf = new Map(photoRows.map((p, i) => [p.storage_path, photoViews[i].url]));
+  const url = (path: string | null | undefined) => (path ? urlOf.get(path) ?? null : null);
+  const photoViews = photoRows.map((p) => ({ id: p.id, phase: p.phase, room: p.room, url: url(p.storage_path) }));
+  // The day each photo was taken, by storage path, for the comparison cards.
   const dateOf = (path: string) => {
     const p = photoRows.find((x) => x.storage_path === path);
     return p ? shortDate(pacificDate(p.taken_at ?? p.created_at)) : null;
   };
-  const url = async (path: string) => urlOf.get(path) ?? await signedUrl("photos", path);
-  // Move-out findings in page order and numbered, with their checked boxes, their photos and the deduction made from
-  // each. Rows from before boxes, or before the landlord's review, read as no box and not reviewed.
-  const stored = inPageOrder((t.move_out_findings ?? []) as StoredFinding[]);
-  const findings: FindingView[] = await Promise.all(stored.map(async (f) => {
+  // Each finding with its checked boxes, its photos and the deduction made from it. Rows from before boxes, or before
+  // the landlord's review, read as no box and not reviewed.
+  const findings: FindingView[] = stored.map((f) => {
     const d = deductions.find((x) => f.id && x.finding?.id === f.id);
     return {
       id: f.id, n: f.n, pair: f.pair, room: f.room, item: f.item, label: f.label ?? null, summary: f.summary ?? null, observation: f.observation,
       classification: f.classification, reason: f.reason, remedy: f.remedy, severity: f.severity, confidence: Number(f.confidence) || 0,
       source: f.source ?? "inspection", status: f.status ?? null, ...boxesOf(f),
-      beforeUrl: await url(f.moveInPath), afterUrl: await url(f.moveOutPath), beforeDate: dateOf(f.moveInPath), afterDate: dateOf(f.moveOutPath),
+      beforeUrl: url(f.moveInPath), afterUrl: url(f.moveOutPath), beforeDate: dateOf(f.moveInPath), afterDate: dateOf(f.moveOutPath),
       deduction: d ? { id: d.id, amount: d.amount, math: d.math, note: d.note ?? null, proration: d.proration, performer: d.performer, work: d.work, category: d.category } : null,
     };
+  });
+  const quietRooms: QuietRoom[] = quietPairs.map(({ r, i, o }) => ({
+    room: r, beforeUrl: url(i.storage_path), afterUrl: url(o.storage_path), beforeDate: dateOf(i.storage_path), afterDate: dateOf(o.storage_path),
   }));
-  // Rooms the comparison looked at and found nothing in: their first move-in and move-out photos, so a finding can still
-  // be added by hand.
-  const inspectedAt = t.move_out_inspected_at as string | null;
-  const quietRooms: QuietRoom[] = inspectedAt ? await Promise.all([...new Set(photoRows.filter((x) => x.phase === "move_out_before" && x.created_at <= inspectedAt).map((x) => x.room))]
-    .filter((r) => !stored.some((f) => f.room === r))
-    .flatMap((r) => {
-      const i = photoRows.find((x) => x.room === r && x.phase === "move_in"), o = photoRows.find((x) => x.room === r && x.phase === "move_out_before");
-      return i && o ? [{ r, i, o }] : [];
-    })
-    .map(async ({ r, i, o }) => ({ room: r, beforeUrl: await url(i.storage_path), afterUrl: await url(o.storage_path), beforeDate: dateOf(i.storage_path), afterDate: dateOf(o.storage_path) }))) : [];
   const numbers = Object.fromEntries(stored.filter((f) => f.id).map((f) => [f.id!, f.n]));
   const wearRows = stored.filter((f) => f.id && f.classification === "wear_and_tear" && f.status !== "dismissed")
     .map((f) => ({ id: f.id!, n: f.n, item: findingTitle(f), full: f.item, room: f.room, photos: (f.moveInPath ? 1 : 0) + (f.moveOutPath ? 1 : 0) }));
@@ -130,7 +159,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const addr = splitAddress(prop.address, prop.city);
   const tenantMoveOut = (t.tenant_move_out ?? null) as TenantMoveOut | null;
   const moveIn = photoViews.filter((x) => x.phase === "move_in");
-  const thumb = (moveIn.find((x) => /living/i.test(x.room)) ?? moveIn[0])?.url ?? null;
+  const thumb = thumbRow ? url(thumbRow.storage_path) : null;
   const inspected = !!t.move_out_inspected_at;
   const held = paid && invoice ? Number(invoice.amount) : null;
   const money = settle(held ?? 0, deductions);
@@ -452,7 +481,7 @@ async function Documents(p: {
   notices: Notices; refundNoticeNeeded: boolean | null;
   noticeGiven: boolean; inspected: boolean; delivery: DeliveryRecord | null; hasEvents: boolean;
 }) {
-  const leaseUrl = p.leasePath ? await signedUrl("leases", p.leasePath) : null;
+  const leaseUrl = p.leasePath ? (await signedUrls("leases", [p.leasePath])).get(p.leasePath) ?? null : null;
   const v = p.flags.filter((f) => f.severity === "violation").length;
   const notice = (kind: NoticeKind) => {
     const given = p.notices[kind];

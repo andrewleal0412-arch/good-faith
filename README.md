@@ -66,7 +66,9 @@ src/app/(landlord)/tenants/, documents/, move-outs/   the other sidebar lists
 src/components/                   the design system: buttons, chips, money, cards, tabs, tables, tooltips, the shell
 src/lib/property-view.ts          each tenancy's status chip and the one verb its next step links to
 src/app/t/[token]/                the tenants' private page
-src/app/api/                      route handlers (lease, tenancies, photos, deductions, close-out, statement, notices, tenant link)
+src/app/api/                      route handlers (lease, tenancies, photos, deductions, close-out, statement, notices, tenant link, access, health)
+src/proxy.ts                      the demo access gate: every landlord page and route needs the session /access sets
+src/lib/session.ts, limits.ts     the signed session cookie; the daily limits on Claude jobs, invoices, tenancies and uploads
 src/lib/rules.ts                  the lease rules, by rule id from docs/LEGAL_RULES.md
 src/lib/deductions.ts             deduction math, proration, the $125 rule
 src/lib/closeout.ts               close-out facts, the refund plan, guardRefund
@@ -86,7 +88,7 @@ Money and law are handled in four layers, so the model never decides an amount a
 
 1. **Code decides the amounts.** The cap comes from `rules.ts`, each deduction from `deductions.ts`, and the refund plan (rail, amount, the PayPal capture id or the designated email) from `closeout.ts`. The agent is told that these facts are authoritative.
 2. **The agent operates.** Claude reads the facts, confirms the invoice with PayPal, proposes the refund with the plan's exact amount, confirms the refund and grades the statement. It cites only the citations the facts carry, never from memory.
-3. **The landlord approves.** `create_refund` and `send_payout` carry `needsApproval`; the run pauses, the proposal is shown next to what the rules say, and nothing moves until the landlord clicks approve. A run is claimed atomically so a double click cannot resume it twice, and after a decline the run resumes with no money moved and the agent says so. Today that click is not behind a sign-in: the app has no landlord login, so the close-out routes refuse a `LIVE` PayPal environment and move sandbox money only (see [docs/DEPLOY.md](docs/DEPLOY.md)).
+3. **The landlord approves.** `create_refund` and `send_payout` carry `needsApproval`; the run pauses, the proposal is shown next to what the rules say, and nothing moves until the landlord clicks approve. A run is claimed atomically so a double click cannot resume it twice, and after a decline the run resumes with no money moved and the agent says so. The hosted demo puts every landlord page and route behind a shared access code with daily limits on the Claude jobs, but that code is not a per-landlord login, so the close-out routes still refuse a `LIVE` PayPal environment and move sandbox money only (see [docs/DEPLOY.md](docs/DEPLOY.md), section 8).
 4. **guardRefund re-checks.** At the moment a money tool executes, `guardRefund` recomputes the facts from the database and PayPal and blocks any rail, amount, capture id or email that does not match, writing the reason to the audit log. A deduction edited after the proposal, a second click, or a model mistake all stop there.
 
 Beyond money: the app never holds funds (the landlord's PayPal business account does); every action is audited with its actor; the tenants' page shows them their own records only, through a revocable hashed token; and the copy presents rules and facts, never advice (section F of the legal spec).
@@ -101,7 +103,7 @@ The disclaimer the app shows: "This tool organizes your records and fills in tem
 
 ### Environment variables
 
-All of them live in `.env.local`, which is gitignored. The setup scripts below write it; nothing else should. No values here, ever.
+All of them live in `.env.local`, which is gitignored. The setup scripts below write it; nothing else should. No values here, ever. `.env.example` lists every name with a placeholder.
 
 | Variable | Used for | Set by |
 |---|---|---|
@@ -115,6 +117,10 @@ All of them live in `.env.local`, which is gitignored. The setup scripts below w
 | `PAYPAL_SANDBOX_BUYER_EMAIL`, `PAYPAL_SANDBOX_BUYER_PASSWORD` | Optional. The sandbox personal account that pays the demo invoice | `scripts/setup-sandbox-tenant.sh` |
 | `PLAYWRIGHT_PYTHON` | Optional. The Python with Playwright the demo seed uses | by hand |
 | `DEMO_BASE_URL` | Optional. Where the demo seed sends its requests (default `http://localhost:3210`) | by hand |
+| `DEMO_ACCESS_CODE` | Optional. The code the demo seed enters when the site it seeds is behind the access gate (use the owner code) | by hand |
+| `GOOD_FAITH_ACCESS_CODE`, `GOOD_FAITH_OWNER_CODE`, `GOOD_FAITH_SESSION_SECRET` | The hosted demo's access gate: the judges' code, the owner's code, and the secret (32+ characters) that signs the session cookie. Leave them unset for local dev, where the gate is off; a production host without them shows "This demo is not configured". See [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
+| `GOOD_FAITH_DAILY_*`, `GOOD_FAITH_INSPECT_ROOMS`, `GOOD_FAITH_INSPECT_PHOTOS` | Optional. The daily limits on Claude jobs, sandbox invoices, new tenancies and stored uploads, and the inspection's size; defaults in [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
+| `GOOD_FAITH_CLIENT_IP_HEADER` | Optional, and not on Render. The header with the caller's real address, for the wrong-code limit; see [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
 
 ### Run it locally
 
@@ -153,7 +159,7 @@ It prints the tenancy's URL and the tenant's page. Open the tenancy and run the 
 
 What it needs:
 
-- the dev server on `http://localhost:3210` (or set `DEMO_BASE_URL`);
+- the dev server on `http://localhost:3210` (or set `DEMO_BASE_URL`; a hosted copy behind the access gate also needs `DEMO_ACCESS_CODE`, the owner code);
 - `.env.local` from the setup scripts above, including the sandbox tenant's login. The seed refuses to run when `PAYPAL_ENVIRONMENT` is `LIVE`;
 - a Python with Playwright and Chromium (`pip install playwright && playwright install chromium`), which pays the invoice as the sandbox tenant and dates the receipt exhibits. If that Python is in a virtualenv, set `PLAYWRIGHT_PYTHON` to it in `.env.local` or the shell. The seed checks for the browser before it spends a Claude call.
 

@@ -7,7 +7,7 @@ import { FormField } from "@/components/field";
 import { FilePick } from "@/components/file-pick";
 import { Money, Notice, inputClass, textareaClass } from "@/components/ui";
 import { chargeable, defaultProration, suggestedLife, type Performer, type Proration, type Work } from "@/lib/deductions";
-import { mb, notAPhoto, shrinkPhoto, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
+import { AFTER_PHOTOS_MAX, mb, notAPhoto, shrinkPhoto, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
 
 type Finding = { id: string; room: string; item: string; classification: string; remedy: string };
 
@@ -52,6 +52,12 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
     // One deduction is one request, so its files are shrunk in the browser (a PDF receipt stays as it is) and the
     // total is checked against the host's body limit before anything is sent (src/lib/uploads.ts). A file the browser
     // can't decode is refused here rather than stored blind.
+    // The same checks the server makes (src/app/api/tenancies/[id]/deductions/route.ts), with the same words.
+    if (after.length > AFTER_PHOTOS_MAX) { setBusy(false); return setError(`Add at most ${AFTER_PHOTOS_MAX} after-repair photos.`); }
+    if (receipt && receipt.type !== "application/pdf" && !receipt.type.startsWith("image/")) {
+      setBusy(false);
+      return setError(`${receipt.name} isn't a PDF or a photo. Add the receipt as a PDF or a photo.`);
+    }
     const receiptFile = receipt && receipt.type.startsWith("image/") ? await shrinkPhoto(receipt) : receipt;
     if (receipt && !receiptFile) { setBusy(false); return setError(notAPhoto(receipt.name)); }
     const afterFiles: File[] = [];

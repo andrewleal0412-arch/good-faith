@@ -41,6 +41,7 @@ const P: Record<string, React.ReactNode> = {
   clock: <><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 1.5" /></>,
   printer: <><path d="M4.5 6V2.5h7V6M4.5 11.5h-2v-5h11v5h-2" /><path d="M4.5 9.5h7v4h-7z" /></>,
   alert: <><path d="M8 2.5 14 13H2L8 2.5z" /><path d="M8 6.5v3M8 11.2h.01" /></>,
+  "sign-out": <path d="M6.5 2.5h-3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3M10.5 11l3-3-3-3M13.5 8h-7" />,
 };
 
 export type IconName = keyof typeof P;

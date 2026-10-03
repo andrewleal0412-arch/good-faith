@@ -1,22 +1,40 @@
 import { audit, db } from "@/lib/db";
-import { imageType, notAPhotoServer } from "@/lib/images";
+import { imageType, notAPhotoServer, photoTooLarge, readForm, TOO_LARGE, UNREADABLE } from "@/lib/images";
+import { takeAllowance, uploadUnits } from "@/lib/limits";
+import { PHOTOS_PER_REQUEST, UPLOAD_BUDGET } from "@/lib/uploads";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const PHASES = ["move_in", "move_out_before", "move_out_after"] as const;
+/** Photos one tenancy may hold across every room and phase: far above a real unit's, low enough that an open demo
+ *  can't fill the storage plan. */
+const PHOTOS_PER_TENANCY = 120;
 
 // Photos by room and phase, the three AB 2801 stages (Civ. Code 1950.5(g)): move-in, move-out before repairs, and
 // after repairs. Stored in the private photos bucket.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/photos">) {
   const { id } = await ctx.params;
-  const form = await req.formData();
+  const form = await readForm(req);
+  if (!form) return Response.json({ error: UNREADABLE }, { status: 400 });
   const phase = String(form.get("phase") ?? "move_in") as (typeof PHASES)[number];
-  const room = String(form.get("room") ?? "").trim();
-  const files = form.getAll("files").filter((f): f is File => f instanceof File && f.type.startsWith("image/"));
+  const room = String(form.get("room") ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 60);
+  // Every file sent is checked by its bytes, whatever type the browser declared for it.
+  const files = form.getAll("files").filter((f): f is File => f instanceof File);
   if (!PHASES.includes(phase)) return Response.json({ error: "Unknown photo phase." }, { status: 400 });
   if (!room) return Response.json({ error: "Name the room." }, { status: 400 });
   if (!files.length) return Response.json({ error: "Add at least one photo." }, { status: 400 });
+  // The browser sends at most PHOTOS_PER_REQUEST photos and UPLOAD_BUDGET bytes per request (src/lib/uploads.ts).
+  if (files.length > PHOTOS_PER_REQUEST) return Response.json({ error: `Send at most ${PHOTOS_PER_REQUEST} photos at a time.` }, { status: 400 });
+  const big = files.find((f) => f.size > UPLOAD_BUDGET);
+  if (big) return Response.json({ error: photoTooLarge(big.name, big.size) }, { status: 400 });
+  if (files.reduce((n, f) => n + f.size, 0) > UPLOAD_BUDGET) return Response.json({ error: TOO_LARGE }, { status: 413 });
+  const { data: t } = await db.from("tenancies").select("id").eq("id", id).maybeSingle();
+  if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
+  const { count } = await db.from("photos").select("id", { count: "exact", head: true }).eq("tenancy_id", id);
+  if ((count ?? 0) + files.length > PHOTOS_PER_TENANCY) {
+    return Response.json({ error: `A property can hold ${PHOTOS_PER_TENANCY} photos in this demo, and this one has ${count ?? 0}.` }, { status: 400 });
+  }
 
   // Every file is checked before any is stored, so a refused one leaves nothing behind.
   const checked: { file: File; bytes: Uint8Array; type: string }[] = [];
@@ -26,6 +44,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     if (!type) return Response.json({ error: notAPhotoServer(f.name) }, { status: 400 });
     checked.push({ file: f, bytes, type });
   }
+  // Today's allowance of stored upload megabytes (src/lib/limits.ts), so an open demo can't fill the storage plan.
+  const run = await takeAllowance("upload_mb", uploadUnits(checked.reduce((n, c) => n + c.bytes.length, 0)));
+  if (run.refused) return run.refused;
 
   const rows = [];
   for (const { file, bytes, type } of checked) {

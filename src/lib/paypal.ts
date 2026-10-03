@@ -10,6 +10,10 @@ let cached: { token: string; until: number } | null = null;
 
 export const SANDBOX = process.env.PAYPAL_ENVIRONMENT !== "LIVE";
 
+/** PayPal answered with an error status (its sign-in included), so the request did nothing there. A network failure
+ *  is not one of these: PayPal may have acted before the answer was lost. */
+export class PayPalRefused extends Error {}
+
 /** OAuth access token (client credentials), cached until a minute before it expires. */
 export async function accessToken(): Promise<string> {
   if (cached && Date.now() < cached.until) return cached.token;
@@ -21,7 +25,7 @@ export async function accessToken(): Promise<string> {
     },
     body: "grant_type=client_credentials",
   });
-  if (!r.ok) throw new Error(`PayPal auth failed: ${r.status}`);
+  if (!r.ok) throw new PayPalRefused(`PayPal auth failed: ${r.status}`);
   const j = await r.json();
   cached = { token: j.access_token, until: Date.now() + (j.expires_in - 60) * 1000 };
   return cached.token;
@@ -34,10 +38,12 @@ export async function paypal<T = Record<string, unknown>>(method: string, path: 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await r.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!r.ok) throw new Error(`PayPal ${method} ${path} -> ${r.status}: ${JSON.stringify(data).slice(0, 300)}`);
-  return data as T;
+  if (!r.ok) throw new PayPalRefused(`PayPal ${method} ${path} -> ${r.status}: ${text.slice(0, 300)}`);
+  return (text ? JSON.parse(text) : {}) as T;
 }
+
+/** PayPal refused the invoice before creating it: nothing exists in the sandbox. */
+export class InvoiceNotCreated extends Error {}
 
 /** Create and send the deposit invoice. Returns the invoice id and the tenant's pay link. */
 export async function sendDepositInvoice(opts: {
@@ -53,6 +59,8 @@ export async function sendDepositInvoice(opts: {
     invoicer: { business_name: opts.landlordName },
     primary_recipients: [{ billing_info: { email_address: opts.tenantEmail } }],
     items: [{ name: `Security deposit: ${opts.address}`, quantity: "1", unit_amount: { currency_code: "USD", value: opts.amount.toFixed(2) } }],
+  }).catch((e) => {
+    throw e instanceof PayPalRefused ? new InvoiceNotCreated(e.message, { cause: e }) : e;
   });
   const id = created.id ?? created.href?.split("/").pop();
   if (!id) throw new Error("PayPal didn't return an invoice id");

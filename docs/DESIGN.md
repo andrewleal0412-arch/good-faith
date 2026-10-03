@@ -41,7 +41,7 @@ PayPal's two-tone monogram (`PayPalMark`) is the only other color, always beside
 
 | Component | File | Use |
 | --- | --- | --- |
-| `AppShell` | `components/app-shell.tsx` | Sidebar (Properties, Tenants, Payments, Documents; Workflows: Lease check, Move-outs), PayPal connected, account switcher; top bar with search, Test mode, notifications, help, avatar. A drawer at phone width; on a phone the search covers the bar with a Cancel. The account is `GOOD_FAITH_ACCOUNT` or the oldest tenancy's owner, without "LLC". Its menu has no Settings or Sign out because the app has no sign-in yet. |
+| `AppShell` | `components/app-shell.tsx` | Sidebar (Properties, Tenants, Payments, Documents; Workflows: Lease check, Move-outs), PayPal connected, account switcher; top bar with search, Test mode, notifications, help, avatar. A drawer at phone width; on a phone the search covers the bar with a Cancel. The account is `GOOD_FAITH_ACCOUNT` or the oldest tenancy's owner, without "LLC". Its menu ends with Sign out when the hosted demo's access gate is on (no Settings). |
 | `Button`, `ButtonLink`, `buttonClass` | `components/button.tsx` | Primary, secondary, link. Nothing else. Sizes sm 28, md 34, lg 40. |
 | `StatusChip` | `components/ui.tsx` | 22px (26px in the record header). A dot for workflow status, plain for a classification (Damage, Violation). |
 | `Money` | `components/ui.tsx` | Tabular amounts, a true minus for outflows, `cents="small"` for stat tiles. |
@@ -64,4 +64,5 @@ PayPal's two-tone monogram (`PayPalMark`) is the only other color, always beside
 - **A property:** the record header (64px photo, address, status chip, Statement, one primary, overflow menu) over Overview, Move-out, Payments, Documents and Tenants.
 - **Focused flows** (`/tenancy/[id]/refund`): Mercury's Review transfer, a wordmark bar and a centered 560px column, no sidebar.
 - **Tenant page** (`/t/[token]`): the landlord's name in a bar, a 560px column; the amount, one status line and a progress bar first, then Details, Deductions (the thing and what was done, then where and the basis), Timeline, photos, the statement download, a question card and Your rights, each right's title opening its tip. "Prepared with Good Faith" in the footer.
+- **Access page** (`/access`): no shell; the wordmark, one line saying what the app is, and a 400px card with the "Access code" field and the one primary, "Enter demo". A wrong code or too many tries shows a `Notice` under the field. The footer line: "PayPal sandbox only. No real money moves. Not legal advice." When the host has no code set, the card is a gray `EmptyState`: "This demo is not configured".
 - **Not found and errors:** `EmptyState` inside the shell for landlord pages (`(landlord)/not-found.tsx`, `error.tsx`), on a plain page elsewhere.

@@ -107,6 +107,7 @@ await main();
 
 async function main() {
   await requireServer();
+  await signIn();
   PY = pythonBin(env); // before any Claude call: the payment and the receipt exhibits need the browser
 
   let id = args.tenancy ?? null;
@@ -196,7 +197,7 @@ async function stopIfAsked(step, id) {
 
 async function requireServer() {
   try {
-    const r = await fetch(`${BASE}/`, { signal: AbortSignal.timeout(90_000) });
+    const r = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(90_000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
   } catch (e) {
     const why = e.cause?.code ?? e.name ?? e.message;
@@ -204,13 +205,29 @@ async function requireServer() {
   }
 }
 
+// A hosted copy sits behind the demo access gate (src/proxy.ts). With DEMO_ACCESS_CODE set, in the shell or
+// .env.local, the seed enters it first and sends the session cookie with every request. Use the owner code: the owner
+// has no per-session daily limits (src/lib/limits.ts). Local dev with no codes set needs none of this.
+let COOKIE = null;
+async function signIn() {
+  const code = process.env.DEMO_ACCESS_CODE ?? env.DEMO_ACCESS_CODE;
+  if (!code) return;
+  const r = await fetch(`${BASE}/api/access`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }), signal: AbortSignal.timeout(60_000),
+  }).catch((e) => fail(`Couldn't reach ${BASE}/api/access (${e.cause?.code ?? e.name}).`));
+  if (!r.ok) fail(`The access code didn't open ${BASE} (HTTP ${r.status}). Check DEMO_ACCESS_CODE.`);
+  // No cookie back means the gate is off there, and no session is needed.
+  COOKIE = r.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => c.startsWith("gf_session=")) ?? null;
+}
+const withSession = (headers = {}) => (COOKIE ? { ...headers, Cookie: COOKIE } : headers);
+
 /** One request to the app. Server errors come back as the plain-English message the page would show. */
 async function api(method, path, { json, form, timeout = 60_000 } = {}) {
   let r;
   try {
     r = await fetch(`${BASE}${path}`, {
       method, body: form ?? (json === undefined ? undefined : JSON.stringify(json)),
-      headers: json === undefined ? undefined : { "Content-Type": "application/json" },
+      headers: withSession(json === undefined ? {} : { "Content-Type": "application/json" }),
       signal: AbortSignal.timeout(timeout),
     });
   } catch (e) {
@@ -292,7 +309,7 @@ async function invoiceStep(id, st) {
 
 /** The deposit invoice with PayPal's current status: opening the tenancy page refreshes the stored row. */
 async function refreshedInvoice(id) {
-  await fetch(`${BASE}/tenancy/${id}`, { signal: AbortSignal.timeout(90_000) }).catch(() => {});
+  await fetch(`${BASE}/tenancy/${id}`, { headers: withSession(), signal: AbortSignal.timeout(90_000) }).catch(() => {});
   const { data } = await db.from("payments").select("id, paypal_id, amount, status, raw").eq("tenancy_id", id).eq("kind", "deposit_invoice")
     .order("created_at").limit(1).maybeSingle();
   return data;

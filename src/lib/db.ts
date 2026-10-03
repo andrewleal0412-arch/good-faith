@@ -20,3 +20,33 @@ export async function signedUrl(bucket: "leases" | "photos" | "receipts", path: 
   const { data } = await db.storage.from(bucket).createSignedUrl(path, seconds);
   return data?.signedUrl ?? null;
 }
+
+// Links handed out recently, reused while they have at least half their life left: the same photo then keeps the same
+// address from one tab to the next, so the browser shows it from its cache instead of downloading it again, and no
+// signing request is needed. A link is only ever given to a page that already lists that file. The cache is keyed by
+// path alone and shared by every session, so whoever calls this must have checked that the session may see those
+// files (with per-session workspaces: check the path's workspace first, or put the workspace in the key).
+const SIGN_SECONDS = 3600;
+const REUSE_MS = (SIGN_SECONDS / 2) * 1000;
+const recentLinks = new Map<string, { url: string; until: number }>();
+
+/** One-hour links to many private files, by path, in at most one request. A path that couldn't be signed maps to null. */
+export async function signedUrls(bucket: "leases" | "photos" | "receipts", paths: string[]): Promise<Map<string, string | null>> {
+  const now = Date.now();
+  const out = new Map<string, string | null>();
+  const missing: string[] = [];
+  for (const p of new Set(paths.filter(Boolean))) {
+    const hit = recentLinks.get(`${bucket}/${p}`);
+    if (hit && hit.until - now > REUSE_MS) out.set(p, hit.url);
+    else { out.set(p, null); missing.push(p); }
+  }
+  if (!missing.length) return out;
+  const { data } = await db.storage.from(bucket).createSignedUrls(missing, SIGN_SECONDS);
+  if (recentLinks.size > 5000) recentLinks.clear();
+  for (const d of data ?? []) {
+    if (!d.path || d.error || !d.signedUrl) continue;
+    out.set(d.path, d.signedUrl);
+    recentLinks.set(`${bucket}/${d.path}`, { url: d.signedUrl, until: now + SIGN_SECONDS * 1000 });
+  }
+  return out;
+}

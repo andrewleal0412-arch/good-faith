@@ -3,6 +3,7 @@ import { initialsOf } from "@/components/ui";
 import { DISCLAIMERS, displayName } from "@/lib/copy";
 import { longDate } from "@/lib/dates";
 import { SANDBOX } from "@/lib/paypal";
+import { canSignOut } from "@/lib/session-server";
 import { stepLink } from "@/lib/property-view";
 import { streetLine } from "@/lib/ledger";
 import { accountName, loadUnits, type UnitRow } from "@/lib/units";
@@ -38,6 +39,6 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
       tone: u.next.level === "overdue" ? "red" : "amber",
     }));
 
-  const data: ShellData = { account, initials: initialsOf(account), owners, sandbox: SANDBOX, alerts, disclaimer: DISCLAIMERS[0] };
+  const data: ShellData = { account, initials: initialsOf(account), owners, sandbox: SANDBOX, alerts, disclaimer: DISCLAIMERS[0], signOut: canSignOut() };
   return <AppShell data={data}>{children}</AppShell>;
 }
