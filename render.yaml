@@ -8,9 +8,9 @@ services:
     # Region): a West US (North California) project pairs with oregon. Every page makes several database calls, so
     # the distance shows in every load.
     region: oregon
-    # Starter stays awake. The free plan sleeps after 15 minutes without traffic, and a judge's first page would then
-    # wait about a minute for it to wake.
-    plan: starter
+    # Free for now: the Render workspace can't take a card at the moment. The free plan sleeps after 15 minutes
+    # without traffic, so a judge's first page waits about a minute. Switch to starter (stays awake) before judging.
+    plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
