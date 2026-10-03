@@ -16,7 +16,7 @@ Demo video: [to be added before submission]
 
 ## Try it
 
-Hosted demo: [link added after the first deploy]. It runs in the PayPal sandbox, so no real money moves.
+Hosted demo: [good-faith.onrender.com](https://good-faith.onrender.com). It runs in the PayPal sandbox, so no real money moves. It is on Render, and the first page after a quiet spell can take up to a minute while the server wakes.
 
 1. Open the link and enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, made the moment you enter the code and dated to that day. Nobody else sees your copy, and you see nobody else's.
 2. Properties shows two units, both managed by Harbor View Rentals (1140 E. Juniper Hollow Ln is owned by Elena Marquez, whose name is on its lease and its refund). 482 N. Glassell St, Unit B closed out a few days ago: deposit refunded through PayPal, itemized statement delivered. 1140 E. Juniper Hollow Ln moved out yesterday, with 20 days left to send the statement and the refund. Each deposit is a real sandbox payment made for the demo, so PayPal dates it recently rather than at move-in a year ago.
