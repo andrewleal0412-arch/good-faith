@@ -15,7 +15,7 @@ import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
 import { Tabs } from "@/components/tabs";
 import { Money, StatusChip } from "@/components/ui";
-import { ledgerTotals, owedBack, type LedgerKind, type LedgerRow } from "@/lib/ledger";
+import { ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
 import type { LedgerUnit } from "@/lib/ledger-load";
 
 // Payments, as Mercury's and Stripe's transaction tables read: the page title with Export and Request deposit, two
@@ -209,6 +209,8 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
   requestHref: string;
 }) {
   const apiRef = useRef<GridApi<LedgerRow> | null>(null);
+  // Every row California's (its tags are subsections of Civ. Code 1950.5): the export's column keeps that name.
+  const allCa = rows.every((r) => !r.tag || r.tag.startsWith("("));
   const [tab, setTab] = useState<Tab>("all");
   const [property, setProperty] = useState<string | null>(focusId && units.some((u) => u.id === focusId) ? focusId : null);
   const RANGES = useMemo(() => ranges(today), [today]);
@@ -297,7 +299,7 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
       columnKeys: ["date", "type", "unit", "tenants", "detail", "method", "amount", "paypalId", "status", "tag"],
       processHeaderCallback: (p: ProcessHeaderForExportParams<LedgerRow>) => {
         const id = p.column.getColId();
-        return id === "tag" ? "Civ. Code 1950.5" : id === "unit" ? "Property" : id === "tenants" ? "Tenants" : id === "paypalId" ? "PayPal ID" : p.column.getColDef().headerName ?? id;
+        return id === "tag" ? (allCa ? "Civ. Code 1950.5" : "Rule") : id === "unit" ? "Property" : id === "tenants" ? "Tenants" : id === "paypalId" ? "PayPal ID" : p.column.getColDef().headerName ?? id;
       },
       processCellCallback: (p: ProcessCellForExportParams<LedgerRow>) => {
         const r = p.node?.data;
@@ -321,8 +323,9 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
     const type: ColDef<LedgerRow> = {
       colId: "type", headerName: "Type", width: layout === "wide" ? 132 : 124, hide: layout === "medium",
       valueGetter: (p: ValueGetterParams<LedgerRow>) => (p.data ? TYPE[p.data.kind] : ""),
-      // Each row's part of Civil Code 1950.5 is its type's tooltip, and a column of the export.
-      tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.tag ? `Civ. Code 1950.5${p.data.tag}: ${p.data.tagLabel}` : null),
+      // Each row's part of its state's deposit law (California: Civil Code 1950.5) is its type's tooltip, and a column of
+      // the export.
+      tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.tag ? `${tagCite(p.data)}: ${p.data.tagLabel}` : null),
     };
     const amount: ColDef<LedgerRow> = { field: "amount", headerName: "Amount", width: 128, type: "rightAligned", cellRenderer: AmountCell, cellClass: "tabular-nums" };
     if (layout === "narrow") {
@@ -461,7 +464,7 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
           ) : (
             <span className="tabular-nums">{shown} result{shown === 1 ? "" : "s"}</span>
           )}
-          <span className="ml-auto" title="Opening a property refreshes its deposit from PayPal. Hover a type for the part of Civil Code 1950.5 behind it; the export lists it for every row.">
+          <span className="ml-auto" title={`Opening a property refreshes its deposit from PayPal. Hover a type for the part of ${allCa ? "Civil Code 1950.5" : "each property's state law"} behind it; the export lists it for every row.`}>
             Statuses as last checked
           </span>
         </div>

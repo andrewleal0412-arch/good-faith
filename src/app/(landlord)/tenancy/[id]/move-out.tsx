@@ -12,7 +12,9 @@ import { FilePick } from "@/components/file-pick";
 import { Card, CardHead, Money, Notice, StatusChip, Thumb, inlineInputClass } from "@/components/ui";
 import type { Box } from "@/lib/boxes";
 import { basisOf, type StoredDeduction } from "@/lib/deductions";
-import { findingLine, findingTitle, gist, KIND, type Classification, type FindingStatus } from "@/lib/findings";
+import { findingLine, findingTitle, gist, kindsFor, type Classification, type FindingStatus } from "@/lib/findings";
+import { packFor } from "@/lib/states";
+import type { ClientPack } from "@/lib/states/types";
 import { uploadPhotos } from "@/lib/uploads";
 import { DeductionForm } from "./deduction-form";
 import { FindingForm } from "./finding-form";
@@ -57,6 +59,7 @@ const LEGEND: [Classification, string][] = [["damage", "border-red-dot"], ["clea
 // its deduction (or, for wear and tear, by agreeing it isn't charged). Forms open in a side drawer.
 export function MoveOut(p: {
   tenancyId: string;
+  state: string; // the state whose pack the tips and the classifications follow
   rooms: string[];
   moveOutPhotos: { id: string; room: string; url: string | null }[];
   findings: FindingView[];
@@ -67,6 +70,8 @@ export function MoveOut(p: {
   quiet?: boolean; // the record header holds the view's primary button, so Compare shows as secondary
 }) {
   const router = useRouter();
+  const pack = packFor(p.state);
+  const KIND = kindsFor(pack);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [drawer, setDrawer] = useState<DrawerState | null>(null);
@@ -133,13 +138,13 @@ export function MoveOut(p: {
       <Drawer open={drawer?.kind === "deduction"} onClose={() => setDrawer(null)} title="Add deduction"
         sub={drawer?.kind === "deduction" ? `${drawer.f.n}. ${findingTitle(drawer.f)}, ${drawer.f.room}` : undefined}>
         {drawer?.kind === "deduction" && (
-          <DeductionForm tenancyId={p.tenancyId} finding={drawer.f}
+          <DeductionForm tenancyId={p.tenancyId} state={pack.code} finding={drawer.f}
             onCancel={() => setDrawer(null)} onDone={() => { setDrawer(null); router.refresh(); }} />
         )}
       </Drawer>
       <Drawer open={drawer?.kind === "finding"} onClose={() => setDrawer(null)} title="Add finding" sub={drawer?.kind === "finding" ? drawer.room : undefined}>
         {drawer?.kind === "finding" && (
-          <FindingForm tenancyId={p.tenancyId} room={drawer.room} like={drawer.like}
+          <FindingForm tenancyId={p.tenancyId} state={pack.code} room={drawer.room} like={drawer.like}
             onCancel={() => setDrawer(null)} onDone={() => { setDrawer(null); router.refresh(); }} />
         )}
       </Drawer>
@@ -174,14 +179,12 @@ export function MoveOut(p: {
       <>
         <Card>
           <CardHead title="Move-out photos" meta={photoMeta}
-            right={<InfoTip align="end" title="Before any cleaning or repair" cite="Civ. Code 1950.5(g)(2)">
-              Photograph each room after the tenants leave and before any work that will be deducted, then again after it.
-            </InfoTip>} />
+            right={<InfoTip align="end" title={pack.moveOut.photosTip.title} cite={pack.moveOut.photosTip.cite}>{pack.moveOut.photosTip.text}</InfoTip>} />
           {!p.locked && !p.moveOutDate && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line-2 px-5 py-3 text-sm">
               <span className="text-ink-3">Moved out</span>
               <MoveOutDate tenancyId={p.tenancyId} value={null} locked={false} />
-              <InfoTip align="end" title="The 21-day clock" cite="Civ. Code 1950.5(h)(1)">The itemized statement and the refund are due within 21 calendar days after the tenants leave.</InfoTip>
+              <InfoTip align="end" title={pack.deadline.clockWord.replace(/^the /, "The ")} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>
             </div>
           )}
           {outRooms.length > 0 && (
@@ -236,14 +239,14 @@ export function MoveOut(p: {
           )}
         </div>
       </div>
-      {/* The comparison can run before the move-out date is in; the date starts the 21-day clock, so it is asked for
+      {/* The comparison can run before the move-out date is in; the date starts the state's clock, so it is asked for
           here until it is recorded (the "Record move-out" step links to this section). */}
       {!p.moveOutDate && !p.locked && (
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-canvas px-4 py-3 text-sm">
           <span className="size-2 shrink-0 rounded-full bg-amber-dot" aria-hidden />
           <span className="font-medium">Moved out</span>
           <MoveOutDate tenancyId={p.tenancyId} value={null} locked={false} />
-          <span className="text-xs text-ink-3">Starts the 21-day clock</span>
+          <span className="text-xs text-ink-3">Starts {pack.deadline.clockWord}</span>
         </div>
       )}
       {busy === "inspect" && <Notice tone="gray" className="mb-3">Comparing every room. This takes about half a minute.</Notice>}
@@ -251,13 +254,13 @@ export function MoveOut(p: {
 
       <div className="flex flex-col gap-4">
         {groups.map((g) => (
-          <RoomCard key={g.key} room={g.room} before={g.before} after={g.after} items={g.items} locked={p.locked} busy={busy}
+          <RoomCard key={g.key} pack={pack} room={g.room} before={g.before} after={g.after} items={g.items} locked={p.locked} busy={busy}
             onDeduct={(f) => f.id && setDrawer({ kind: "deduction", f: { ...f, id: f.id } })}
             onReview={review} onRemove={remove}
             onAddFinding={() => setDrawer({ kind: "finding", room: g.room, like: g.items.find((f) => f.id)?.id ?? null })} />
         ))}
         {p.quietRooms.map((q) => (
-          <RoomCard key={`quiet-${q.room}`} room={q.room} before={{ url: q.beforeUrl, date: q.beforeDate }} after={{ url: q.afterUrl, date: q.afterDate }}
+          <RoomCard key={`quiet-${q.room}`} pack={pack} room={q.room} before={{ url: q.beforeUrl, date: q.beforeDate }} after={{ url: q.afterUrl, date: q.afterDate }}
             items={[]} locked={p.locked} busy={busy} onDeduct={() => {}} onReview={review} onRemove={remove}
             onAddFinding={() => setDrawer({ kind: "finding", room: q.room, like: null })} />
         ))}
@@ -267,7 +270,8 @@ export function MoveOut(p: {
   );
 }
 
-function RoomCard({ room, before, after, items, locked, busy, onDeduct, onReview, onRemove, onAddFinding }: {
+function RoomCard({ pack, room, before, after, items, locked, busy, onDeduct, onReview, onRemove, onAddFinding }: {
+  pack: ClientPack;
   room: string;
   before: { url: string | null; date: string | null };
   after: { url: string | null; date: string | null };
@@ -318,7 +322,7 @@ function RoomCard({ room, before, after, items, locked, busy, onDeduct, onReview
             {active.length > 0 && <span className="ml-auto text-ink-3">{locked ? `${charged} of ${active.length} charged` : `${accepted} of ${active.length} accepted`}</span>}
           </div>
           {items.length ? items.map((f) => (
-            <FindingRow key={f.id ?? f.n} f={f} locked={locked} busy={busy === `review-${f.id}`} hot={hot === (f.id ?? String(f.n))}
+            <FindingRow key={f.id ?? f.n} pack={pack} f={f} locked={locked} busy={busy === `review-${f.id}`} hot={hot === (f.id ?? String(f.n))}
               onHot={(on) => setHot(on ? f.id ?? String(f.n) : null)}
               onDeduct={() => onDeduct(f)} onReview={(s) => onReview(f, s)} onRemove={() => onRemove(f)} />
           )) : (
@@ -338,18 +342,18 @@ function RoomCard({ room, before, after, items, locked, busy, onDeduct, onReview
 /** One finding, as the mockup's rows read: its number in the box color, the title, the classification chip and one
  *  line of what changed with "Why?" at its end; on the right, the amount and its state, or until it is reviewed the one
  *  action that accepts it (a deduction, or for wear and tear agreeing it isn't charged) over a quiet Dismiss. */
-function FindingRow({ f, locked, busy, hot, onHot, onDeduct, onReview, onRemove }: {
-  f: FindingView; locked: boolean; busy: boolean; hot: boolean; onHot: (on: boolean) => void;
+function FindingRow({ pack, f, locked, busy, hot, onHot, onDeduct, onReview, onRemove }: {
+  pack: ClientPack; f: FindingView; locked: boolean; busy: boolean; hot: boolean; onHot: (on: boolean) => void;
   onDeduct: () => void; onReview: (s: FindingStatus | null) => void; onRemove: () => void;
 }) {
-  const k = KIND[f.classification];
+  const k = kindsFor(pack)[f.classification];
   const dismissed = f.status === "dismissed";
   const wear = f.classification === "wear_and_tear";
   const open = !locked && !f.deduction && !f.status && !!f.id;
   const why = f.deduction ? (() => {
     const b = basisOf(f.deduction);
     return (
-      <InfoTip trigger="why" title={b.title} cite={f.deduction.proration !== "none" ? `${k.cite}; DRE guide p. 84 (guidance, not statute)` : k.cite}>
+      <InfoTip trigger="why" title={b.title} cite={f.deduction.proration !== "none" ? `${k.cite}; ${pack.copy.guidanceCite}` : k.cite}>
         {f.deduction.math}.{f.deduction.note ? ` ${f.deduction.note}` : ""}
       </InfoTip>
     );

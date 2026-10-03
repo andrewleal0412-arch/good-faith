@@ -48,12 +48,13 @@ export class InvoiceNotCreated extends Error {}
 /** Create and send the deposit invoice. Returns the invoice id and the tenant's pay link. */
 export async function sendDepositInvoice(opts: {
   tenantEmail: string; amount: number; landlordName: string; address: string; note: string;
+  terms: string; // the state pack's terms line, e.g. "Security deposit held and returned under California Civil Code 1950.5."
 }) {
   const created = await paypal<{ id?: string; href?: string }>("POST", "/v2/invoicing/invoices", {
     detail: {
       currency_code: "USD",
       note: opts.note,
-      terms_and_conditions: "Security deposit held and returned under California Civil Code 1950.5.",
+      terms_and_conditions: opts.terms,
       payment_term: { term_type: "DUE_ON_RECEIPT" },
     },
     invoicer: { business_name: opts.landlordName },

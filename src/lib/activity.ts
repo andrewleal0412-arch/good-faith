@@ -1,7 +1,43 @@
 import "server-only";
 import { longDate } from "./dates";
-import { NOTICE_INFO, NOTICE_METHOD_LABEL, type NoticeKind, type NoticeMethod } from "./notices";
+import { NOTICE_METHOD_LABEL, RECORD_SHORT, type NoticeKind, type NoticeMethod } from "./notices";
+
 import { describeDelivery, type DeliveryRecord } from "./statement";
+
+/** A notice's name as its audit entry gave it (the tenancy's pack's), else the kind's general name. */
+const shortOf = (d: Record<string, unknown> | null | undefined) =>
+  (typeof d?.short === "string" ? d.short : RECORD_SHORT[d?.kind as NoticeKind]) as string | undefined;
+
+/** How the record was made, as its pack words it ("Signed", "Received", "Offered", "Recorded", "Sent"); "Given" for
+ *  California's two notices and entries made before the verb was logged. */
+const verbOf = (d: Record<string, unknown> | null | undefined) => (typeof d?.verb === "string" ? d.verb : "Given");
+
+/** The full sentence for a record: "Gave the initial-inspection notice by first-class mail to Maya Torres on ...",
+ *  "Received the forwarding address by email from ...", "Signed the move-in checklist electronically with ...". */
+function recordSentence(d: Record<string, unknown> | null): string {
+  const method = d?.method as NoticeMethod;
+  const how = NOTICE_METHOD_LABEL[method] ?? method;
+  const what = shortOf(d) ?? "notice";
+  const on = ` on ${day(d?.date)}`;
+  switch (verbOf(d)) {
+    case "Received": return `Received the ${what} by ${how}${d?.to ? ` from ${d.to}` : ""}${on}`;
+    case "Signed": return `Signed the ${what} ${method === "email" ? "electronically" : "in person"}${d?.to ? ` with ${d.to}` : ""}${on}`;
+    case "Offered": return `Offered the ${what.replace(/ offer$/, "")} by ${how}${d?.to ? ` to ${d.to}` : ""}${on}`;
+    case "Sent": return `Sent the ${what} by ${how}${d?.to ? ` to ${d.to}` : ""}${on}`;
+    case "Recorded": return `Recorded the ${what}: ${how}${on}`;
+    case "Acknowledged": return `Recorded the ${what}${on}`;
+    default: return `Gave the ${what} by ${how}${d?.to ? ` to ${d.to}` : ""}${on}`;
+  }
+}
+
+/** The short title for a record: "Initial-inspection notice given", "Forwarding address received". */
+function recordTitle(d: Record<string, unknown> | null): string {
+  const what = (shortOf(d) ?? "notice").replace(/^./, (c) => c.toUpperCase());
+  const verb = verbOf(d);
+  if (verb === "Offered") return `${what.replace(/ offer$/, "")} offered`;
+  if (verb === "Recorded" || verb === "Acknowledged") return `${what} recorded`;
+  return `${what} ${verb.toLowerCase()}`;
+}
 
 // The audit log in words: the full sentence the tenancy's activity list shows, and the short title the Properties
 // page's Recent activity shows (Mercury's list: one title, the address under it, the date on the right).
@@ -46,12 +82,9 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "lease_end_set": return d?.end_date ? `Set the lease end to ${day(d.end_date)}` : "Set the lease to month to month";
     case "notice_recorded":
     case "notice_changed":
-      return `${action === "notice_changed" ? "Changed" : "Recorded"} the notice to end the tenancy: given ${day(d?.notice_given_on)}, planned move-out ${day(d?.planned_move_out)}; inspection window opens ${day(d?.inspection_window_opens)}`;
-    case "notice_given": {
-      const kind = d?.kind as NoticeKind, method = d?.method as NoticeMethod;
-      return `Gave the ${NOTICE_INFO[kind]?.short ?? "notice"} by ${NOTICE_METHOD_LABEL[method] ?? method}${d?.to ? ` to ${d.to}` : ""} on ${day(d?.date)}`;
-    }
-    case "notice_given_removed": return `Removed the record that the ${NOTICE_INFO[d?.kind as NoticeKind]?.short ?? "notice"} was given`;
+      return `${action === "notice_changed" ? "Changed" : "Recorded"} the notice to end the tenancy: given ${day(d?.notice_given_on)}${d?.given_by ? ` by the ${d.given_by === "tenant" ? "tenants" : "landlord"}` : ""}, planned move-out ${day(d?.planned_move_out)}${d?.inspection_window_opens === null ? "" : `; inspection window opens ${day(d?.inspection_window_opens)}`}`;
+    case "notice_given": return recordSentence(d);
+    case "notice_given_removed": return `Removed the record that the ${shortOf(d) ?? "notice"} was ${verbOf(d).toLowerCase()}`;
     case "tenant_link_created": return (d?.replaced as string[])?.length ? "Made a new tenant link; the old one stopped working" : "Made the tenant link";
     case "tenant_link_revoked": return "Turned the tenant link off";
     case "tenant_moving_out": return `${d?.name ?? "The tenants"} sent through the tenant link: moving out ${day(d?.planned_move_out)}; forwarding address ${d?.forwarding_address}`;
@@ -124,7 +157,7 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "lease_end_set": return "Lease end updated";
     case "notice_recorded": return "Notice to move out recorded";
     case "notice_changed": return "Notice dates changed";
-    case "notice_given": return `${(NOTICE_INFO[d?.kind as NoticeKind]?.short ?? "notice").replace(/^./, (c) => c.toUpperCase())} given`;
+    case "notice_given": return recordTitle(d);
     case "notice_given_removed": return "Notice record removed";
     case "tenant_link_created": return "Tenant link created";
     case "tenant_link_revoked": return "Tenant link turned off";

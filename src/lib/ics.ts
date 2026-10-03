@@ -1,10 +1,10 @@
-import { addDays, longDate } from "./dates";
-import { statementDue } from "./deductions";
+import { addDays } from "./dates";
 import { inspectionWindowOpens } from "./notices";
-import { CHECK_IN_DAYS_BEFORE_END, closedOut, tenancyEnds, type TenancySummary } from "./next-step";
+import { CHECK_IN_DAYS_BEFORE_END, closedOut, dueOf, packOf, tenancyEnds, type TenancySummary } from "./next-step";
 
 // The tenancy's dates as an iCalendar file (RFC 5545) the landlord adds to Apple, Google or Outlook once, so the
-// reminders live where they already look. All-day events in America/Los_Angeles; no email service involved.
+// reminders live where they already look. All-day events in America/Los_Angeles; no email service involved. The words
+// and the citations are the tenancy's state pack's.
 
 export type EventKind = "check_in" | "inspection_window" | "move_out" | "statement_due";
 
@@ -16,34 +16,40 @@ export type CalendarEvent = { kind: EventKind; uid: string; date: string; label:
 export function tenancyEvents(t: TenancySummary): CalendarEvent[] {
   const out: CalendarEvent[] = [];
   if (closedOut(t)) return out;
+  const pack = packOf(t);
+  const cal = pack.calendar;
   const where = t.address;
   if (t.endDate && !t.noticeGivenOn && !t.moveOutDate) {
     out.push({
       kind: "check_in", uid: `${t.id}-check-in`, date: addDays(t.endDate, -CHECK_IN_DAYS_BEFORE_END),
       label: "Lease check-in, 60 days before the end", summary: `Lease check-in: ${where}`,
-      description: `The lease at ${where} ends ${longDate(t.endDate)}, 60 days from today. Ask the tenants whether they are staying. Once either side gives notice, the initial-inspection notice (Civ. Code 1950.5(f)(1)) and, if the deposit or rent was paid electronically, the electronic-refund notice ((h)(1)(A)(ii)(II)) follow.`,
+      description: cal.checkIn(where, t.endDate),
     });
   }
   const ends = tenancyEnds(t);
   if (ends) {
     const what = t.moveOutDate ? "Move-out" : t.plannedMoveOut ? "Planned move-out" : "Lease ends";
-    if (!t.moveOutDate) {
+    const windowOpens = inspectionWindowOpens(ends, pack);
+    if (!t.moveOutDate && windowOpens) {
       out.push({
-        kind: "inspection_window", uid: `${t.id}-inspection-window`, date: inspectionWindowOpens(ends),
+        kind: "inspection_window", uid: `${t.id}-inspection-window`, date: windowOpens,
         label: "Inspection window opens, two weeks before the end", summary: `Inspection window opens: ${where}`,
-        description: `From today the tenants may have their initial inspection, if they requested one: no earlier than two weeks before the tenancy ends on ${longDate(ends)}, with at least 48 hours' written notice of the date and time (Civ. Code 1950.5(f)(1)).`,
+        description: cal.window(ends),
       });
     }
     out.push({
       kind: "move_out", uid: `${t.id}-move-out`, date: ends,
       label: what, summary: `${what}: ${where}`,
-      description: `${what === "Lease ends" ? `The lease at ${where} ends today.` : `${t.tenants.join(" and ")} ${what === "Move-out" ? "moved" : "plan to move"} out of ${where} today.`} Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).`,
+      description: cal.moveOut(what === "Lease ends" ? `The lease at ${where} ends today.` : `${t.tenants.join(" and ")} ${what === "Move-out" ? "moved" : "plan to move"} out of ${where} today.`),
     });
-    out.push({
-      kind: "statement_due", uid: `${t.id}-statement-due`, date: statementDue(ends),
-      label: "Statement and refund due, 21 days after move-out", summary: `Deposit statement and refund due: ${where}`,
-      description: `Last day to furnish the itemized statement and return the rest of the security deposit: 21 calendar days after the ${longDate(ends)} move-out (Civ. Code 1950.5(h)(1)).`,
-    });
+    const due = dueOf(t, ends);
+    if (due) {
+      out.push({
+        kind: "statement_due", uid: `${t.id}-statement-due`, date: due,
+        label: cal.due.label, summary: cal.due.summary(where),
+        description: cal.due.description(ends),
+      });
+    }
   }
   return out;
 }

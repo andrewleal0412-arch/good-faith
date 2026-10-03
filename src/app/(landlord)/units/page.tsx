@@ -10,26 +10,32 @@ import {
 import { foldActivity, QUIET_ACTIONS } from "@/lib/activity";
 import { displayName } from "@/lib/copy";
 import { dayLabel, daysBetween, pacificDate, shortDate } from "@/lib/dates";
-import { statementDue } from "@/lib/deductions";
 import { wasPaid } from "@/lib/invoice-status";
 import { loadLedger } from "@/lib/ledger-load";
 import { ledgerTotals } from "@/lib/ledger";
-import { closedOut, refundLeft, type TenancySummary } from "@/lib/next-step";
+import { closedOut, dueLabelOf, dueOf, packOf, refundLeft, type TenancySummary } from "@/lib/next-step";
 import { GROUP_LABEL, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup } from "@/lib/property-view";
+import { packFor } from "@/lib/states/server";
 import { accountName, loadRecentActivity, loadThumbnails, loadUnits, UPCOMING_DAYS } from "@/lib/units";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Properties" };
 
 // Properties, the landlord's home: quick actions, three facts, every tenancy with its status and the one thing it
-// needs next (worked out from its own dates in src/lib/next-step.ts), recent activity, and a rail with the next steps,
-// the nearest 21-day deadline and PayPal.
+// needs next (worked out from its own dates and its state's rule pack in src/lib/next-step.ts), recent activity, and a
+// rail with the next steps, the nearest statement and refund deadline (21 days in California) and PayPal.
 
 /** What the unit holds right now, from the stored PayPal records and the deductions; the ledger counts the same way. */
 function heldNow(s: TenancySummary): number {
   if (!s.deposit || s.returned || !wasPaid(s.deposit.status)) return 0;
   if (s.statementDeliveredAt) return refundLeft(s) ?? s.deposit.amount;
   return s.deposit.amount;
+}
+
+/** The state whose deposit law a property follows, as a small tag beside its street; the tip names the statute. */
+function StateTag({ state }: { state: string }) {
+  const pack = packFor(state);
+  return <span title={`${pack.name}: ${pack.statute.short}`} className="ml-1.5 inline-flex h-[18px] items-center rounded-xs bg-surface-2 px-1 align-[1px] text-xs font-medium text-ink-3">{pack.code}</span>;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -61,10 +67,10 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   const deducted = lrows.filter((r) => r.kind === "deduction" && r.effect === "claimed" && r.date.startsWith(year) && r.amount > 0);
   const sum = (xs: { amount: number }[]) => Math.round(xs.reduce((s, r) => s + r.amount, 0) * 100) / 100;
 
-  // The rail: open steps, most urgent first (loadUnits sorts them), and the nearest running 21-day clock.
+  // The rail: open steps, most urgent first (loadUnits sorts them), and the nearest running statement clock.
   const steps = rows.filter((r) => r.next.level !== "done" && r.next.level !== "later").slice(0, 3);
   const clock = rows.filter((r) => r.summary.moveOutDate && !closedOut(r.summary))
-    .map((r) => ({ ...r, due: statementDue(r.summary.moveOutDate!) }))
+    .map((r) => ({ ...r, due: dueOf(r.summary) ?? r.summary.moveOutDate!, pack: packOf(r.summary) }))
     .sort((a, b) => a.due.localeCompare(b.due))[0];
   const invoices = units.filter((u) => u.summary.deposit).length;
   // Coming up: every dated event across the units in the next few months, nearest first, less the deadline the card
@@ -139,7 +145,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                             <Link href={`/tenancy/${s.id}`} className="flex items-center gap-3">
                               <Thumb src={thumbs.get(s.id) ?? null} />
                               <span className="min-w-0">
-                                <span className="block font-medium text-ink">{r.addr.street}</span>
+                                <span className="block font-medium text-ink">{r.addr.street}<StateTag state={s.state} /></span>
                                 <span className="block text-xs text-ink-3 max-[1399px]:hidden">{r.addr.cityLine}</span>
                                 <span className="block text-xs text-ink-3 min-[1400px]:hidden">{s.tenants.join(", ") || r.addr.cityLine}</span>
                               </span>
@@ -174,7 +180,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                   <Card key={s.id} className="flex items-start gap-3 p-3.5">
                     <Link href={`/tenancy/${s.id}`} aria-label={r.addr.street} tabIndex={-1}><Thumb src={thumbs.get(s.id) ?? null} size={48} /></Link>
                     <div className="min-w-0 flex-1">
-                      <Link href={`/tenancy/${s.id}`} className="block font-medium">{r.addr.street}</Link>
+                      <Link href={`/tenancy/${s.id}`} className="block font-medium">{r.addr.street}<StateTag state={s.state} /></Link>
                       <div className="truncate text-xs text-ink-3">{s.tenants.join(", ") || "No tenants named"}</div>
                       <div className="mt-2 flex gap-4 text-xs text-ink-3">
                         <span>Rent<b className="block text-sm font-medium text-ink">{s.monthlyRent != null ? <Money value={s.monthlyRent} /> : "Not set"}</b></span>
@@ -217,14 +223,12 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
               const state = s.statementDeliveredAt ? "Delivered" : s.deductions.length || s.moveOutInspectedAt ? "Draft" : "Not started";
               return (
                 <Card className="p-5">
-                  <div className="text-sm font-medium">Statement and refund due</div>
+                  <div className="text-sm font-medium">{dueLabelOf(s)}</div>
                   <div className="mb-2 text-xs text-ink-3">{clock.addr.street}</div>
                   <div className="text-xl font-medium tabular-nums">{shortDate(clock.due)}</div>
                   <div className={`mt-0.5 flex items-center gap-[5px] text-sm ${left < 0 ? "text-red" : "text-ink-3"}`}>
                     {left < 0 ? `${-left} days late` : left === 0 ? "Due today" : `${left} days left`}
-                    <InfoTip title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">
-                      The itemized statement and the refund are due within 21 calendar days after the tenants leave. Bad-faith retention can cost up to twice the deposit (1950.5(m)).
-                    </InfoTip>
+                    <InfoTip title={clock.pack.deadline.tip.title} cite={clock.pack.deadline.tip.cite}>{clock.pack.deadline.railText}</InfoTip>
                   </div>
                   <div className="my-3.5 h-px bg-line" />
                   <KV align="right" rows={[

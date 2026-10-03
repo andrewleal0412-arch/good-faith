@@ -2,16 +2,22 @@ import "server-only";
 import { pacificDate, paypalPaidAt } from "./dates";
 import { db } from "./db";
 import { depositNotOurs, POOL_EMPTY } from "./demo-pool";
-import { missingDocs, settle, statementDue, usd, type StoredDeduction } from "./deductions";
+import { missingDocs, settle, usd, type StoredDeduction } from "./deductions";
 import { wasPaid } from "./invoice-status";
+import type { Notices } from "./notices";
 import { getInvoice, type Invoice } from "./paypal";
+import { packFor } from "./states/server";
+import type { StatePack } from "./states/types";
+import type { TenantMoveOut } from "./tenant";
 
 // The move-out close-out, in plain code. The agent reads these facts and drives PayPal, but what may be refunded,
 // how, and to whom is decided here, and every money tool re-checks it at the moment it runs (guardRefund).
 //
-// Rules (docs/LEGAL_RULES.md): refund within 21 days of move-out (D15); paid electronically means refunded
-// electronically, by PayPal only with the tenants' written agreement (D16, AB 414); one refund for all adults unless
-// they agreed to split it (D19); deductions over $125 need their documents (D20, D22).
+// The rules are the tenancy's state pack (src/lib/states/). California (docs/LEGAL_RULES.md): refund within 21 days of
+// move-out (D15); paid electronically means refunded electronically, by PayPal only with the tenants' written agreement
+// (D16, AB 414); one refund for all adults unless they agreed to split it (D19); deductions over $125 need their
+// documents (D20, D22). Other states add their own blockers (a Texas forwarding address in writing, Florida's claim
+// notice, New York's 14-day forfeiture, Washington's move-in checklist) through the pack.
 // PayPal: a payment can be refunded against itself for 180 days; after that the money goes out as a Payout.
 
 export const REFUND_WINDOW_DAYS = 180;
@@ -30,23 +36,15 @@ export type CloseOutFacts = {
   plan: { rail: Rail; amount: number; captureId?: string; email?: string; why: string };
   blockers: string[];
   warnings: string[];
-  rules: typeof RULES;
+  rules: Record<string, string>;
+  // How the claimed amounts stand when they are not plain deductions (Florida: disputed by a timely objection; New
+  // York: kept after day 14 under the landlord's acknowledgment). Absent otherwise, and always in California.
+  standing?: { label: string; note: string };
 };
 
-/** The only citations the agent may use. It cites from this list, never from memory (it mixed up (g) and (h)). */
-export const RULES = {
-  deadline: "Civ. Code 1950.5(h)(1): the itemized statement and the refund are due within 21 days after the tenant vacates.",
-  electronicRefund: "Civ. Code 1950.5(h)(1)(A): when the landlord received the deposit or the rent electronically, the deposit is refunded electronically, and by PayPal only if the tenant agreed in writing.",
-  roommates: "Civ. Code 1950.5(h)(1)(C): one refund for all adult tenants unless every adult signed an allocation agreement.",
-  documents: "Civ. Code 1950.5(h)(2): the statement includes invoices or receipts, labor time and hourly rate, and the photos, unless repair and cleaning deductions total $125 or less ((h)(4)).",
-  photos: "Civ. Code 1950.5(g)(2): photos of each item before and after the repair or cleaning that is deducted.",
-  estimate: "Civ. Code 1950.5(h)(3): if a repair isn't finished or a document isn't in hand within the 21 days, the statement deducts a good-faith estimate with the vendor's contact details, and the final documents follow within 14 days of completion or receipt.",
-  delivery: "Civ. Code 1950.5(h)(1)(B) and (h)(6): the statement goes by personal delivery or first-class mail to the address the tenant provided, or to the vacated unit if none; email only if the landlord and tenant agreed to it in writing.",
-  wearAndTear: "Civ. Code 1950.5(b)(2) and (e)(1)-(2): ordinary wear and tear and conditions that predate the tenancy can't be deducted.",
-  badFaith: "Civ. Code 1950.5(h)(7) and (m): bad-faith retention can cost up to twice the deposit in statutory damages.",
-  usefulLife: "Useful-life proration and the paint schedule come from the DRE's California Tenants guide. They are guidance, not statute.",
-  refundWindow: "PayPal policy, not law: a payment can be refunded against itself for 180 days; after that the money goes out as a Payout.",
-};
+/** The only citations the agent may use: the tenancy's pack's. It cites from this list, never from memory (it once
+ *  mixed up California's (g) and (h)). */
+export const rulesFor = (pack: StatePack) => pack.close.rules;
 
 const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
@@ -57,19 +55,26 @@ export const paidAgo = (n: number) => (n <= 0 ? "today" : n === 1 ? "yesterday" 
 export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   const today = pacificToday();
   const [{ data: t }, { data: payments }, { data: rows }] = await Promise.all([
-    db.from("tenancies").select("*, properties(address)").eq("id", tenancyId).single(),
+    db.from("tenancies").select("*, properties(address, state)").eq("id", tenancyId).single(),
     db.from("payments").select("*").eq("tenancy_id", tenancyId).order("created_at"),
     db.from("deductions").select("*").eq("tenancy_id", tenancyId).order("created_at"),
   ]);
   if (!t) throw new Error("No such tenancy.");
+  const pack = packFor((t.properties as { state?: string | null } | null)?.state);
   const blockers: string[] = [];
   const warnings: string[] = [];
+  const notices = (t.notices ?? {}) as Notices;
 
+  // The deadline, from the move-out and whatever else the state counts from (Florida: whether a claim is made, and
+  // the day its notice went out).
   const moveOut = t.move_out_date as string | null;
-  const due = moveOut ? statementDue(moveOut) : null;
+  const due = moveOut ? pack.deadline.due({
+    moveOutDate: moveOut, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null,
+    claimed: (rows ?? []).length > 0, claimNoticeDate: notices.claim_notice?.date ?? null,
+  }) : null;
   const daysLeft = due ? daysBetween(today, due) : null;
-  if (!moveOut) blockers.push("Set the move-out date first: it starts the 21-day clock.");
-  if (daysLeft != null && daysLeft < 0) warnings.push(`The 21-day deadline passed ${days(-daysLeft)} ago. Refund now; a late statement risks the whole deposit if a court finds bad faith (1950.5(h)(7), (m)).`);
+  if (!moveOut) blockers.push(pack.deadline.moveOutFirst);
+  if (due && daysLeft != null && daysLeft < 0) warnings.push(pack.deadline.lateWarning(-daysLeft, due));
 
   // The deposit as PayPal reports it right now, not as we stored it. If PayPal can't be reached, the statement still
   // renders from what the tenancy page last stored, but no money moves on stale facts: the outage is a blocker.
@@ -100,14 +105,16 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
     blockers.push("No deposit was collected through PayPal for this tenancy.");
   }
 
+  // A PayPal refund needs the tenants' written agreement where the pack says so (California's AB 414; Washington, as
+  // product policy). Elsewhere a refund of the original payment needs none, and only a Payout to another account does.
   const agreement = t.refund_agreement as { paypal_email: string; signed_by: string[]; signed_at: string } | null;
-  if (!agreement) blockers.push("No written refund-method agreement: PayPal can't be used without it (1950.5(h)(1)(A)).");
+  if (!agreement && pack.refund.agreementRequired) blockers.push(pack.refund.noAgreementBlocker);
 
   const deductions = (rows ?? []).map((d) => ({ ...d, amount: Number(d.amount) })) as StoredDeduction[];
   const depositHeld = deposit && wasPaid(deposit.status) ? deposit.amount : 0;
-  const s = settle(depositHeld, deductions);
+  const s = settle(depositHeld, deductions, pack);
   const items = deductions.map((d) => ({
-    item: d.item, room: d.room, category: d.category, amount: d.amount, math: d.math, missingDocs: missingDocs(d, s.documentsRequired),
+    item: d.item, room: d.room, category: d.category, amount: d.amount, math: d.math, missingDocs: missingDocs(d, s.documentsRequired, pack),
   }));
   for (const d of items) if (d.missingDocs.length) blockers.push(`${d.item}: still needs ${d.missingDocs.join(", ")}. Add it or remove the deduction.`);
 
@@ -120,6 +127,7 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   if (!alreadyReturned && inv?.paypal_id && (await depositNotOurs(t.workspace_id as string, inv.paypal_id))) blockers.push(POOL_EMPTY);
   if (alreadyReturned) blockers.push(`The deposit was already returned: ${usd(alreadyReturned.amount)} by PayPal ${alreadyReturned.kind} ${alreadyReturned.paypalId} on ${alreadyReturned.at.slice(0, 10)}, sent by this close-out after the landlord approved it. Don't send another.`);
 
+  const tm = (t.tenant_move_out ?? null) as TenantMoveOut | null;
   const facts: CloseOutFacts = {
     today,
     tenancy: { address: (t.properties as { address: string }).address, tenants: (t.tenants as { name: string }[]).map((x) => x.name),
@@ -132,21 +140,52 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
     plan: { rail: "blocked", amount: 0, why: "" },
     blockers,
     warnings,
-    rules: RULES,
+    rules: rulesFor(pack),
   };
-  facts.plan = plan(facts);
+  // The state's own requirements: a written forwarding address (Texas), the claim notice and the objection window
+  // (Florida), the 14-day forfeiture (New York), the move-in checklist (Washington). Before the already-returned line,
+  // which reads last.
+  const ctx = {
+    today, notices, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null, deductionsCount: deductions.length,
+    forwarding: tm ? { address: tm.forwarding_address, date: pacificDate(tm.updated_at) } : null,
+  };
+  const extra = pack.close.extraBlockers(facts, ctx);
+  if (extra.length) {
+    const at = alreadyReturned ? blockers.length - 1 : blockers.length;
+    blockers.splice(at, 0, ...extra);
+  }
+  warnings.push(...pack.close.extraWarnings(facts, ctx));
+  const standing = pack.close.standing?.({ today, notices, claimed: s.total, statementDue: due });
+  if (standing) facts.standing = standing;
+  // Without a written designation (where the state needs none for a refund of the original payment), a payment that
+  // can't be refunded against itself has nowhere lawful to go yet.
+  const d = facts.deposit;
+  if (!agreement && !pack.refund.agreementRequired && d && wasPaid(d.status) && s.refund > 0 && !alreadyReturned
+    && !(d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS)) {
+    blockers.push(pack.refund.noDesignationBlocker);
+  }
+  facts.plan = plan(facts, pack);
   return facts;
 }
 
-function plan(f: CloseOutFacts): CloseOutFacts["plan"] {
+function plan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
   if (f.blockers.length) return { rail: "blocked", amount: 0, why: "Resolve the blockers first." };
   const amount = f.totals.refund;
   if (amount <= 0) {
     return { rail: "nothing_to_refund", amount: 0,
       why: `Deductions use the whole deposit${f.totals.balanceClaimed ? `, leaving ${usd(f.totals.balanceClaimed)} claimed from the tenants` : ""}. The itemized statement still goes out.` };
   }
-  const email = f.refundAgreement!.paypalEmail;
   const d = f.deposit!;
+  // No written designation, where the state needs none for a refund of the original payment: back against that
+  // payment inside PayPal's window, or not at all (a Payout goes only to an account the tenants named in writing).
+  if (!f.refundAgreement) {
+    if (d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS) {
+      return { rail: "refund_original_payment", amount, captureId: d.captureId,
+        why: `Paid ${paidAgo(d.daysSincePaid)} through PayPal, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment, to the account the tenants paid from.` };
+    }
+    return { rail: "blocked", amount: 0, why: pack.refund.noDesignationBlocker };
+  }
+  const email = f.refundAgreement.paypalEmail;
   const sameAccount = !!d.billedTo && d.billedTo.toLowerCase() === email.toLowerCase();
   if (d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS && sameAccount) {
     return { rail: "refund_original_payment", amount, captureId: d.captureId, email,

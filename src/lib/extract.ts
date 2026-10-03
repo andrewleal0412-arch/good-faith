@@ -3,8 +3,9 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { LeaseTerms } from "./rules";
 
-// Claude reads the lease and returns facts only, with the exact wording it relied on. It does not judge what is
-// lawful; src/lib/rules.ts does that, so the legal logic stays deterministic and citable.
+// Claude reads the lease and returns facts only, with the exact wording it relied on, including the state the property
+// is in, which picks the rule pack (src/lib/states/). It does not judge what is lawful; the pack does that, so the
+// legal logic stays deterministic and citable.
 
 // Opus 5.5: telling wear and tear from damage is the core judgment, and the extra cost over Sonnet is a few dollars.
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
@@ -12,11 +13,14 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 const schema = z.object({
   propertyAddress: z.string().nullable(),
   city: z.string().nullable().describe("City of the rental unit"),
+  // Not nullable: structured outputs allow at most 16 nullable or union-typed fields, and this schema is at 16.
+  state: z.string().describe("Two-letter USPS code of the US state the rental unit is in, from its address (e.g. CA, NY, TX); an empty string if the lease doesn't say"),
   landlordName: z.string().nullable(),
   ownerType: z.enum(["natural_person", "llc_natural_persons", "llc_other", "corporation", "unknown"])
     .describe("Legal form of the landlord/owner as stated. An LLC whose members aren't stated is llc_other."),
   ownerPropertyCount: z.number().nullable().describe("Residential rental properties the owner holds, only if the lease states it"),
   ownerUnitCount: z.number().nullable().describe("Units across those properties, only if stated"),
+  buildingUnitCount: z.number().nullable().describe("Dwelling units in the building the rental unit is in, only if the lease states it"),
   tenants: z.array(z.string()).describe("Adult tenants named on the lease"),
   tenancyStartDate: z.string().nullable().describe("Start of the tenancy, YYYY-MM-DD"),
   leaseEndDate: z.string().nullable().describe("End of the fixed lease term, YYYY-MM-DD; null if the lease is month to month or states no end date"),
@@ -46,7 +50,7 @@ export async function extractLeaseTerms(pdf: Uint8Array, filename: string): Prom
     model: anthropic(MODEL),
     output: Output.object({ schema }),
     system:
-      "You extract facts from a California residential lease for a security deposit tool. Report only what the " +
+      "You extract facts from a United States residential lease for a security deposit tool. Report only what the " +
       "lease says; use null when it doesn't say. Quote wording exactly. Do not give legal opinions.",
     messages: [{
       role: "user",
@@ -56,5 +60,6 @@ export async function extractLeaseTerms(pdf: Uint8Array, filename: string): Prom
       ],
     }],
   });
-  return output as LeaseTerms;
+  const terms = output as LeaseTerms;
+  return { ...terms, state: terms.state?.trim() || null };
 }

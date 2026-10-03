@@ -1,7 +1,6 @@
 import { wasPaid } from "./invoice-status";
 import { streetLine } from "./ledger";
-import { closedOut, type NextStep, type TenancySummary } from "./next-step";
-import { MOVE_IN_PHOTOS_FROM } from "./rules";
+import { closedOut, packOf, type NextStep, type StepIcon, type TenancySummary } from "./next-step";
 
 // How a tenancy reads in the app's chrome: one status chip (one color per status), the filter group it belongs to,
 // and the one verb its next step links to. Pure: the Properties table, the record header and the Move-outs list
@@ -15,10 +14,16 @@ export const GROUP_LABEL: Record<StatusGroup, string> = { "move-in": "Move-in", 
 
 const paid = (s: TenancySummary) => !!s.deposit && wasPaid(s.deposit.status);
 
-/** Move-in is finished once the refund agreement, the paid deposit and (for a tenancy from July 2025 on) the move-in
- *  photos are on file. */
-export const moveInOpen = (s: TenancySummary) =>
-  !s.agreement || !paid(s) || (!s.moveInPhotos && !!s.startDate && s.startDate >= MOVE_IN_PHOTOS_FROM);
+/** Move-in is finished once the refund agreement (where the state's pack requires one), the paid deposit, the move-in
+ *  photos (where required: California, for a tenancy from July 2025 on) and the state's own move-in records are on
+ *  file. */
+export const moveInOpen = (s: TenancySummary) => {
+  const pack = packOf(s);
+  const photosFrom = pack.moveIn.photosFrom;
+  return (pack.refund.agreementRequired && !s.agreement) || !paid(s)
+    || (!s.moveInPhotos && !!photosFrom && !!s.startDate && s.startDate >= photosFrom)
+    || pack.steps.openMoveIn(s).length > 0;
+};
 
 export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
   if (closedOut(s)) return { label: "Closed", tone: "gray", group: "closed" };
@@ -54,7 +59,7 @@ export type StepLink = {
   label: string; // the table's one verb ("Review findings")
   title: string; // the same step as a one-line title for the Next steps boxes ("Review move-out findings")
   href: string;
-  icon: "image" | "camera" | "send" | "mail" | "doc" | "pen" | "calendar" | "file-check" | "receive" | "card" | "key";
+  icon: StepIcon;
 };
 
 /** Where the rail and the record's Next step card spell a terse table verb out; anything else keeps the verb. */
@@ -71,12 +76,15 @@ const TITLE: Record<string, string> = {
 /** The one verb a row links to for its next step, and where it goes. Unknown steps fall back to the step's own words. */
 export function stepLink(s: TenancySummary, n: NextStep): StepLink {
   const l = step(s, n);
-  return { ...l, title: TITLE[l.label] ?? l.label };
+  // A state pack's own step reads by its full words in the boxes ("Get the forwarding address in writing").
+  return { ...l, title: n.action ? n.label : TITLE[l.label] ?? l.label };
 }
 
 function step(s: TenancySummary, n: NextStep): Omit<StepLink, "title"> {
   const id = s.id;
   const L = n.label;
+  // A state pack's own step names where it opens.
+  if (n.action) return { label: n.action.label, href: n.action.path.startsWith("?") ? `/tenancy/${id}${n.action.path}` : `/tenancy/${id}/${n.action.path}`, icon: n.action.icon };
   if (L === "Done") return { label: "View statement", href: `/tenancy/${id}/statement`, icon: "doc" };
   if (L === "Send the refund") return { label: "Send refund", href: `/tenancy/${id}/refund`, icon: "send" };
   if (L === "Take move-out photos") return { label: "Add move-out photos", href: tabHref(id, "move-out", "photos"), icon: "camera" };

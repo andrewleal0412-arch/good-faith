@@ -1,6 +1,10 @@
 // Deduction math, shared by the form (live preview) and the server (the stored amount). Pure functions only.
-// Statute vs guidance (docs/LEGAL_RULES.md section C): the $125 documentation threshold and the 21-day deadline are
-// Civ. Code 1950.5; useful-life proration and the paint schedule are DRE guidance, so the statement labels them.
+// Statute vs guidance: the documentation rule and the deadline come from the tenancy's state pack (California: the
+// $125 threshold and 21 days of Civ. Code 1950.5); useful-life proration and the paint schedule are guidance (the DRE's,
+// in California) or common practice elsewhere, so the statement labels them.
+
+import { addDays } from "./dates";
+import type { ClientPack } from "./states/types";
 
 export type Work = "repair" | "replace" | "clean" | "other";
 export type Performer = "vendor" | "own_labor";
@@ -80,9 +84,6 @@ export function suggestedLife(item: string): number | null {
   return /carpet/i.test(item) ? 10 : null;
 }
 
-/** (h)(4): receipts and invoices aren't required when repair and cleaning deductions total $125 or less. */
-export const RECEIPT_THRESHOLD = 125;
-
 export type StoredDeduction = {
   id: string;
   category: "rent" | "damage" | "cleaning";
@@ -154,35 +155,55 @@ export function chargeTitle(item: string, work: Work): { title: string; where: s
   return { title: DONE[work] ? `${title}, ${DONE[work]}` : title, where };
 }
 
-/** What the statement still needs for each deduction under (h)(2) and (g)(2). Empty when it's complete.
- *  A good-faith estimate (h)(3) stands in for the finished repair and its invoice, so it needs neither the after
- *  photo nor the receipt yet; the vendor's name, address and phone take the invoice's place. */
-export function missingDocs(d: StoredDeduction, documentsRequired: boolean): string[] {
+/** What the statement still needs for each deduction under the tenancy's documentation rule, as blockers. Empty when
+ *  it's complete. California ((h)(2), (g)(2)): the after photo always, and over $125 the invoice and the vendor's
+ *  contact or the labor description. A good-faith estimate stands in for the finished repair and its invoice, so it
+ *  needs neither the after photo nor the receipt yet; the vendor's name, address and phone take the invoice's place.
+ *  Where the state's statute asks for nothing, nothing blocks (Texas still wants some evidence, as product policy). */
+export function missingDocs(d: StoredDeduction, documentsRequired: boolean, pack: ClientPack): string[] {
   const out: string[] = [];
   if (d.category === "rent") return out;
-  if (!d.after_photo_paths.length && !d.is_estimate) out.push("after-repair photo");
+  const rules = pack.documents;
+  if (rules.afterPhotoRequired && !d.after_photo_paths.length && !d.is_estimate) out.push("after-repair photo");
+  if (rules.evidenceRequired && !d.after_photo_paths.length && !d.finding?.moveOutPath && !d.receipt_path && !d.is_estimate && !d.labor_description) {
+    out.push("evidence (photos, an invoice or a description of the work)");
+  }
   if (!documentsRequired) return out;
   if (d.performer === "vendor") {
     if (!d.receipt_path && !d.is_estimate) out.push("invoice or receipt");
-    if (!d.vendor?.name || !d.vendor?.address || !d.vendor?.phone) out.push("vendor name, address and phone");
+    if (rules.vendorContactRequired && (!d.vendor?.name || !d.vendor?.address || !d.vendor?.phone)) out.push("vendor name, address and phone");
   } else if (!d.labor_description) out.push("description of the work");
   return out;
 }
 
-/** Deposit held minus deductions. A negative balance is a claim against the tenant, never collected automatically. */
-export function settle(depositHeld: number, deductions: { category: string; amount: number }[]) {
+/** Evidence the statute does not require but the landlord's burden of proof calls for: shown as "Unsupported", never
+ *  blocking. Empty for California, whose documents rule is missingDocs. */
+export function evidenceGaps(d: StoredDeduction, pack: ClientPack): string[] {
+  if (d.category === "rent" || pack.documents.afterPhotoRequired || pack.documents.threshold === 0 || pack.documents.evidenceRequired) return [];
+  const out: string[] = [];
+  if (!d.finding?.moveOutPath && !d.after_photo_paths.length) out.push("photos");
+  if (d.performer === "vendor" ? !d.receipt_path && !d.is_estimate : !d.labor_description) out.push(d.performer === "vendor" ? "an invoice" : "a description of the work");
+  return out;
+}
+
+/** Deposit held minus deductions. A negative balance is a claim against the tenant, never collected automatically.
+ *  documentsRequired follows the tenancy's pack: over California's $125, always in Washington, never by statute in
+ *  New York, Texas or Florida. */
+export function settle(depositHeld: number, deductions: { category: string; amount: number }[], pack: ClientPack) {
   const total = cents(deductions.reduce((s, d) => s + Number(d.amount), 0));
   const repairAndCleaning = cents(deductions.filter((d) => d.category !== "rent").reduce((s, d) => s + Number(d.amount), 0));
   const refund = cents(depositHeld - total);
+  const threshold = pack.documents.threshold;
   return {
     total, repairAndCleaning, refund: Math.max(0, refund), balanceClaimed: refund < 0 ? -refund : 0,
-    documentsRequired: repairAndCleaning > RECEIPT_THRESHOLD,
+    documentsRequired: threshold != null && repairAndCleaning > threshold,
   };
 }
 
-/** (h)(1): the itemized statement and refund are due within 21 calendar days after the tenant vacates. */
-export function statementDue(moveOutDate: string): string {
-  const d = new Date(`${moveOutDate}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 21);
-  return d.toISOString().slice(0, 10);
+/** The statement and refund deadline counted from a move-out date alone: the pack's days after it (California (h)(1):
+ *  21 calendar days after the tenant vacates). It is the no-claim date: where the deadline turns on more than the
+ *  move-out (Florida's claim track and its termination date), use pack.deadline.due with the whole tenancy, as
+ *  dueOf (next-step.ts) and tenancyDue (tenancy-pack.ts) do. Only California's own drafts read this. */
+export function statementDue(moveOutDate: string, pack: ClientPack): string {
+  return addDays(moveOutDate, pack.deadline.days);
 }

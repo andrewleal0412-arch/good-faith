@@ -2,6 +2,7 @@ import { audit, db } from "@/lib/db";
 import { chargeable, type DeductionInput, type Performer, type Proration, type Work } from "@/lib/deductions";
 import { imageType, notAPhotoServer, readForm, sniff, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
+import { packFor } from "@/lib/states";
 import { AFTER_PHOTOS_MAX, mb, UPLOAD_BUDGET } from "@/lib/uploads";
 import { routeTenancy, uploadPrefix } from "@/lib/workspace";
 
@@ -13,7 +14,7 @@ export const maxDuration = 60;
 const str = (v: FormDataEntryValue | null) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim() : "");
 const num = (v: FormDataEntryValue | null) => (str(v) === "" ? null : Number(str(v)));
 
-// One deduction from one inspection finding (Civ. Code 1950.5(b)(2) damage, (b)(3) cleaning). The landlord supplies
+// One deduction from one inspection finding (damage or cleaning; California Civ. Code 1950.5(b)(2), (b)(3)). The landlord supplies
 // the facts (invoice or labor, the item's age, receipt, after-repair photos); the amount is computed here from them,
 // so the statement's numbers always match its explanation. Ordinary wear and tear can't be deducted at all.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/deductions">) {
@@ -34,7 +35,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   }
   const findingId = str(form.get("findingId"));
 
-  const { data: t } = await db.from("tenancies").select("move_out_findings").eq("id", id).single();
+  const { data: t } = await db.from("tenancies").select("move_out_findings, properties(state)").eq("id", id).single();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const finding = ((t.move_out_findings ?? []) as { id?: string; room: string; item: string; classification: string;
     moveInPath: string; moveOutPath: string; status?: string | null }[]).find((f) => f.id === findingId);
@@ -43,7 +44,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   if (sent?.length) return Response.json({ error: "The deposit has already been returned, so the deductions are final." }, { status: 409 });
   if (finding.status === "dismissed") return Response.json({ error: "That finding was dismissed. Reopen it first." }, { status: 400 });
   if (finding.classification === "wear_and_tear") {
-    return Response.json({ error: "Ordinary wear and tear can't be deducted (Civ. Code 1950.5(b)(2), (e)(1)-(2))." }, { status: 400 });
+    return Response.json({ error: packFor((t.properties as { state?: string | null } | null)?.state).copy.wearRefused }, { status: 400 });
   }
 
   const input: DeductionInput = {

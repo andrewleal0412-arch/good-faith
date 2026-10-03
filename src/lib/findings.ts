@@ -4,6 +4,8 @@
 // by a deduction made from it or, for wear and tear, by the landlord agreeing it isn't charged.
 
 import { cleanBox, type Box } from "./boxes";
+import { CA } from "./states/ca";
+import type { ClientPack } from "./states/types";
 
 export type Classification = "wear_and_tear" | "damage" | "cleaning" | "unclear";
 export type FindingStatus = "accepted" | "dismissed";
@@ -30,29 +32,20 @@ export type StoredFinding = {
   status?: FindingStatus | null; // the landlord's review; absent until reviewed
 };
 
-/** How each classification reads: the chip, the Why? tip's rule and its citation (docs/LEGAL_RULES.md, A and C). */
-export const KIND: Record<Classification, { label: string; tone: "red" | "amber" | "gray"; rule: string; note: string; cite: string }> = {
-  damage: {
-    label: "Damage", tone: "red", rule: "Damage beyond ordinary wear and tear",
-    note: "May be deducted: the reasonable repair cost, and a replacement prorated by age.",
-    cite: "Civ. Code 1950.5(b)(2)",
-  },
-  cleaning: {
-    label: "Cleaning", tone: "amber", rule: "Cleaning back to move-in condition",
-    note: "May be deducted, only back to how clean the unit was at move-in.",
-    cite: "Civ. Code 1950.5(b)(3), (e)(2)(C)",
-  },
-  wear_and_tear: {
-    label: "Wear and tear", tone: "gray", rule: "Ordinary wear and tear",
-    note: "Not chargeable under California law.",
-    cite: "Civ. Code 1950.5(b)(2), (e)(2)(A); DRE guide pp. 83-85",
-  },
-  unclear: {
-    label: "Unclear", tone: "gray", rule: "Can't tell from the photos",
-    note: "Needs a better photo before anything is charged. The landlord carries the burden of showing a deduction is reasonable.",
-    cite: "Civ. Code 1950.5(g)(2), (m)",
-  },
+const LOOK: Record<Classification, { label: string; tone: "red" | "amber" | "gray" }> = {
+  damage: { label: "Damage", tone: "red" },
+  cleaning: { label: "Cleaning", tone: "amber" },
+  wear_and_tear: { label: "Wear and tear", tone: "gray" },
+  unclear: { label: "Unclear", tone: "gray" },
 };
+
+/** How each classification reads under the tenancy's state pack: the chip, the Why? tip's rule and its citation
+ *  (California: docs/LEGAL_RULES.md, A and C). */
+export const kindsFor = (pack: ClientPack): Record<Classification, { label: string; tone: "red" | "amber" | "gray"; rule: string; note: string; cite: string }> =>
+  Object.fromEntries((Object.keys(LOOK) as Classification[]).map((k) => [k, { ...LOOK[k], ...pack.findings[k] }])) as ReturnType<typeof kindsFor>;
+
+/** California's, for code that has no tenancy (the legend's labels and tones are the same in every state). */
+export const KIND = kindsFor(CA);
 
 /** The room and the two photos a finding was read from: findings that share them share one card on the page. */
 export const pairKey = (f: Pick<StoredFinding, "room" | "moveInPath" | "moveOutPath">) => `${f.room}|${f.moveInPath}|${f.moveOutPath}`;

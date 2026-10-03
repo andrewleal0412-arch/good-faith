@@ -107,6 +107,20 @@ Money and law are handled in four layers, so the model never decides an amount a
 
 Beyond money: the app never holds funds (the landlord's PayPal business account does); every action is audited with its actor; the tenants' page shows them their own records only, through a revocable hashed token; and the copy presents rules and facts, never advice (section F of the legal spec).
 
+## States
+
+Good Faith runs California, New York, Texas, Florida and Washington. The property's state picks its rule pack (`src/lib/states/`), and every number, deadline, notice, document rule, refund-method rule, penalty and citation comes from that pack; the engine, the PayPal rails and `guardRefund` are the same for all five. The lease check reads the state from the lease (the landlord can correct it), and any other state is refused with a plain message naming the five.
+
+What differs, in short:
+
+- **California** (Civ. Code 1950.5): a one-month cap (two for a small landlord), move-in and move-out photos, the refund back electronically, receipts over $125, and the statement and refund within 21 days of move-out.
+- **New York** (GOL 7-103, 7-108): a one-month cap, the deposit held in trust (interest in buildings of six or more units), a move-in inspection offer, an inspection before move-out on request, and the statement within 14 days (a 14th day on a weekend or public holiday runs to the next business day), or every deduction is forfeited unless the landlord records why one stays.
+- **Texas** (Prop. Code 92.101 to 92.113): no cap; the refund and itemized list within 30 days of surrender, owed once the tenants give a forwarding address in writing.
+- **Florida** (Stat. 83.49): no cap; the deposit back within 15 days, or a claim notice by certified mail within 30 days, the tenants' 15 days to object, and the balance within 30 days of the notice; after a timely objection the claim stays disputed, not deducted.
+- **Washington** (RCW 59.18.260 to 59.18.285): no deposit without a signed move-in checklist, the deposit in a trust account, and a full statement with the invoices within 30 days.
+
+City rules (New York City, Seattle, Austin and others) are shown as warnings only, never enforced. Each property shows its rules as a chip ("Rules: Civ. Code 1950.5") with what that statute governs. Not legal advice: the packs encode the statutes, and the app enforces, warns and drafts for the landlord to approve. [docs/rules/README.md](docs/rules/README.md) has how the packs work, what each holds, the inventory of California's rules, and the per-state specs.
+
 ## Legal sources and the disclaimer
 
 The rules come from the current text of Civil Code 1950.5 on [leginfo.legislature.ca.gov](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=1950.5), as amended by AB 12 (2023), AB 2801 (2024), SB 611 (2024) and AB 414 (2025), the DRE's California Tenants guide (2026 edition), the Courts' self-help guide and the Attorney General's fact sheet. [docs/LEGAL_RULES.md](docs/LEGAL_RULES.md) lists every source, each rule with its subsection, the statement checklist, the wear-and-tear guide, the edge cases, and the guardrails. Useful-life proration and the paint schedule are DRE guidance, not statute, and the app says so wherever it uses them.
@@ -157,6 +171,8 @@ The database schema is in `supabase/migrations`, one file per change, in order. 
 npx tsc --noEmit
 npx eslint src --max-warnings=0
 npx next build        # in a copy of the repo, not next to a running dev server
+node scripts/ca-snapshot.mjs        # California's output is exactly the recorded baseline
+node scripts/state-packs-check.mjs  # the per-state rule checks
 ```
 
 `next build` needs `.env.local` (or the same variables in the environment): the server modules create their clients when they load, and the build collects every route. Build in a copy of the repo so it does not clobber the dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; a symlinked `node_modules` is refused by Turbopack) and `.env.local` copied over.

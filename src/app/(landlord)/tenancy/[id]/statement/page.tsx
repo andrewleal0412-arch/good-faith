@@ -7,21 +7,24 @@ import { Icon, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Card, CardHead, Fact, FactStrip, Money, StatusChip, type Tone } from "@/components/ui";
 import { shortDate, whenText } from "@/lib/dates";
-import { RECEIPT_THRESHOLD, usd } from "@/lib/deductions";
+import { usd } from "@/lib/deductions";
 import { streetLine } from "@/lib/ledger";
 import { pageTenancy, signedUrlsFor } from "@/lib/workspace";
-import { buildStatement, describeDelivery, DISCLAIMERS, longDate, pacificDate, type ChecklistItem, type StatementDeduction } from "@/lib/statement";
+import { buildStatement, describeDelivery, longDate, pacificDate, type ChecklistItem, type StatementDeduction } from "@/lib/statement";
+import { packFor } from "@/lib/states/server";
+import type { StatePack } from "@/lib/states/types";
 import { DeliveryPanel } from "./delivery-form";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Itemized statement" };
 
-// The itemized statement (Civ. Code 1950.5(h)) as a document beside two cards: the delivery record and the 13-item
-// checklist. The document keeps every word the statement needs on paper; on screen its citations and longer
+// The itemized statement (California: Civ. Code 1950.5(h); elsewhere the tenancy's state pack) as a document beside
+// two cards: the delivery record and the state's checklist. The document keeps every word the statement needs on paper; on screen its citations and longer
 // explanations sit behind info icons, and print brings them back as text. The PDF packet is the copy that goes out,
 // since it carries the photo exhibits and the invoice copies; this page prints too.
 
-const cite = (c: string) => (c.startsWith("(") ? `Civ. Code 1950.5${c}` : c);
+/** A checklist citation in full: California's items name subsections ("(h)(1)"). */
+const cite = (c: string, pack: StatePack) => (c.startsWith("(") ? pack.statute.tagCite(c) : c);
 const payMethod = (m: string | null) => (!m ? "PayPal" : m === "PAYPAL" ? "PayPal" : m.charAt(0) + m.slice(1).toLowerCase().replace(/_/g, " "));
 const CATEGORY: Record<StatementDeduction["category"], { label: string; tone: Tone }> = {
   rent: { label: "Unpaid rent", tone: "gray" },
@@ -29,19 +32,14 @@ const CATEGORY: Record<StatementDeduction["category"], { label: string; tone: To
   cleaning: { label: "Cleaning", tone: "amber" },
 };
 
-/** The checklist's items in a few words; the whole item is its tip's title. */
-const SHORT: Record<number, string> = {
-  1: "Parties, dates and deadline", 2: "Security received and its basis", 3: "One tagged line per deduction",
-  4: "Labor: work, hours and rate", 5: "Vendor invoices and contacts", 6: "Materials receipts", 7: "Photos and cost explanation",
-  8: "Estimates marked as such", 9: "Documents notice, $125 or less", 10: "Refund, method and payees",
-  11: "Local deposit interest", 12: "Balance stated as a claim", 13: "Delivery record",
-};
 
 export default async function StatementPage({ params }: PageProps<"/tenancy/[id]/statement">) {
   const { id } = await params;
   const ws = await pageTenancy(id);
   const s = await buildStatement(id);
   if (!s) notFound();
+  const pack = packFor(s.state);
+  const sec = pack.statement.sections;
 
   // Short-lived links to the private photos and invoices, two requests in all. No link means the file is not in the
   // bucket (or not one this workspace may open).
@@ -85,12 +83,13 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
       <FactStrip cols={4} className="mt-6 print:hidden">
         <Fact label="Security held" value={<Money value={s.totals.depositHeld} />}
           sub={s.security?.paid ? (s.security.paidAt ? `Paid ${shortDate(pacificDate(s.security.paidAt))}` : "Paid") : "Not paid"} />
-        <Fact label="Deductions" value={<Money value={s.totals.deductions} />} sub={`${s.deductions.length} item${s.deductions.length === 1 ? "" : "s"}`} />
+        <Fact label={s.standing?.label ?? "Deductions"} value={<Money value={s.totals.deductions} />} sub={`${s.deductions.length} item${s.deductions.length === 1 ? "" : "s"}`}
+          info={s.standing ? <InfoTip title={s.standing.label}>{s.standing.note}</InfoTip> : undefined} />
         <Fact big label={s.balanceClaimed ? "Balance claimed" : sent ? "Refunded" : "Refund due"}
           value={<Money value={s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount} cents="small" phoneCents="full" />}
           sub={sent && s.refund.sentAt ? `By PayPal, ${shortDate(pacificDate(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
         <Fact label="Due by"
-          info={<InfoTip align="end" title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">The itemized statement and the refund are due within 21 calendar days after the tenants leave.</InfoTip>}
+          info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
           value={s.statementDue ? shortDate(s.statementDue) : "Not set"}
           sub={s.delivery ? `Delivered ${shortDate(s.delivery.date)}` : s.daysLeft != null ? whenText(s.daysLeft) : "No move-out yet"} />
       </FactStrip>
@@ -98,7 +97,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[auto_1fr] print:mt-0 print:block">
         {/* On a phone the column reads Delivery, Checklist, then the document, so the checklist sits by the card it explains. */}
         <div className="print:hidden lg:col-start-2 lg:row-start-1">
-          <DeliveryPanel tenancyId={id} tenants={s.tenantContacts} unitAddress={s.property.address} today={s.today} due={s.statementDue}
+          <DeliveryPanel tenancyId={id} state={pack.code} tenants={s.tenantContacts} unitAddress={s.property.address} today={s.today} due={s.statementDue}
             existing={s.delivery} forwarding={s.tenantForwarding} />
         </div>
 
@@ -106,9 +105,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
           <header className="print-block">
             <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3">
               Itemized security deposit statement
-              <Cite cite="California Civil Code 1950.5(h)" title="The itemized statement">
-                Within 21 days after the tenants leave: the basis, amount and disposition of the security, and the refund of what remains.
-              </Cite>
+              <Cite cite={pack.statement.headerTip.cite} title={pack.statement.headerTip.title}>{pack.statement.headerTip.text}</Cite>
             </p>
             <h2 className="mt-1.5 text-xl font-medium">{s.property.address}</h2>
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
@@ -116,15 +113,14 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
               <Field label="To">{s.tenants.join(" and ")}</Field>
               <Field label="Moved out">{s.moveOutDate ? longDate(s.moveOutDate) : "Not set"}</Field>
               <Field label="Statement date">{longDate(s.statementDate)}</Field>
-              <Field label={<>Due by<Cite cite="Civ. Code 1950.5(h)(1)" title="21 days after move-out">The statement and the refund are due within 21 calendar days after the tenants leave.</Cite></>}>
+              <Field label={<>Due by<Cite cite={pack.deadline.tip.cite} title={pack.deadline.tip.title}>{pack.statement.dueTipText}</Cite></>}>
                 {s.statementDue ? longDate(s.statementDue) : "Not set"}
-                <span className="hidden text-xs text-ink-3 print:block">21 days after move-out</span>
+                <span className="hidden text-xs text-ink-3 print:block">{pack.statement.pdf.dueSuffix}</span>
               </Field>
             </dl>
           </header>
 
-          <Section n={next()} title="Security received" cite="Civ. Code 1950.5(h)(1), (b)"
-            tip="The security received and its basis: the date it was paid and any part the lease labeled a fee or advance rent.">
+          <Section n={next()} title={sec.security.title} cite={sec.security.cite} tip={sec.security.text}>
             {s.security ? (
               <Rows rows={[
                 ["Amount", <span key="a" className="font-medium tabular-nums">{usd(s.security.amount)}</span>],
@@ -150,29 +146,42 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             )}
           </Section>
 
-          <Section n={next()} title="Deductions" cite="Civ. Code 1950.5(b), (h)(2)"
-            tip="One line per deduction, each tagged unpaid rent, damage beyond ordinary wear and tear, or cleaning to the move-in level, with the documents behind it.">
+          <Section n={next()} title={sec.deductions.title} cite={sec.deductions.cite} tip={sec.deductions.text}>
+            {s.standing && (
+              <p className="mb-4 text-sm text-amber print:text-ink-2"><span className="font-medium">{s.standing.label}.</span> {s.standing.note}</p>
+            )}
             {s.deductions.length ? (
               <ol className="divide-y divide-line-2">
-                {s.deductions.map((d) => <Deduction key={d.id} d={d} urls={urls} />)}
+                {s.deductions.map((d) => <Deduction key={d.id} pack={pack} d={d} urls={urls} />)}
               </ol>
             ) : (
               <p className="text-ink-2">{s.totals.depositHeld === 0 ? "No deductions." : "No deductions. The whole security is refunded."}</p>
             )}
+            {s.wear && s.wear.length > 0 && (
+              <div className="print-block mt-4 border-t border-line-2 pt-3">
+                <p className="text-sm font-medium">Considered and not charged</p>
+                <ul className="mt-1.5 flex flex-col gap-1 text-sm text-ink-2">
+                  {s.wear.map((w, i) => (
+                    <li key={i} className="flex justify-between gap-4">
+                      <span className="min-w-0">{w.item}<span className="text-ink-3">, {w.room}: normal wear and tear</span></span>
+                      <span className="shrink-0 tabular-nums">{usd(0)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <dl className="print-block ml-auto mt-4 grid max-w-[320px] grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1.5 border-t border-line pt-4">
               <dt className="text-ink-3">Security held</dt><dd className="text-right tabular-nums">{usd(s.totals.depositHeld)}</dd>
-              <dt className="text-ink-3">Deductions</dt><dd className="text-right"><Money value={s.totals.deductions} sign={s.totals.deductions ? "minus" : undefined} /></dd>
+              <dt className="text-ink-3">{s.standing?.label ?? "Deductions"}</dt><dd className="text-right"><Money value={s.totals.deductions} sign={s.totals.deductions ? "minus" : undefined} /></dd>
               <dt className="mt-1 border-t border-line pt-2 font-medium">{s.balanceClaimed ? "Balance claimed" : sent ? "Refunded" : "Refund"}</dt>
               <dd className="mt-1 border-t border-line pt-2 text-right text-lg font-medium tabular-nums">{usd(s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount)}</dd>
             </dl>
           </Section>
 
-          <Section n={next()} title="Documents" cite={s.documents.required ? "Civ. Code 1950.5(h)(2)" : "Civ. Code 1950.5(h)(4)-(5)"} tip={s.documents.note}>
+          <Section n={next()} title="Documents" cite={pack.statement.documentsCite(s.documents.required)} tip={s.documents.note}>
             {/* On screen a line and the rule in the tip; on paper the rule in full, and where the copies are. */}
             <p className="text-ink-2 print:hidden">
-              {!repairs.length ? "No repair or cleaning was deducted."
-                : s.documents.required ? `Required: repair and cleaning total ${usd(s.totals.repairAndCleaning)}, over ${usd(RECEIPT_THRESHOLD)}`
-                  : `Not required: repair and cleaning total ${usd(s.totals.repairAndCleaning)}, ${usd(RECEIPT_THRESHOLD)} or less`}
+              {!repairs.length ? "No repair or cleaning was deducted." : pack.statement.documentsLine(s.documents.required, s.totals.repairAndCleaning)}
             </p>
             {repairs.length > 0 && <p className="mt-1 text-sm text-ink-3 print:hidden">In the PDF packet: the photos for each item and copies of the invoices</p>}
             <p className="hidden text-ink-2 print:block">{s.documents.note}</p>
@@ -186,7 +195,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             )}
           </Section>
 
-          <Section n={next()} title="Refund" cite="Civ. Code 1950.5(h)(1)(A), (h)(1)(C)" tip={s.refund.note || undefined}>
+          <Section n={next()} title="Refund" cite={sec.refund} tip={s.refund.note || undefined}>
             <Rows rows={[
               ["Amount", <span key="a" className="font-medium tabular-nums">{usd(s.refund.amount)}</span>],
               ["Method", s.refund.method],
@@ -198,10 +207,10 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             {s.refund.note && <p className="mt-3 hidden text-sm text-ink-2 print:block">{s.refund.note}</p>}
           </Section>
 
-          <Section n={next()} title="Local deposit interest" tip={s.interest.note}>
+          <Section n={next()} title={pack.statement.interestTitle} tip={s.interest.note}>
             <p className={s.interest.known ? "text-amber print:text-ink-2" : "text-ink-2"}>
               <span className="print:hidden">
-                {s.interest.known ? `Required in ${s.interest.city}; not computed here` : `None required${s.interest.city ? ` in ${s.interest.city}` : ""}`}
+                {s.interest.known ? `Required${s.interest.city ? ` in ${s.interest.city}` : ""}; not computed here` : `None required${s.interest.city ? ` in ${s.interest.city}` : ""}`}
               </span>
               <span className="hidden print:inline">{s.interest.note}</span>
             </p>
@@ -214,8 +223,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             </Section>
           )}
 
-          <Section n={next()} title="Delivery" cite="Civ. Code 1950.5(h)(1)(B), (h)(6)"
-            tip="Personal delivery or first-class mail to the address the tenant gave, or to the vacated unit if none; email only if the landlord and tenant agreed to it in writing.">
+          <Section n={next()} title={sec.delivery.title} cite={sec.delivery.cite} tip={sec.delivery.text}>
             {s.delivery ? (
               <p className="text-ink-2">
                 Delivered by {describeDelivery(s.delivery)}{s.delivery.to && s.delivery.method !== "personal" ? `, addressed to ${s.delivery.to}` : ""}.
@@ -226,21 +234,21 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
           </Section>
 
           <footer className="mt-10 border-t border-line pt-4 text-xs text-ink-3 print:pt-5">
-            <p className="hidden print:block">Prepared with Good Faith from the landlord&apos;s records, under California Civil Code 1950.5 and published state guidance. It is not legal advice.</p>
+            <p className="hidden print:block">{pack.copy.preparedUnder}</p>
             {/* On paper the two notes the statement's reader needs; on screen all four behind one tip. */}
-            <p className="hidden print:mt-2 print:block">{DISCLAIMERS[1]}</p>
-            <p className="mt-2 hidden print:block">{DISCLAIMERS[3]}</p>
+            <p className="hidden print:mt-2 print:block">{pack.copy.disclaimers[1]}</p>
+            <p className="mt-2 hidden print:block">{pack.copy.disclaimers[3]}</p>
             <p className="flex items-center gap-1.5 print:hidden">
               About this tool
               <InfoTip title="Not legal advice">
-                {DISCLAIMERS.map((d, i) => <span key={i} className={`block ${i ? "mt-1.5" : ""}`}>{d}</span>)}
+                {pack.copy.disclaimers.map((d, i) => <span key={i} className={`block ${i ? "mt-1.5" : ""}`}>{d}</span>)}
               </InfoTip>
             </p>
           </footer>
         </article>
 
         <div className="print:hidden max-lg:order-2 lg:col-start-2 lg:row-start-2">
-          <Checklist items={s.checklist} />
+          <Checklist items={s.checklist} pack={pack} />
         </div>
       </div>
     </div>
@@ -296,7 +304,7 @@ function Section({ n, title, cite, tip, children }: { n: number; title: string; 
   );
 }
 
-function Deduction({ d, urls }: { d: StatementDeduction; urls: Map<string, string | null> }) {
+function Deduction({ pack, d, urls }: { pack: StatePack; d: StatementDeduction; urls: Map<string, string | null> }) {
   const c = CATEGORY[d.category];
   const invoiceUrl = d.vendor?.invoicePath ? urls.get(`receipts/${d.vendor.invoicePath}`) : null;
   const rows: [ReactNode, ReactNode][] = [
@@ -307,9 +315,9 @@ function Deduction({ d, urls }: { d: StatementDeduction; urls: Map<string, strin
         {d.guidance && (
           <>
             <span className="ml-1.5 inline-flex align-[-2px] print:hidden">
-              <InfoTip title="Guidance, not statute">Prorated by {d.proration === "useful_life" ? "useful life" : "the paint schedule"}, from the DRE&apos;s California Tenants guide. A court may decide differently.</InfoTip>
+              <InfoTip title="Guidance, not statute">Prorated by {d.proration === "useful_life" ? "useful life" : "the paint schedule"}, {pack.statement.guidanceSource}. A court may decide differently.</InfoTip>
             </span>
-            <span className="hidden text-ink-3 print:inline"> (prorated by {d.proration === "useful_life" ? "useful life" : "the paint schedule"}: DRE guidance, not statute)</span>
+            <span className="hidden text-ink-3 print:inline"> (prorated by {d.proration === "useful_life" ? "useful life" : "the paint schedule"}: {pack.copy.guidanceLabel}, not statute)</span>
           </>
         )}
       </span>
@@ -338,14 +346,14 @@ function Deduction({ d, urls }: { d: StatementDeduction; urls: Map<string, strin
             <span className="print:hidden"><StatusChip tone={c.tone} dot={false}>{c.label}</StatusChip></span>
             <span className="hidden print:inline">{d.tag} {d.tagLabel}</span>
             {d.room && <span>{d.room}</span>}
-            <span className="inline-flex print:hidden"><InfoTip title={`${d.tag} ${d.tagLabel}`} cite={`Civ. Code 1950.5${d.tag}`} /></span>
+            <span className="inline-flex print:hidden"><InfoTip title={`${d.tag} ${d.tagLabel}`} cite={pack.statute.tagCite(d.tag)} /></span>
           </div>
           <div className="mt-3 text-sm"><Rows rows={rows} stack /></div>
           {d.isEstimate && (
             <p className="mt-2 text-sm text-amber">
-              Good-faith estimate: the final cost and documents follow within 14 days of completion or receipt
-              <span className="hidden print:inline"> (Civ. Code 1950.5(h)(3))</span>
-              <span className="ml-1.5 inline-flex align-[-2px] print:hidden"><InfoTip title="Estimates" cite="Civ. Code 1950.5(h)(3)">The work is not finished or the invoice is not in hand yet.</InfoTip></span>
+              {pack.statement.estimateLine}
+              <span className="hidden print:inline"> ({pack.statement.estimateCite})</span>
+              <span className="ml-1.5 inline-flex align-[-2px] print:hidden"><InfoTip title="Estimates" cite={pack.statement.estimateCite}>The work is not finished or the invoice is not in hand yet.</InfoTip></span>
             </p>
           )}
           {d.photos.length > 0 && (
@@ -377,7 +385,7 @@ const MARK: Record<ChecklistItem["state"], [string, IconName | null]> = {
   not_applicable: ["bg-surface-2 text-ink-4", null],
 };
 
-function Checklist({ items }: { items: ChecklistItem[] }) {
+function Checklist({ items, pack }: { items: ChecklistItem[]; pack: StatePack }) {
   const applies = items.filter((c) => c.state !== "not_applicable");
   const na = items.filter((c) => c.state === "not_applicable");
   const done = applies.filter((c) => c.state === "done").length;
@@ -389,8 +397,8 @@ function Checklist({ items }: { items: ChecklistItem[] }) {
           {icon ? <Icon name={icon} className="size-3" /> : <span className="h-px w-2 bg-current" />}
         </span>
         <span className={`min-w-0 flex-1 ${c.state === "not_applicable" ? "text-ink-3" : "text-ink-2"}`}>
-          <InfoTip title={`${c.n}. ${c.title}`} cite={cite(c.cite)}
-            trigger={<TipLabel>{SHORT[c.n] ?? c.title}</TipLabel>}>
+          <InfoTip title={`${c.n}. ${c.title}`} cite={cite(c.cite, pack)}
+            trigger={<TipLabel>{pack.statement.short[c.n] ?? c.title}</TipLabel>}>
             {c.reason}
           </InfoTip>
         </span>
@@ -400,9 +408,7 @@ function Checklist({ items }: { items: ChecklistItem[] }) {
   return (
     <Card>
       <CardHead title="Checklist" meta={`${done} of ${applies.length}`} right={
-        <InfoTip align="end" title="The statement checklist">
-          The 13 items an itemized statement needs under the rules spec: Civ. Code 1950.5(h), local deposit-interest ordinances and DRE guidance. Each item&apos;s tip says why it is done, missing or not needed here.
-        </InfoTip>} />
+        <InfoTip align="end" title="The statement checklist">{pack.statement.checklistTip}</InfoTip>} />
       <div className="px-5 pb-3 pt-4">
         <div className="h-1.5 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-label="Checklist progress"
           aria-valuemin={0} aria-valuemax={applies.length} aria-valuenow={done}>

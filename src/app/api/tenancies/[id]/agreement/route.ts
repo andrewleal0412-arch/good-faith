@@ -1,11 +1,13 @@
 import { audit, db } from "@/lib/db";
+import { tenancyPack } from "@/lib/tenancy-pack";
 import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
-// AB 414 (Civ. Code 1950.5(h)(1)(A), from 2026): a deposit paid electronically comes back electronically, and by
-// PayPal only if the tenant agrees in writing. This records that agreement and where the refund should go.
-// Roommates (h)(1)(C): one refund to all adults unless every adult signs an allocation, so all must sign here.
+// The tenants' written agreement to a PayPal refund and where it should go. California's AB 414 (Civ. Code
+// 1950.5(h)(1)(A), from 2026): a deposit paid electronically comes back electronically, and by PayPal only if the tenant
+// agrees in writing; roommates (h)(1)(C): one refund to all adults unless every adult signs an allocation, so all must
+// sign here. Elsewhere it is the tenants' written designation of the account (the state pack's text says which).
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/agreement">) {
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
@@ -20,9 +22,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const missing = adults.filter((n) => !signers?.includes(n));
   if (missing.length) return Response.json({ error: `Every adult tenant must agree: ${missing.join(", ")} hasn't.` }, { status: 400 });
 
+  const pack = await tenancyPack(id);
   const agreement = {
     method: "paypal", paypal_email: paypalEmail, signed_by: signers, signed_at: new Date().toISOString(),
-    text: "I agree that my security deposit, less any lawful deductions, may be returned to me electronically by PayPal at the email above (Cal. Civ. Code 1950.5(h)(1)(A)).",
+    text: pack.refund.agreementText,
   };
   await db.from("tenancies").update({
     refund_agreement: agreement,

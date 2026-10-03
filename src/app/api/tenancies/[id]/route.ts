@@ -1,13 +1,13 @@
 import { longDate, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
-import { statementDue } from "@/lib/deductions";
+import { tenancyDue } from "@/lib/tenancy-pack";
 import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
-// Two dates the landlord sets by hand, one per request. The move-out date starts the 21-day clock for the itemized
-// statement and refund (Civ. Code 1950.5(h)(1)). The lease end date drives the reminders (the 60-day check-in and the
-// two-week inspection window, (f)(1)); null means month to month.
+// Two dates the landlord sets by hand, one per request. The move-out date starts the state's clock for the itemized
+// statement and refund (California: 21 days, Civ. Code 1950.5(h)(1)). The lease end date drives the reminders (the
+// 60-day check-in and, where the state has one, the two-week inspection window); null means month to month.
 export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]">) {
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
@@ -44,6 +44,8 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]
     console.error("move-out date update failed", error.message);
     return Response.json({ error: "Couldn't save. Try again." }, { status: 500 });
   }
-  await audit(id, "landlord", "move_out_date_set", { move_out_date: moveOutDate, statement_due: statementDue(moveOutDate), previous: t.move_out_date ?? null });
-  return Response.json({ ok: true, statementDue: statementDue(moveOutDate) });
+  // The deadline on the tenancy's track (Florida: 30 days from the end once a claim is on file, not 15).
+  const { due } = await tenancyDue(id, moveOutDate);
+  await audit(id, "landlord", "move_out_date_set", { move_out_date: moveOutDate, statement_due: due, previous: t.move_out_date ?? null });
+  return Response.json({ ok: true, statementDue: due });
 }

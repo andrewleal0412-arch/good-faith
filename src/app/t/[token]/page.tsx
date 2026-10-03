@@ -6,13 +6,14 @@ import { CopyId } from "@/components/copy-id";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money } from "@/components/ui";
-import { displayName, maskEmail, TAGS } from "@/lib/copy";
+import { displayName, maskEmail } from "@/lib/copy";
 import { longDate, pacificDate, shortDate } from "@/lib/dates";
 import { returnCompleted, returnFailed } from "@/lib/invoice-status";
 import { streetLine } from "@/lib/ledger";
 import { keepUnit } from "@/lib/property-view";
 import { SANDBOX } from "@/lib/paypal";
-import { MOVE_IN_PHOTOS_FROM } from "@/lib/rules";
+import { packFor } from "@/lib/states/server";
+import type { StatePack } from "@/lib/states/types";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { resolveTenantToken } from "@/lib/tenant-links";
 import { loadTenantView, type TenantDeduction, type TenantView } from "@/lib/tenant-view";
@@ -30,8 +31,6 @@ export const metadata: Metadata = { title: "Your security deposit", robots: { in
 // carries the tenancy id. Section F of the rules spec: the statute's terms and the facts on file, never advice, and
 // every rule and citation sits behind an info tip.
 
-/** LEGAL_RULES source S7: where disputes go, by the courts' own guide. */
-const COURTS_GUIDE = "https://selfhelp.courts.ca.gov/guide-security-deposits-california";
 
 const words = (status: string) => status.toLowerCase().replace(/_/g, " ");
 const payMethod = (m: string | null) => (!m || m === "PAYPAL" ? "PayPal" : words(m).replace(/^./, (c) => c.toUpperCase()));
@@ -45,11 +44,16 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   const v = await loadTenantView(link.tenancyId);
   if (!v) notFound();
 
+  // The law of the state the unit is in: its pack's rules, deadline and citations (California's LEGAL_RULES source S7
+  // is the courts' guide, where disputes go).
+  const pack = packFor(v.state);
+  const COURTS_GUIDE = pack.courtsGuide.url;
   const st = v.statement;
   const pdf = `/api/t/${token}/statement.pdf`;
-  const stand = standing(v);
+  const stand = standing(v, pack);
   const steps = v.moveOutDate || st ? progress(v) : null;
-  const moveInPhotosRequired = !!v.startDate && v.startDate >= MOVE_IN_PHOTOS_FROM;
+  const photosFrom = pack.moveIn.photosFrom;
+  const moveInPhotosRequired = !!photosFrom && !!v.startDate && v.startDate >= photosFrom;
   const rooms = [...new Set(v.photos.map((p) => p.room))];
   const landlord = v.landlord ? displayName(v.landlord) : "Your landlord";
 
@@ -66,6 +70,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
       <main className="mx-auto w-full max-w-[600px] px-5 pb-10 pt-6 sm:pt-10">
         <h1 className="text-xl font-medium">{v.moveOutDate || st ? "Your deposit refund" : "Your security deposit"}</h1>
         <p className="mt-0.5 text-sm text-ink-3">{keepUnit(streetLine(v.address))}</p>
+        <p className="mt-0.5 text-xs text-ink-3">{pack.name} law applies: {pack.statute.short}</p>
 
         {/* Where things stand: the one hero number, one status line, one sentence. */}
         <section aria-label="Where things stand" className="mt-6">
@@ -84,33 +89,31 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
           {steps && <Progress steps={steps} />}
         </section>
 
-        <Section title="Details" info={<InfoTip align="end" title="Your deposit" cite="Civ. Code 1950.5(c), (h)(1)">
-          Everything charged at the start of the tenancy except first month&apos;s rent is security. It comes back, less any lawful deductions, with an itemized statement.
+        <Section title="Details" info={<InfoTip align="end" title={pack.tenant.detailsTip.title} cite={pack.tenant.detailsTip.cite}>
+          {pack.tenant.detailsTip.text}
           {v.deposit?.invoiceId && !st && <span className="mt-1.5 block text-white/70">PayPal invoice {v.deposit.invoiceId}</span>}
         </InfoTip>}>
-          <Details rows={detailRows(v)} />
+          <Details rows={detailRows(v, pack)} />
         </Section>
 
         {st && (
           <Section title="Deductions" meta={st.deductions.length ? `${st.deductions.length}` : undefined}
             info={st.deductions.some((d) => d.category !== "rent") ? (
-              <InfoTip align="end" title={st.documentsRequired ? "Receipts come with the statement" : "Receipts on request"}
-                cite={st.documentsRequired ? "Civ. Code 1950.5(h)(2)" : "Civ. Code 1950.5(h)(4)-(5)"}>
-                {st.documentsRequired
-                  ? "Repair and cleaning deductions total more than $125, so the invoices, receipts, labor records and photos come with the statement. The PDF lists exactly what it holds."
-                  : "Repair and cleaning deductions total $125 or less, so those documents are not required with the statement. You may request them within 14 days of receiving it, and the landlord then has 14 days to provide them."}
+              <InfoTip align="end" title={pack.tenant.documentsTip(st.documentsRequired).title} cite={pack.tenant.documentsTip(st.documentsRequired).cite}>
+                {pack.tenant.documentsTip(st.documentsRequired).text}
               </InfoTip>
             ) : undefined}>
+            {st.standing && <p className="mb-3 text-sm text-ink-2"><span className="font-medium">{st.standing.label}.</span> {st.standing.note}</p>}
             {st.deductions.length
-              ? <ol>{st.deductions.map((d) => <DeductionRow key={d.n} d={d} />)}</ol>
+              ? <ol>{st.deductions.map((d) => <DeductionRow key={d.n} d={d} pack={pack} />)}</ol>
               : <p className="text-ink-3">None. The whole deposit comes back.</p>}
           </Section>
         )}
 
         {!st && (
           <Section title={v.moveOutDate ? "Where to mail your statement" : "Moving out"}
-            info={<InfoTip align="end" title="Where the statement goes" cite="Civ. Code 1950.5(h)(6)">
-              The itemized statement is mailed to the address you give your landlord. If you give none, it goes to the unit you {v.moveOutDate ? "left" : "are leaving"}.
+            info={<InfoTip align="end" title={pack.tenant.mailTip(!!v.moveOutDate).title} cite={pack.tenant.mailTip(!!v.moveOutDate).cite}>
+              {pack.tenant.mailTip(!!v.moveOutDate).text}
             </InfoTip>}>
             <MovingOutForm token={token} tenants={v.tenants} today={v.today} moveOutDate={v.moveOutDate} existing={v.moveOut} quiet={!!stand.pay} />
           </Section>
@@ -118,7 +121,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 
         {steps && (
           <Section title="Timeline">
-            <Timeline steps={steps} due={st ? null : v.statementDue} delivery={st?.delivery ?? null} />
+            <Timeline steps={steps} due={st ? null : v.statementDue} delivery={st?.delivery ?? null} deliveryCite={pack.tenant.deliveryCite} />
           </Section>
         )}
 
@@ -159,7 +162,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
               <p className="mt-0.5 text-sm text-ink-3">Ask {landlord} first. The courts&apos; guide explains how disputes are handled.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <a href="#rights" className={buttonClass("secondary", "sm")}>Your rights</a>
-                <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className={buttonClass("secondary", "sm")}>Courts&apos; guide<Icon name="arrow-up-right" /></a>
+                <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className={buttonClass("secondary", "sm")}>{pack.courtsGuide.label}<Icon name="arrow-up-right" /></a>
               </div>
             </div>
           </div>
@@ -167,18 +170,16 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 
         {/* One tip for the section (what this page is and isn't); each right opens its own from its title, so the list
             ends without a column of icons. */}
-        <Section id="rights" title="Your rights" info={<InfoTip align="end" title="About this page">
-          The rules as California Civil Code 1950.5 states them, with the facts your landlord keeps with Good Faith where they fit. It is not legal advice and does not evaluate your situation.
-        </InfoTip>}>
+        <Section id="rights" title="Your rights" info={<InfoTip align="end" title="About this page">{pack.copy.tenantAbout}</InfoTip>}>
           <ul>
-            {rights(v, moveInPhotosRequired).map((r) => (
+            {pack.tenant.rights(v, moveInPhotosRequired).map((r) => (
               <li key={r.title} className="border-t border-line-2 py-2.5 first:border-t-0 first:pt-0">
                 <InfoTip trigger={<TipLabel>{r.title}</TipLabel>} title={r.title} cite={r.cite}>{r.text}</InfoTip>
               </li>
             ))}
             <li className="border-t border-line-2 pt-2.5">
               <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand hover:underline">
-                Courts&apos; guide to security deposits<Icon name="arrow-up-right" className="size-3.5" />
+                {pack.courtsGuide.label} to security deposits<Icon name="arrow-up-right" className="size-3.5" />
               </a>
             </li>
           </ul>
@@ -197,9 +198,9 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 type Tone = "green" | "amber" | "red" | "gray";
 
 /** The status block, from the latest fact on file: a label, the hero amount, one status line and one sentence. */
-function standing(v: TenantView): { label: string; amount: number | null; tone: Tone; title: string; line?: ReactNode; pay?: string | null } {
+function standing(v: TenantView, pack: StatePack): { label: string; amount: number | null; tone: Tone; title: string; line?: ReactNode; pay?: string | null } {
   const st = v.statement;
-  const due = (text: string) => withTip(text, <InfoTip align="end" title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">Within 21 calendar days after you move out, the landlord gives you an itemized statement of any deductions and returns the rest of the deposit.</InfoTip>);
+  const due = (text: string) => withTip(text, <InfoTip align="end" title={pack.tenant.dueTip.title} cite={pack.tenant.dueTip.cite}>{pack.tenant.dueTip.text}</InfoTip>);
   if (v.returned) {
     const r = v.returned, how = r.kind === "payout" ? "PayPal Payout" : "PayPal refund";
     if (returnFailed(r.status)) return { label: "Refund amount", amount: r.amount, tone: "red", title: `Refund ${words(r.status)}`, line: `PayPal reports the ${how} as ${words(r.status)}. Ask your landlord to send it again.` };
@@ -228,7 +229,7 @@ function standing(v: TenantView): { label: string; amount: number | null; tone: 
   if (v.deposit?.paid) {
     return {
       label: "Deposit held", amount: v.deposit.amount, tone: "green", title: v.deposit.paidAt ? `Paid ${shortDate(pacificDate(v.deposit.paidAt))}` : "Paid",
-      line: due("It comes back, less any lawful deductions, within 21 days after you move out."),
+      line: due(pack.tenant.paidLine),
     };
   }
   if (v.deposit) {
@@ -307,7 +308,7 @@ function Progress({ steps }: { steps: Step[] }) {
 }
 
 /** The same four steps with their dates: green checks for what happened, the brand dot for what comes next. */
-function Timeline({ steps, due, delivery }: { steps: Step[]; due: string | null; delivery: DeliveryRecord | null }) {
+function Timeline({ steps, due, delivery, deliveryCite }: { steps: Step[]; due: string | null; delivery: DeliveryRecord | null; deliveryCite: string }) {
   const next = steps.findIndex((s) => !s.done);
   return (
     <ol>
@@ -324,7 +325,7 @@ function Timeline({ steps, due, delivery }: { steps: Step[]; due: string | null;
               <p className={`flex items-center gap-1.5 font-medium ${state === "todo" ? "text-ink-3" : ""}`}>
                 {s.title}
                 {s.key === "statement" && delivery && (
-                  <InfoTip align="end" title="How it was delivered" cite="Civ. Code 1950.5(h)(1)(B), (h)(6)">{capFirst(describeDelivery(delivery))}.</InfoTip>
+                  <InfoTip align="end" title="How it was delivered" cite={deliveryCite}>{capFirst(describeDelivery(delivery))}.</InfoTip>
                 )}
               </p>
               <p className="text-xs text-ink-3">{sub}<span className="sr-only">{s.done ? ", done" : ""}</span></p>
@@ -340,18 +341,15 @@ function Timeline({ steps, due, delivery }: { steps: Step[]; due: string | null;
 
 type DetailRow = { k: ReactNode; v: ReactNode; total?: boolean };
 
-function detailRows(v: TenantView): DetailRow[] {
+function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
   const st = v.statement, d = v.deposit, a = v.agreement;
   const masked = maskEmail(a?.paypalEmail);
   const rows: DetailRow[] = [];
   const signed = a ? `Signed by ${a.signedBy.join(" and ")} on ${longDate(pacificDate(a.signedAt))}.` : "";
+  const tip = pack.tenant.agreementTip({ agreed: !!a, electronic: !!d?.electronic });
   const agreementTip = (label: string) => (
-    <InfoTip trigger={<TipLabel>{label}</TipLabel>} title={a ? "Your refund agreement" : "How the refund comes back"} cite="Civ. Code 1950.5(h)(1)(A)">
-      {a
-        ? <>{a.text ? <>&ldquo;{a.text}&rdquo; </> : null}{signed}</>
-        : d?.electronic
-          ? "Because the deposit was paid electronically, it comes back electronically: to an account you designate in writing, or by another electronic method you agree to in writing."
-          : "The refund comes by personal delivery or first-class mail check, electronically if you paid rent or the deposit electronically, or by a method you and the landlord agree to in writing."}
+    <InfoTip trigger={<TipLabel>{label}</TipLabel>} title={tip.title} cite={tip.cite}>
+      {a ? <>{a.text ? <>&ldquo;{a.text}&rdquo; </> : null}{signed}</> : tip.text}
     </InfoTip>
   );
 
@@ -359,7 +357,7 @@ function detailRows(v: TenantView): DetailRow[] {
   else rows.push({ k: "Deposit", v: <span className="text-ink-3">Not requested yet</span> });
 
   if (st) {
-    rows.push({ k: "Deductions", v: st.total ? <Money value={st.total} sign="minus" /> : <Money value={0} /> });
+    rows.push({ k: st.standing?.label ?? "Deductions", v: st.total ? <Money value={st.total} sign="minus" /> : <Money value={0} /> });
     if (st.balanceClaimed > 0) rows.push({ k: "Balance claimed", v: <Money value={st.balanceClaimed} />, total: true });
     else rows.push({ k: v.returned ? "Refund" : "Refund due", v: <Money value={v.returned?.amount ?? st.refund} />, total: true });
   }
@@ -397,9 +395,9 @@ function Details({ rows }: { rows: DetailRow[] }) {
 
 /* ---------- Deductions ---------- */
 
-function DeductionRow({ d }: { d: TenantDeduction }) {
+function DeductionRow({ d, pack }: { d: TenantDeduction; pack: StatePack }) {
   const tone = d.category === "damage" ? "bg-red-bg text-red" : d.category === "cleaning" ? "bg-amber-bg text-amber" : "bg-surface-2 text-ink-3";
-  const tag = TAGS[d.category];
+  const tag = pack.tags[d.category];
   return (
     <li className="flex gap-3 border-t border-line-2 py-3 first:border-t-0 first:pt-0 last:pb-0">
       <span className={`mt-px flex size-6 shrink-0 items-center justify-center rounded-sm text-xs font-semibold tabular-nums ${tone}`}>{d.n}</span>
@@ -409,74 +407,14 @@ function DeductionRow({ d }: { d: TenantDeduction }) {
         <p className="font-medium">{d.title}</p>
         <p className="mt-0.5 text-sm text-ink-3">
           {capFirst([d.room, d.where ? lowerFirst(d.where) : null].filter(Boolean).join(", "))}{d.room || d.where ? ". " : ""}{d.basis}.{" "}
-          <InfoTip trigger="why" align="end" title={tag.label} cite={`Civ. Code 1950.5${tag.tag}`}>
-            {capFirst(d.item)}{d.room ? ` (${d.room})` : ""}: {d.math}.{d.note ? ` ${d.note}` : ""}{d.proration !== "none" ? " Proration by useful life and paint schedules is published guidance, not statute." : ""}
+          <InfoTip trigger="why" align="end" title={tag.label} cite={pack.statute.tagCite(tag.tag)}>
+            {capFirst(d.item)}{d.room ? ` (${d.room})` : ""}: {d.math}.{d.note ? ` ${d.note}` : ""}{d.proration !== "none" ? ` ${pack.tenant.prorationNote}` : ""}
           </InfoTip>
         </p>
       </div>
       <Money value={d.amount} className="font-medium" />
     </li>
   );
-}
-
-/* ---------- Your rights ---------- */
-
-/** The rules in one line each, with the exact subsection and, where they fit, the facts on file in the tip. */
-function rights(v: TenantView, moveInPhotosRequired: boolean): { title: string; text: ReactNode; cite: string }[] {
-  const a = v.agreement, st = v.statement;
-  const signed = a ? `on ${longDate(pacificDate(a.signedAt))}` : "";
-  return [
-    {
-      title: "Statement and refund within 21 days",
-      text: <>Within 21 calendar days after you move out, the landlord gives you an itemized statement of any deductions and returns the rest of the deposit.{v.moveOutDate && v.statementDue ? <> You moved out on {longDate(v.moveOutDate)}, so the deadline {st ? "was" : "is"} {longDate(v.statementDue)}.</> : null}</>,
-      cite: "Civ. Code 1950.5(h)(1)",
-    },
-    {
-      title: "What can be deducted",
-      text: "Only unpaid rent, damage beyond ordinary wear and tear caused by you or your guests, cleaning that brings the unit back to how clean it was when you moved in, or, if your lease says so, restoring or replacing the landlord's furnishings.",
-      cite: "Civ. Code 1950.5(b)(1)-(4)",
-    },
-    {
-      title: "No charge for wear and tear",
-      text: "Nothing can be deducted for ordinary wear and tear, for conditions that were already there when you moved in, or for wear that built up over earlier tenancies. Only what is reasonably necessary to restore the unit to its move-in condition may be charged.",
-      cite: "Civ. Code 1950.5(e)(1), (e)(2)(A)-(B)",
-    },
-    {
-      // (h)(2)(D) sends the photos only with a repair or cleaning deduction, and (h)(4)(A) lifts that at $125 or less.
-      title: "Photos of the unit",
-      text: `The landlord photographs the unit ${moveInPhotosRequired ? "at the start of the tenancy, and again " : ""}at move-out before and after any repair or cleaning that is deducted. If any repair or cleaning is deducted, those photos come with the statement, subject to the $125 rule.`,
-      cite: moveInPhotosRequired ? "Civ. Code 1950.5(g)(1)-(2), (h)(2)(D)" : "Civ. Code 1950.5(g)(2), (h)(2)(D)",
-    },
-    {
-      title: "Receipts for deductions over $125",
-      text: "If repair and cleaning deductions total more than $125, the invoices, receipts, labor records and photos come with the statement. If they total $125 or less, you may ask for them within 14 days of receiving the statement, and the landlord then has 14 days to provide them.",
-      cite: "Civ. Code 1950.5(h)(2), (h)(4)-(5)",
-    },
-    v.deposit?.electronic
-      ? {
-        title: "How the refund comes back",
-        text: <>Because the deposit was paid electronically, the rest of it comes back electronically{a ? <>. You agreed in writing {signed} that it comes back by PayPal to {a.paypalEmail}.</> : <>, to an account you designate in writing, or by another electronic method you agree to in writing.</>}</>,
-        cite: "Civ. Code 1950.5(h)(1)(A)",
-      }
-      : {
-        title: "How the refund comes back",
-        text: <>The refund comes by personal delivery or first-class mail check, electronically if you paid rent or the deposit electronically, or by a method you and the landlord agreed to in writing{a ? <>: you agreed {signed} that it comes back by PayPal to {a.paypalEmail}</> : null}.</>,
-        cite: "Civ. Code 1950.5(h)(1)(A)",
-      },
-    {
-      title: "An inspection before you move out",
-      text: "Before you move out, you may ask for an initial inspection and be there for it. It can take place no earlier than two weeks before the tenancy ends, with at least 48 hours' written notice of the date and time. Afterwards the landlord gives you an itemized list of what would be deducted, so you can fix it before you leave.",
-      cite: "Civ. Code 1950.5(f)(1), (f)(2)",
-    },
-    { title: "Where the statement is mailed", text: "The statement is mailed to the address you give the landlord. If you give none, it goes to the unit you left.", cite: "Civ. Code 1950.5(h)(6)" },
-    // (h)(1)(C)(i) is the default; the (C)(ii) agreement may send the refund to one adult or divide it, and says how
-    // each adult receives the statement. The agreement on file names the account, which is stated as a fact only.
-    ...(v.tenants.length > 1 ? [{
-      title: "More than one adult on the lease",
-      text: <>With more than one adult on the lease, the refund is a check payable to all of you and the statement goes to any one of you, unless every adult and the landlord signed a written agreement saying how it is returned, whether to one of you or divided among you, and how each of you receives the statement.{a ? <> The agreement signed by {a.signedBy.join(" and ")} names the PayPal account the refund goes to.</> : null}</>,
-      cite: "Civ. Code 1950.5(h)(1)(C)",
-    }] : []),
-  ];
 }
 
 /* ---------- Layout ---------- */

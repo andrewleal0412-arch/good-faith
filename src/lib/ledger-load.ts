@@ -1,6 +1,7 @@
 import "server-only";
 import { pacificToday } from "./dates";
-import { statementDue } from "./deductions";
+import type { Notices } from "./notices";
+import { packFor } from "./states/server";
 import { db } from "./db";
 import { ledgerRows, streetLine, type LedgerDeduction, type LedgerPayment, type LedgerRow, type LedgerTenancy } from "./ledger";
 import { currentWorkspace } from "./workspace";
@@ -10,7 +11,8 @@ import { currentWorkspace } from "./workspace";
 // statuses leave the server; tenant emails, lease text and the raw PayPal records stay here.
 
 /** One tenancy, for the property filter and the "due back" tile: its street line, its tenants, when it began (to tell
- *  two tenancies at one address apart), and the day its statement and refund are due (21 days after the move-out), if the tenants have moved out. */
+ *  two tenancies at one address apart), and the day its statement and refund are due under its state's pack
+ *  (California: 21 days after the move-out), if the tenants have moved out. */
 export type LedgerUnit = { id: string; label: string; street: string; tenants: string; start: string | null; due: string | null };
 export type Ledger = { today: string; rows: LedgerRow[]; units: LedgerUnit[] };
 
@@ -21,7 +23,7 @@ export async function loadLedger(): Promise<Ledger | { error: string }> {
   const ws = await currentWorkspace();
   if (!ws) return { today: pacificToday(), rows: [], units: [] };
   const [tenancies, payments, deductions] = await Promise.all([
-    db.from("tenancies").select("id, tenants, monthly_rent, move_out_date, statement_delivered_at, lease_terms, properties(address, city)")
+    db.from("tenancies").select("id, tenants, monthly_rent, move_out_date, end_date, planned_move_out, notices, statement_delivered_at, lease_terms, properties(address, city, state)")
       .eq("workspace_id", ws.id).order("created_at"),
     db.from("payments").select("id, tenancy_id, kind, paypal_id, amount, status, raw, created_at, tenancies!inner(workspace_id)")
       .eq("tenancies.workspace_id", ws.id).order("created_at"),
@@ -33,7 +35,7 @@ export async function loadLedger(): Promise<Ledger | { error: string }> {
     console.error("ledger: database read failed:", failed.message);
     return { error: "The ledger could not be loaded from the database. Refresh the page; if it keeps happening, check the Supabase connection." };
   }
-  const ts = (tenancies.data ?? []) as unknown as LedgerTenancy[];
+  const ts = (tenancies.data ?? []) as unknown as (LedgerTenancy & { end_date: string | null; planned_move_out: string | null; notices: Notices | null })[];
   const ps = (payments.data ?? []) as (LedgerPayment & { tenancy_id: string })[];
   const ds = (deductions.data ?? []) as (LedgerDeduction & { tenancy_id: string })[];
   // A stable sort, so each tenancy's own order (invoice before its payment) survives the merge.
@@ -44,7 +46,10 @@ export async function loadLedger(): Promise<Ledger | { error: string }> {
     const tenants = (t.tenants ?? []).map((x) => x.name).join(" and ") || "no tenants named";
     return {
       id: t.id, label: `${street} (${tenants})`, street, tenants, start: t.lease_terms?.tenancyStartDate ?? null,
-      due: t.move_out_date ? statementDue(t.move_out_date) : null,
+      due: packFor(t.properties?.state).deadline.due({
+        moveOutDate: t.move_out_date, endDate: t.end_date, plannedMoveOut: t.planned_move_out,
+        claimed: ds.some((d) => d.tenancy_id === t.id), claimNoticeDate: t.notices?.claim_notice?.date ?? null,
+      }),
     };
   });
   return { today: pacificToday(), rows, units };

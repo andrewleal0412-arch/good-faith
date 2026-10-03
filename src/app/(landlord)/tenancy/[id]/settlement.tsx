@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Money, Notice, Table, Td, Th, trClass } from "@/components/ui";
-import { basisOf, missingDocs, RECEIPT_THRESHOLD, settle, usd, type StoredDeduction } from "@/lib/deductions";
+import { basisOf, evidenceGaps, missingDocs, settle, type StoredDeduction } from "@/lib/deductions";
+import { packFor } from "@/lib/states";
 import { findingTitle } from "@/lib/findings";
 
 /** A wear-and-tear finding, listed at $0.00 so the tenant sees what was looked at and not charged. */
@@ -16,6 +17,7 @@ export type WearRow = { id: string; n: number; item: string; full: string; room:
 // deposit has gone back.
 export function Settlement(p: {
   tenancyId: string;
+  state: string; // the state whose documentation rule applies
   depositHeld: number | null;
   deductions: StoredDeduction[];
   numbers: Record<string, number>; // finding id to its number on the page
@@ -36,7 +38,9 @@ export function Settlement(p: {
     router.refresh();
   }
 
-  const s = settle(p.depositHeld ?? 0, p.deductions);
+  const pack = packFor(p.state);
+  const s = settle(p.depositHeld ?? 0, p.deductions, pack);
+  const tip = pack.documents.settlementTip(s.documentsRequired);
   const locked = !!p.returned;
   const num = (d: StoredDeduction) => (d.finding?.id ? p.numbers[d.finding.id] : undefined);
   // Rows in finding order, so the table reads in the same order as the cards above; anything without a finding last.
@@ -63,16 +67,9 @@ export function Settlement(p: {
                 <span className="inline-flex items-center gap-1.5">
                   Basis
                   {/* One tip for the table: what may be deducted, and what has to go with it (the receipt rule). */}
-                  <InfoTip title="What may be deducted"
-                    cite={`Civ. Code 1950.5(b)(1)-(3), (h)(2)-(3); ${s.documentsRequired ? "(g)(2), (h)(2)" : "(g)(2), (h)(4)-(5)"}`}>
-                    Unpaid rent, repair of damage beyond ordinary wear and tear, and cleaning back to move-in condition. Replacements are
-                    prorated by the item&apos;s age; that proration and the paint schedule are DRE guidance, not statute. An estimate is
-                    a good-faith figure whose invoice follows within 14 days of the work.
-                    <span className="mt-1.5 block">
-                      {s.documentsRequired
-                        ? `Repair and cleaning total more than ${usd(RECEIPT_THRESHOLD)}, so invoices, receipts and labor details go with the statement, with the before and after photos.`
-                        : `Repair and cleaning total ${usd(RECEIPT_THRESHOLD)} or less, so receipts aren't required, though the tenant can ask for them within 14 days. The before and after photos still go with it.`}
-                    </span>
+                  <InfoTip title="What may be deducted" cite={tip.cite}>
+                    {tip.text}
+                    <span className="mt-1.5 block">{tip.docs}</span>
                   </InfoTip>
                 </span>
               </Th>
@@ -102,7 +99,8 @@ export function Settlement(p: {
               const paper = d.category === "rent" ? null : d.performer === "vendor"
                 ? (d.receipt_path ? "vendor invoice" : d.is_estimate ? "estimate" : null)
                 : d.labor_description ? "labor record" : null;
-              const missing = missingDocs(d, s.documentsRequired);
+              const missing = missingDocs(d, s.documentsRequired, pack);
+              const gaps = evidenceGaps(d, pack);
               const evidenceSub = d.performer === "vendor" ? d.vendor?.name ?? null : d.category === "rent" ? null : "Your labor";
               return (
                 <tr key={d.id} className={trClass}>
@@ -116,7 +114,8 @@ export function Settlement(p: {
                     <div>{d.category === "rent" ? "Lease and rent ledger" : `${photos} photo${photos === 1 ? "" : "s"}${paper ? `, ${paper}` : ""}`}</div>
                     {missing.length > 0
                       ? <div className="text-xs text-amber">Needs {missing.join(", ")}</div>
-                      : evidenceSub && <div className="text-xs text-ink-3">{evidenceSub}</div>}
+                      : gaps.length > 0 ? <div className="text-xs text-amber" title="Not required by statute; the landlord carries the burden of proving the deduction reasonable">Unsupported: no {gaps.join(" or ")}</div>
+                        : evidenceSub && <div className="text-xs text-ink-3">{evidenceSub}</div>}
                   </Td>
                   <Td className="max-sm:hidden">
                     <div title={d.math}>{b.main}</div>

@@ -6,22 +6,25 @@ import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
+import { RulesChip } from "@/components/rules-chip";
 import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBox, Table, Tabs, Td, Th, Thumb, trClass } from "@/components/ui";
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
 import { wasPaid } from "@/lib/invoice-status";
 import { db } from "@/lib/db";
 import { DEMO_DEPOSIT_DATE } from "@/lib/demo-pool";
-import { settle, statementDue, type StoredDeduction } from "@/lib/deductions";
+import { settle, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
 import { dayLabel, daysBetween, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
-import { closedOut, nextStep } from "@/lib/next-step";
-import { NOTICE_INFO, NOTICE_SLUG, describeNoticeGiven, type NoticeKind, type Notices } from "@/lib/notices";
+import { closedOut, dueLabelOf, dueOf, inspectionExcused, nextStep } from "@/lib/next-step";
+import { NOTICE_SLUG, describeNoticeGiven, listedRecords, noticeInfoFor, recordsFor, type NoticeKind, type Notices } from "@/lib/notices";
 import { keepUnit, propertyStatus, splitAddress, stepLink, tabHref, TABS, type TabKey } from "@/lib/property-view";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
+import { packFor } from "@/lib/states/server";
+import type { StatePack } from "@/lib/states/types";
 import { deliveryLine, describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { describeTenantMoveOut, type TenantMoveOut } from "@/lib/tenant";
 import { activeTenantLink } from "@/lib/tenant-links";
@@ -155,7 +158,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const agreement = t.refund_agreement as { paypal_email: string; signed_by: string[]; signed_at: string } | null;
   const terms = t.lease_terms as LeaseTerms;
   const flags = (t.lease_flags ?? []) as Flag[];
-  const prop = t.properties as { address: string; city: string | null; owner_name: string | null };
+  const prop = t.properties as { address: string; city: string | null; owner_name: string | null; state?: string | null };
+  const pack = packFor(prop.state);
   const contacts = (t.tenants ?? []) as { name: string; email: string | null }[];
   // The same summary the Properties page reads: the status, the next step and the dates for the calendar.
   const summary = summarizeTenancy(t, paymentRows, photos ?? [], deductions);
@@ -171,8 +175,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const thumb = thumbRow ? url(thumbRow.storage_path) : null;
   const inspected = !!t.move_out_inspected_at;
   const held = paid && invoice ? Number(invoice.amount) : null;
-  const money = settle(held ?? 0, deductions);
-  const due = t.move_out_date ? statementDue(t.move_out_date) : null;
+  const money = settle(held ?? 0, deductions, pack);
+  const due = dueOf(summary);
   const delivery = t.statement_delivery ? (t.statement_delivery as DeliveryRecord) : null;
   // This unit's money events, from the refreshed invoice row and the deductions, as the Payments ledger lists them.
   const moneyRows = ledgerRows(t, paymentRows, (deductionRows ?? []) as LedgerDeduction[]);
@@ -200,9 +204,9 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     { label: "Open in Payments", href: `/ledger?tenancy=${id}`, icon: "card" },
     ...(inspected ? [{ label: "Download statement PDF", href: `/api/tenancies/${id}/statement/pdf`, icon: "download" as const, plain: true }] : []),
     { label: "Tenant link", href: tabHref(id, "tenants", "tenant-link"), icon: "link" },
-    { divider: true },
-    { label: "Inspection notice draft", href: `/tenancy/${id}/notices/inspection`, icon: "doc" },
-    { label: "Refund notice draft", href: `/tenancy/${id}/notices/electronic-refund`, icon: "doc" },
+    // The state's printable drafts (California: the inspection and refund notices).
+    ...(pack.records.some((r) => r.menu) ? [{ divider: true } as MenuItem] : []),
+    ...pack.records.filter((r) => r.menu).map((r) => ({ label: r.menu!, href: `/tenancy/${id}/notices/${NOTICE_SLUG[r.kind]}`, icon: "doc" as const })),
   ];
 
   // The notice and its dates: first on the tab before the comparison, last after it.
@@ -210,10 +214,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     <section id="notice" className="scroll-mt-24">
       <NoticeSection
         tenancyId={id}
+        state={pack.code}
         today={today}
         tenants={summary.tenants}
         endDate={summary.endDate}
         noticeGivenOn={summary.noticeGivenOn}
+        noticeGivenBy={summary.noticeGivenBy ?? null}
         plannedMoveOut={summary.plannedMoveOut}
         moveOutDate={summary.moveOutDate}
         moveOutLocked={!!returned}
@@ -242,7 +248,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             <h1 className="text-balance text-xl font-medium">{keepUnit(addr.street)}</h1>
             <StatusChip tone={status.tone} size="lg">{status.label}</StatusChip>
           </div>
-          <div className="mt-0.5 text-base text-ink-3">{addr.cityLine}</div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-ink-3">
+            <span>{addr.cityLine}</span>
+            <RulesChip state={pack.code} city={prop.city} />
+          </div>
         </div>
         <div className={`flex items-center gap-2 ${primary ? "max-sm:w-full" : "max-sm:self-start"}`}>
           {hasStatement && (
@@ -268,16 +277,18 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_288px]">
           <div className="flex min-w-0 flex-col gap-6">
             <Card id="move-in" className="scroll-mt-24">
-              <CardHead title="Move-in" meta={`${[true, !!agreement, paid, moveIn.length > 0].filter(Boolean).length} of 4 done`} />
+              <CardHead title="Move-in" meta={moveInMeta(pack, { agreement: !!agreement, paid, photos: moveIn.length > 0, notices: summary.notices })} />
               <MoveInSteps
                 tenancyId={id}
+                state={pack.code}
+                notices={summary.notices}
                 tenants={summary.tenants}
                 flagCounts={{
                   violations: flags.filter((f) => f.severity === "violation").length,
                   warnings: flags.filter((f) => f.severity === "warning").length,
                 }}
                 agreement={agreement}
-                lawful={terms ? lawfulDeposit(terms) : null}
+                lawful={terms ? lawfulDeposit(terms, pack) : null}
                 invoice={invoice ? { id: invoice.paypal_id, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
                   payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null } : null}
                 photos={photoViews}
@@ -349,8 +360,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             <Fact label={returned ? "Refunded" : money.balanceClaimed > 0 ? "Balance claimed" : "Refund due"} big
               value={<Money value={returned ? Number(returned.amount) : money.balanceClaimed > 0 ? money.balanceClaimed : money.refund} cents="small" phoneCents="full" />}
               sub={returned ? `By PayPal, ${shortDate(pacificDate(returned.created_at))}` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
-            <Fact label="Statement and refund due"
-              info={<InfoTip align="end" title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">The itemized statement and the refund are due within 21 calendar days after the tenants leave.</InfoTip>}
+            <Fact label={dueLabelOf(summary)}
+              info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
               value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
               sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(pacificDate(t.statement_delivered_at))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out)}` : "No move-out yet"} />
           </FactStrip>
@@ -362,6 +373,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           <section id="photos" className="scroll-mt-24">
             <MoveOut
               tenancyId={id}
+              state={pack.code}
               rooms={[...new Set(moveIn.map((x) => x.room))]}
               moveOutPhotos={photoViews.filter((x) => x.phase === "move_out_before")}
               findings={findings}
@@ -377,6 +389,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             <section id="deductions" className="scroll-mt-24">
               <Settlement
                 tenancyId={id}
+                state={pack.code}
                 depositHeld={held}
                 deductions={deductions}
                 numbers={numbers}
@@ -403,12 +416,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       )}
 
       {tab === "payments" && (
-        <MoneyTimeline tenancyId={id} rows={moneyRows} />
+        <MoneyTimeline tenancyId={id} rows={moneyRows} typeTip={pack.ledger.typeTip} />
       )}
 
       {tab === "documents" && (
-        <Documents ws={t.ws} id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
-          notices={summary.notices} refundNoticeNeeded={summary.refundNotice.needed} noticeGiven={!!summary.noticeGivenOn}
+        <Documents ws={t.ws} pack={pack} id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
+          notices={summary.notices} refundNoticeNeeded={summary.refundNotice.needed} noticeGiven={!!summary.noticeGivenOn} inspectionExcused={inspectionExcused(summary)}
           inspected={inspected} delivery={delivery} hasEvents={events.length > 0} />
       )}
 
@@ -477,6 +490,14 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   );
 }
 
+/** "2 of 4 done": the lease check, the refund agreement, the paid deposit and the move-in photos, plus the state's
+ *  own move-in records (a Washington checklist, the account a deposit is held in). */
+function moveInMeta(pack: StatePack, o: { agreement: boolean; paid: boolean; photos: boolean; notices: Notices }) {
+  const records = recordsFor(pack, "move_in");
+  const done = [true, o.agreement, o.paid, o.photos, ...records.map((r) => !!o.notices[r.kind])].filter(Boolean).length;
+  return `${done} of ${4 + records.length} done`;
+}
+
 /** One audit entry: the short title, who did it, and the day; the full sentence is the row's tooltip. */
 function LogRow({ a, today }: { a: { entry: { actor: string; action: string; detail: Record<string, unknown> | null; createdAt: string }; title: string }; today: string }) {
   const e = a.entry;
@@ -489,16 +510,18 @@ function LogRow({ a, today }: { a: { entry: { actor: string; action: string; det
 
 /** Every paper the law asks for on this tenancy, in the order they come up, with where each one opens. */
 async function Documents(p: {
-  ws: Workspace; id: string; leasePath: string | null; flags: Flag[]; agreement: { signed_by: string[]; signed_at: string } | null; moveInCount: number;
+  ws: Workspace; pack: StatePack; id: string; leasePath: string | null; flags: Flag[]; agreement: { signed_by: string[]; signed_at: string } | null; moveInCount: number;
   notices: Notices; refundNoticeNeeded: boolean | null;
-  noticeGiven: boolean; inspected: boolean; delivery: DeliveryRecord | null; hasEvents: boolean;
+  noticeGiven: boolean; inspectionExcused: boolean; inspected: boolean; delivery: DeliveryRecord | null; hasEvents: boolean;
 }) {
   const leaseUrl = p.leasePath ? (await signedUrlsFor(p.ws, "leases", [p.leasePath])).get(p.leasePath) ?? null : null;
   const v = p.flags.filter((f) => f.severity === "violation").length;
+  const info = noticeInfoFor(p.pack);
   const notice = (kind: NoticeKind) => {
     const given = p.notices[kind];
     if (given) return { text: `Given ${shortDate(given.date)}`, tone: "green" as const, title: `Given by ${describeNoticeGiven(given)}` };
     if (kind === "electronic_refund" && p.refundNoticeNeeded === false) return { text: "Not needed", tone: "gray" as const, title: null };
+    if (kind === "inspection" && p.inspectionExcused) return { text: "Not needed", tone: "gray" as const, title: "The tenants ended the tenancy with less than two weeks' notice" };
     return { text: p.noticeGiven ? "Draft" : "Not due yet", tone: p.noticeGiven ? "amber" as const : "gray" as const, title: null };
   };
   const rows: { name: string; sub: string; subTitle?: string; status: React.ReactNode; open: React.ReactNode; info?: React.ReactNode }[] = [
@@ -511,21 +534,43 @@ async function Documents(p: {
       name: "Refund agreement", sub: p.agreement ? `Signed by ${p.agreement.signed_by.join(" and ")}` : "PayPal refund, in writing",
       status: p.agreement ? <StatusChip tone="green">Signed {shortDate(pacificDate(p.agreement.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>,
       open: <Link href={tabHref(p.id, "overview", "move-in")} className="font-medium text-brand hover:underline">View</Link>,
-      info: <InfoTip title="Refund by PayPal" cite="Civ. Code 1950.5(h)(1)(A), (h)(1)(C)">Since January 1, 2026, a deposit received electronically comes back electronically, and by PayPal only with every adult tenant&apos;s written agreement.</InfoTip>,
+      info: <InfoTip title={p.pack.refund.documentsTip.title} cite={p.pack.refund.documentsTip.cite}>{p.pack.refund.documentsTip.text}</InfoTip>,
     },
     {
       name: "Move-in photos", sub: `${p.moveInCount} photo${p.moveInCount === 1 ? "" : "s"}`,
       status: p.moveInCount ? <StatusChip tone="green">On file</StatusChip> : <StatusChip tone="amber">Missing</StatusChip>,
       open: <Link href={tabHref(p.id, "overview", "move-in")} className="font-medium text-brand hover:underline">View</Link>,
-      info: <InfoTip title="Move-in photos" cite="Civ. Code 1950.5(g)(1), AB 2801">Required for tenancies that began on or after July 1, 2025.</InfoTip>,
+      info: <InfoTip title={p.pack.moveIn.photosDocTip.title} cite={p.pack.moveIn.photosDocTip.cite}>{p.pack.moveIn.photosDocTip.text}</InfoTip>,
     },
-    ...(["inspection", "electronic_refund"] as NoticeKind[]).map((k) => {
-      const s = notice(k);
+    // The state's own move-in records (a Washington checklist, the account the deposit is held in), then its notices.
+    ...recordsFor(p.pack, "move_in").map((r) => {
+      const given = p.notices[r.kind];
       return {
-        name: NOTICE_INFO[k].short.charAt(0).toUpperCase() + NOTICE_INFO[k].short.slice(1), sub: s.title ?? NOTICE_INFO[k].title,
+        name: r.short.charAt(0).toUpperCase() + r.short.slice(1), sub: given ? `${r.verb} ${shortDate(given.date)}` : r.title,
+        status: given ? <StatusChip tone="green">{r.verb}</StatusChip> : <StatusChip tone="amber">Not recorded</StatusChip>,
+        open: <Link href={`/tenancy/${p.id}/notices/${NOTICE_SLUG[r.kind]}`} className="font-medium text-brand hover:underline">{r.draft ? "Open draft" : "Open"}</Link>,
+        info: <InfoTip title={r.title} cite={r.cite}>{r.tip}</InfoTip>,
+      };
+    }),
+    ...(Object.keys(info) as NoticeKind[]).map((k) => {
+      const s = notice(k);
+      const n = info[k]!;
+      return {
+        name: n.short.charAt(0).toUpperCase() + n.short.slice(1), sub: s.title ?? n.title,
         status: <StatusChip tone={s.tone}>{s.text}</StatusChip>,
         open: <Link href={`/tenancy/${p.id}/notices/${NOTICE_SLUG[k]}`} className="font-medium text-brand hover:underline">Open draft</Link>,
-        info: <InfoTip title={NOTICE_INFO[k].title} cite={NOTICE_INFO[k].cite} />,
+        info: <InfoTip title={n.title} cite={n.cite} />,
+      };
+    }),
+    // After the move-out: the state's own records (a Florida claim notice, a Texas forwarding address). A record that
+    // answers another (Florida's objection to a claim notice) appears once that one is on file.
+    ...listedRecords(p.pack, "move_out", p.notices).map((r) => {
+      const given = p.notices[r.kind];
+      return {
+        name: r.short.charAt(0).toUpperCase() + r.short.slice(1), sub: given ? `${r.verb} ${shortDate(given.date)}` : r.title,
+        status: given ? <StatusChip tone="green">{r.verb}</StatusChip> : <StatusChip tone="gray">Not recorded</StatusChip>,
+        open: <Link href={`/tenancy/${p.id}/notices/${NOTICE_SLUG[r.kind]}`} className="font-medium text-brand hover:underline">{r.draft ? "Open draft" : "Open"}</Link>,
+        info: <InfoTip title={r.title} cite={r.cite}>{r.tip}</InfoTip>,
       };
     }),
     {
@@ -538,7 +583,7 @@ async function Documents(p: {
           <a href={`/api/tenancies/${p.id}/statement/pdf`} className="font-medium text-brand hover:underline">PDF</a>
         </span>
       ) : <span className="text-ink-3">Not ready</span>,
-      info: <InfoTip title="The itemized statement" cite="Civ. Code 1950.5(h)(1)-(2)">Due with the refund within 21 days after move-out, with the photos, invoices and receipts the deductions rely on.</InfoTip>,
+      info: <InfoTip title={p.pack.statement.documentRow.title} cite={p.pack.statement.documentRow.cite}>{p.pack.statement.documentRow.text}</InfoTip>,
     },
     ...(p.hasEvents ? [{
       name: "Calendar", sub: "Every deadline as an .ics file", status: <span className="text-ink-3">Ready</span>,

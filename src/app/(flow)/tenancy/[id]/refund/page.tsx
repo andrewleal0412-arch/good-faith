@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { POOL_EMPTY } from "@/lib/demo-pool";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { loadRefundView, maskEmail, type Check, type RefundView, type RunView } from "@/lib/refund-view";
+import { tenancyPack } from "@/lib/tenancy-pack";
 import { CopyId } from "@/components/copy-id";
 import { ownedTenancy, pageTenancy } from "@/lib/workspace";
 import { RefundActions } from "./actions";
@@ -35,8 +36,9 @@ export async function generateMetadata({ params }: PageProps<"/tenancy/[id]/refu
 export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/refund">) {
   const { id } = await params;
   const ws = await pageTenancy(id);
-  const v = await loadRefundView(id, { demo: ws.kind === "demo" });
+  const [v, pack] = await Promise.all([loadRefundView(id, { demo: ws.kind === "demo" }), tenancyPack(id)]);
   if (!v) notFound();
+  const statute = pack.statute.inline;
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
       <header className="flex h-16 items-center gap-3.5 px-4 sm:px-8">
@@ -50,7 +52,7 @@ export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/re
       </header>
       <main className="flex flex-1 justify-center px-4 pb-20 pt-6 sm:px-8 sm:pt-16">
         <div className="w-[560px] max-w-full">
-          {v.sent ? <Sent v={v} /> : <Review v={v} />}
+          {v.sent ? <Sent v={v} statute={statute} /> : <Review v={v} statute={statute} />}
         </div>
       </main>
     </div>
@@ -107,7 +109,7 @@ function partyRows(v: RefundView): [ReactNode, ReactNode, ReactNode?][] {
 
 /* ---------- Review ---------- */
 
-function Review({ v }: { v: RefundView }) {
+function Review({ v, statute }: { v: RefundView; statute: string }) {
   const r = v.review!;
   const run = r.run;
   const awaiting = !!r.pending && run?.status === "awaiting_approval";
@@ -152,7 +154,7 @@ function Review({ v }: { v: RefundView }) {
       <Divider />
       <Rows rows={[
         ...partyRows(v),
-        ["Amount", usd(r.amount), `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} in deductions`],
+        ["Amount", usd(r.amount), `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`],
         ...method,
       ]} />
       <Divider />
@@ -172,7 +174,7 @@ function Review({ v }: { v: RefundView }) {
             )}
           </ul>
           {failedCheck && <Notice className="mt-2">{failedCheck}</Notice>}
-          {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} />}
+          {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} statute={statute} />}
         </div>
       </details>
 
@@ -280,7 +282,7 @@ function withLinks(text: string): ReactNode[] {
   });
 }
 
-function AgentRun({ run, amount, deposit, word }: { run: RunView; amount: number; deposit: number; word: string }) {
+function AgentRun({ run, amount, deposit, word, statute }: { run: RunView; amount: number; deposit: number; word: string; statute: string }) {
   const n = runNotes(run.items);
   const rows = agentRows(n.steps, { amount, deposit, word, proposedAt: run.proposedAt });
   if (!rows.length && !n.summary.length) return null;
@@ -304,7 +306,7 @@ function AgentRun({ run, amount, deposit, word }: { run: RunView; amount: number
         <details className="group/s mt-2 rounded-md bg-surface px-3.5 py-2.5">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm text-ink-2 [&::-webkit-details-marker]:hidden">
             The agent&apos;s summary
-            {n.cites.length > 0 && <InfoTip title="Rules the agent relied on" cite={n.cites.join("; ")}>The parts of Civil Code 1950.5 the agent checked this close-out against.</InfoTip>}
+            {n.cites.length > 0 && <InfoTip title="Rules the agent relied on" cite={n.cites.join("; ")}>The parts of {statute} the agent checked this close-out against.</InfoTip>}
             <Icon name="chev-down" className="ml-auto size-3.5 text-ink-4 transition-transform group-open/s:rotate-180" />
           </summary>
           {n.summary.map((t, i) => <p key={i} className="mt-2 text-sm text-ink-2">{withLinks(t)}</p>)}
@@ -323,7 +325,7 @@ function deliveredBy(d: DeliveryRecord): string {
   return `By first-class mail to ${d.address_kind === "unit" ? "the vacated unit" : d.address_kind === "forwarding" ? "the forwarding address" : d.address ?? "the tenant"}`;
 }
 
-function Sent({ v }: { v: RefundView }) {
+function Sent({ v, statute }: { v: RefundView; statute: string }) {
   const s = v.sent!;
   const word = s.kind === "payout" ? "Payout" : "Refund";
   const failed = s.tone === "red";
@@ -381,7 +383,7 @@ function Sent({ v }: { v: RefundView }) {
         <details className="group mt-10 border-t border-line-2 pt-4">
           <Summary />
           <div className="mt-2">
-            <AgentRun run={s.run} amount={s.amount} deposit={s.deposit} word={s.kind} />
+            <AgentRun run={s.run} amount={s.amount} deposit={s.deposit} word={s.kind} statute={statute} />
           </div>
         </details>
       )}

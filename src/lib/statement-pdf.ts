@@ -3,10 +3,12 @@ import { PDFDocument, StandardFonts, rgb, type Color, type PDFFont, type PDFImag
 import sharp from "sharp";
 import { db } from "./db";
 import { usd } from "./deductions";
-import { describeDelivery, DISCLAIMERS, longDate, pacificDate, type Statement, type StatementPhoto } from "./statement";
+import { packFor } from "./states/server";
+import { describeDelivery, longDate, pacificDate, type Statement, type StatementPhoto } from "./statement";
 
 // The statement as one PDF packet for mail or email: the statement text, then the photo evidence for each deduction
-// (Civ. Code 1950.5(g), (h)(2)(D)), then every vendor invoice ((h)(2)(B)). Built with pdf-lib and the standard fonts,
+// (in California, Civ. Code 1950.5(g), (h)(2)(D)), then every vendor invoice ((h)(2)(B)). Its statute, deadline and
+// citations are the tenancy's state pack's. Built with pdf-lib and the standard fonts,
 // so nothing is fetched at runtime but the files in our own buckets. Every file is fetched and embedded before a word
 // of the statement is written, so the text says exactly what the packet holds and nothing it does not.
 
@@ -244,6 +246,8 @@ async function planInvoice(doc: PDFDocument, f: Fetched, budget: { left: number 
 }
 
 export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Array; pages: number; filename: string }> {
+  const pack = packFor(s.state);
+  const sec = pack.statement.sections;
   const doc = await PDFDocument.create();
   doc.setTitle(`Itemized security deposit statement, ${s.property.address}`);
   doc.setAuthor(s.landlord);
@@ -309,17 +313,17 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   // statement is frozen on its date and carries none.
   w.text("ITEMIZED SECURITY DEPOSIT STATEMENT", { size: 9, font: bold, color: ACCENT, lead: 16 });
   w.text(s.property.address, { size: 18, font: bold, lead: 24 });
-  w.text("California Civil Code 1950.5(h)", { size: 9.5, color: INK3, after: 12 });
+  w.text(pack.copy.statementCite, { size: 9.5, color: INK3, after: 12 });
   const dueLine = s.daysLeft == null ? "" : s.daysLeft < 0 ? ` (${-s.daysLeft} day${s.daysLeft === -1 ? "" : "s"} late)` : s.daysLeft === 0 ? " (due today)" : ` (${s.daysLeft} day${s.daysLeft === 1 ? "" : "s"} left)`;
   w.pairs([
     ["From", s.landlord], ["To", s.tenants.join(" and ")],
     ["Moved out", s.moveOutDate ? longDate(s.moveOutDate) : "Not set"], ["Statement date", longDate(s.statementDate)],
-    ["Due by", `${s.statementDue ? longDate(s.statementDue) : "Not set"}${dueLine}`], ["Deadline", "21 days after move-out, Civ. Code 1950.5(h)(1)"],
+    ["Due by", `${s.statementDue ? longDate(s.statementDue) : "Not set"}${dueLine}`], ["Deadline", pack.statement.pdf.deadlineLine],
   ]);
 
   // 1. Security received.
   let n = 0;
-  w.heading(++n, "Security received", "Civ. Code 1950.5(h)(1), (b)");
+  w.heading(++n, "Security received", sec.security.cite);
   if (s.security) {
     w.text(usd(s.security.amount), { size: 16, font: bold, lead: 20 });
     const method = !s.security.method || s.security.method === "PAYPAL" ? "PayPal" : s.security.method.toLowerCase().replace(/_/g, " ");
@@ -333,7 +337,9 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   }
 
   // 2. Deductions, one block each (items 3 to 8). Numbered "Item n" so they never read as section numbers.
-  w.heading(++n, "Deductions", "Civ. Code 1950.5(b), (h)(2)");
+  w.heading(++n, "Deductions", sec.deductions.cite);
+  // How the claim stands, when it is not a plain deduction (Florida: disputed; New York: kept after day 14).
+  if (s.standing) w.text(`${s.standing.label}. ${s.standing.note}`, { size: 9.5, color: WARN, after: 8 });
   if (!s.deductions.length) w.text(s.totals.depositHeld === 0 ? "No deductions." : "No deductions. The whole security is refunded.", { color: INK2 });
   for (const d of s.deductions) {
     w.need(70);
@@ -341,7 +347,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.text(`${d.tag} ${d.tagLabel}`, { size: 9, color: INK2, lead: 13 });
     const at = M + 14;
     // The stored math already carries its own label when it is a plain invoice ("Vendor invoice: $140.00").
-    w.text(`${d.explanation.includes("=") ? `Cost: ${d.explanation}` : d.explanation}${d.guidance ? ` (prorated by ${d.proration === "useful_life" ? "useful life" : "the paint schedule"}: DRE guidance, not statute)` : ""}`, { size: 9.5, color: INK2, x: at });
+    w.text(`${d.explanation.includes("=") ? `Cost: ${d.explanation}` : d.explanation}${d.guidance ? ` (prorated by ${d.proration === "useful_life" ? "useful life" : "the paint schedule"}: ${pack.copy.guidanceLabel}, not statute)` : ""}`, { size: 9.5, color: INK2, x: at });
     if (d.note) w.text(`Why this work: ${d.note}`, { size: 9.5, color: INK2, x: at });
     if (d.labor) {
       w.text(`Work by the landlord: ${d.labor.description ?? "no description recorded"}. ${d.labor.hours ?? "?"} hour${d.labor.hours === 1 ? "" : "s"} at ${d.labor.hourlyRate == null ? "an unrecorded rate" : `${usd(d.labor.hourlyRate)} an hour`}.`, { size: 9.5, color: INK2, x: at });
@@ -355,7 +361,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
       w.text(`Vendor: ${contact}. ${inv}`, { size: 9.5, color: INK2, x: at });
     }
     if (d.isEstimate) {
-      w.text("Good-faith estimate: the work is not finished or the invoice is not in hand yet. The final cost and documents follow within 14 days of completion or receipt (Civ. Code 1950.5(h)(3)).", { size: 9.5, color: WARN, x: at });
+      w.text(pack.statement.estimateNote, { size: 9.5, color: WARN, x: at });
     }
     const slots = photoPlan.get(d.id) ?? [];
     const shown = slots.filter((x) => "image" in x.embedded).map((x) => x.photo.label.toLowerCase());
@@ -364,16 +370,23 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
       ? `Photos: Exhibit ${photoExhibit.get(d.id)} (${shown.join("; ")})${out.length ? `; not available: ${out.join("; ")}` : ""}.`
       : slots.length ? `Photos: on file but not available for this packet (${out.join("; ")}).` : "Photos: none on file.", { size: 9.5, color: INK2, x: at, after: 8 });
   }
+  // Considered and not charged: the wear-and-tear findings at $0, where the state's spec lists them.
+  if (s.wear?.length) {
+    w.need(30);
+    w.text("Considered and not charged (normal wear and tear)", { size: 10, font: bold, after: 2 });
+    for (const x of s.wear) w.row(`${x.item} (${x.room})`, usd(0), { size: 9.5, color: INK2 });
+    w.space(6);
+  }
   w.space(2);
   w.rule(INK, 1);
   w.space(10);
   w.row("Security held", usd(s.totals.depositHeld));
-  w.row("Total deductions", s.totals.deductions ? `-${usd(s.totals.deductions)}` : usd(0));
+  w.row(s.standing ? s.standing.label : "Total deductions", s.totals.deductions ? `-${usd(s.totals.deductions)}` : usd(0));
   if (s.balanceClaimed) w.row("Balance claimed", usd(s.balanceClaimed.amount), { bold: true, size: 11.5 });
   else w.row(s.refund.state === "sent" ? "Refunded" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
 
   // 3. Documents (item 9): the rule, then exactly what this packet holds and what it does not.
-  w.heading(++n, "Documents", s.documents.required ? "Civ. Code 1950.5(h)(2)" : "Civ. Code 1950.5(h)(4)-(5)");
+  w.heading(++n, "Documents", pack.statement.documentsCite(s.documents.required));
   w.text(s.documents.note, { color: INK2 });
   if (s.deductions.some((d) => d.category !== "rent")) {
     w.space(4);
@@ -383,14 +396,14 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   }
 
   // 4. Refund (item 10).
-  w.heading(++n, "Refund", "Civ. Code 1950.5(h)(1)(A), (h)(1)(C)");
+  w.heading(++n, "Refund", sec.refund);
   w.text(usd(s.refund.amount), { size: 16, font: bold, lead: 20 });
   w.text(`${s.refund.method}${s.refund.paypalId ? ` (PayPal id ${s.refund.paypalId})` : ""}${s.refund.sentAt ? `, sent ${longDate(pacificDate(s.refund.sentAt))}` : ""}${s.refund.state === "none" ? "" : "."}`, { color: INK2 });
   if (s.refund.state !== "none") w.text(`Payable to ${s.refund.payees.join(" and ")}${s.refund.paypalEmail ? `, PayPal account ${s.refund.paypalEmail}` : ""}.`, { color: INK2 });
   if (s.refund.note) { w.space(4); w.text(s.refund.note, { size: 9.5, color: INK3 }); }
 
   // 5. Local deposit interest (item 11).
-  w.heading(++n, "Local deposit interest");
+  w.heading(++n, pack.statement.interestTitle);
   w.text(s.interest.note, { color: INK2 });
 
   // 6. Balance claimed (item 12), only when there is one.
@@ -401,7 +414,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   }
 
   // 7. Delivery (item 13).
-  w.heading(++n, "Delivery", "Civ. Code 1950.5(h)(1)(B), (h)(6)");
+  w.heading(++n, "Delivery", sec.delivery.cite);
   w.text(s.delivery
     ? `Delivered by ${describeDelivery(s.delivery)}${s.delivery.to && s.delivery.method !== "personal" ? `, addressed to ${s.delivery.to}` : ""}.`
     : "To be recorded when the statement goes out.", { color: s.delivery ? INK2 : INK3 });
@@ -412,9 +425,9 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   w.space(10);
   w.text(attached.length > 1 ? `Exhibits A through ${[...photoExhibit.values(), ...invoiceExhibit.values()].pop()} follow this statement.`
     : attached.length ? "Exhibit A follows this statement." : "No attachments.", { size: 9, color: INK2, after: 6 });
-  w.text("Prepared with Good Faith from the landlord's records, under California Civil Code 1950.5 and published state guidance. It is not legal advice.", { size: 8, color: INK3, lead: 11 });
-  w.text(DISCLAIMERS[1], { size: 8, color: INK3, lead: 11 });
-  w.text(DISCLAIMERS[3], { size: 8, color: INK3, lead: 11 });
+  w.text(pack.copy.preparedUnder, { size: 8, color: INK3, lead: 11 });
+  w.text(pack.copy.disclaimers[1], { size: 8, color: INK3, lead: 11 });
+  w.text(pack.copy.disclaimers[3], { size: 8, color: INK3, lead: 11 });
 
   // Photo exhibits: the move-in, before and after photos of one deduction in a row, as on screen, each row as tall
   // as its tallest photo. Exhibits follow one another down the page and start a new one only when the next would

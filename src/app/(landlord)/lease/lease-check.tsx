@@ -4,14 +4,18 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { Icon } from "@/components/icons";
-import { InfoTip } from "@/components/info-tip";
-import { Card, Fact, FactStrip, KV, Money, Notice, StatusChip, type Tone } from "@/components/ui";
+import { InfoTip, TipLabel } from "@/components/info-tip";
+import { Card, Fact, FactStrip, KV, Money, Notice, StatusChip, inlineInputClass, type Tone } from "@/components/ui";
 import type { Flag, LeaseTerms } from "@/lib/rules";
+import { isSupported, packFor, SUPPORTED, STATE_NAMES, supportedNames, unsupportedMessage } from "@/lib/states";
+import { CA } from "@/lib/states/ca";
+import type { LawfulDeposit, ClientPack } from "@/lib/states/types";
 import { mb, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
 
 type Result = {
   terms: LeaseTerms; totalSecurity: number; smallLandlordExempt: boolean | null; flags: Flag[];
-  leasePath: string | null; lawfulDeposit: { amount: number; cap: number; charged: number } | null;
+  leasePath: string | null; lawfulDeposit: LawfulDeposit | null;
+  state: string | null; supported: boolean; refusal: string | null; // the state the lease is for, and whether it has a pack
 };
 
 const usd = (n: number | null | undefined) =>
@@ -19,16 +23,21 @@ const usd = (n: number | null | undefined) =>
 const shortDay = (iso: string | null | undefined) =>
   iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : null;
 
-const SEVERITY: Record<Flag["severity"], { label: string; plural: string; tone: Tone }> = {
+const SEVERITY: Record<Flag["severity"] | "note", { label: string; plural: string; tone: Tone }> = {
   violation: { label: "Violation", plural: "violations", tone: "red" },
   warning: { label: "Warning", plural: "warnings", tone: "amber" },
   info: { label: "Required step", plural: "required steps", tone: "gray" },
+  note: { label: "Note", plural: "notes", tone: "gray" },
 };
+
+/** A flag's row label: an info flag a pack marks as a note reads "Note", not "Required step". */
+const kindOf = (f: Flag) => (f.severity === "info" && f.note ? "note" : f.severity);
 
 /** One short fact under a finding's title, from the terms the rules read. The rule and the lease's own words are its
  *  Why? tip, so a quote is never repeated (or cut off) here. */
 function factOf(f: Flag, r: Result): string | null {
   const t = r.terms;
+  if (f.fact) return f.fact;
   switch (f.id) {
     case "D3": return r.lawfulDeposit ? `Lease asks ${usd(r.lawfulDeposit.charged)}, cap ${usd(r.lawfulDeposit.cap)}` : null;
     case "D4": return t.monthlyRent ? `Cap is ${usd(t.monthlyRent)} or ${usd(t.monthlyRent * 2)}` : null;
@@ -52,7 +61,53 @@ function factOf(f: Flag, r: Result): string | null {
   }
 }
 
+/** The lease page's four steps, each name opening its tip (seven info icons on an empty page read as chrome). */
+function Steps({ pack }: { pack: ClientPack }) {
+  return (
+    <ol className="mb-6 grid grid-cols-2 gap-2 lg:grid-cols-4">
+      {pack.lease.steps.map((s, i) => (
+        <li key={s.title} className="flex items-center gap-2.5 rounded-md border border-line px-3 py-2.5">
+          <span className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-medium ${i === 0 ? "bg-brand text-white" : "bg-surface-2 text-ink-3"}`}>{i + 1}</span>
+          <span className="min-w-0 flex-1 text-sm font-medium">
+            <InfoTip trigger={<TipLabel>{s.title}</TipLabel>} align={i % 2 ? "end" : "start"} title={s.title} cite={s.cite}>{s.text}</InfoTip>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** The three rules the state is known for, under the check. */
+function Law({ pack }: { pack: ClientPack }) {
+  return (
+    <Card soft className="mt-6 grid divide-y divide-line-2 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      {pack.lease.law.map((l, i) => (
+        <div key={l.label} className="px-4 py-3">
+          <div className="text-sm font-medium">
+            <InfoTip trigger={<TipLabel>{l.label}</TipLabel>} align={i === 2 ? "end" : "start"} title={l.label} cite={l.cite}>{l.fact}</InfoTip>
+          </div>
+          <div className="mt-0.5 text-xs text-ink-3">{l.line}</div>
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+// The lease page's steps, the check and the three facts under it, in the words of the state whose lease is on screen:
+// California's until a lease from another supported state is read.
 export function LeaseCheck() {
+  const [code, setCode] = useState<string | null>(null);
+  const shown = code && isSupported(code) ? packFor(code) : CA;
+  return (
+    <>
+      <Steps pack={shown} />
+      <Check code={code} setCode={setCode} />
+      <Law pack={shown} />
+    </>
+  );
+}
+
+function Check({ code, setCode }: { code: string | null; setCode: (c: string | null) => void }) {
   const [state, setState] = useState<"idle" | "reading" | "done" | "error">("idle");
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
@@ -69,7 +124,7 @@ export function LeaseCheck() {
     try {
       const r = await fetch("/api/tenancies", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ terms: result.terms, leasePath: result.leasePath }),
+        body: JSON.stringify({ terms: result.terms, leasePath: result.leasePath, state: code }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "Couldn't start the tenancy. Try again.");
@@ -108,20 +163,57 @@ export function LeaseCheck() {
       setState("error");
       return;
     }
-    setResult(await r.json());
+    const res = (await r.json()) as Result;
+    setResult(res);
+    setCode(res.supported ? res.state : null);
     setState("done");
   }
 
   function reset() {
     setResult(null);
+    setCode(null);
     setState("idle");
     setError("");
     setStartError("");
   }
 
-  if (result && state === "done") {
-    const r = result;
-    const counts = (["violation", "warning", "info"] as const).map((s) => [s, r.flags.filter((f) => f.severity === s).length] as const).filter(([, n]) => n);
+  // The pack the result reads with: the lease's own state, or the one the landlord picked. The server's answer is kept
+  // for the lease's own state; a picked one is checked here with the same pack (the server checks it again on start).
+  const pack = code && isSupported(code) ? packFor(code) : null;
+  const chosen: Result | null = result && pack ? (pack.code === result.state && result.supported ? result : {
+    ...result, terms: { ...result.terms, state: pack.code }, flags: pack.lease.evaluate({ ...result.terms, state: pack.code }),
+    lawfulDeposit: pack.lease.lawful({ ...result.terms, state: pack.code }), supported: true, refusal: null, state: pack.code,
+  }) : null;
+  const picker = result && (
+    <label className="flex items-center gap-2 text-sm text-ink-3">
+      State
+      <select value={code ?? ""} onChange={(e) => setCode(e.target.value || null)} aria-label="State the property is in" className={`${inlineInputClass} h-8 pr-8`}>
+        {!pack && <option value="">{result.state && STATE_NAMES[result.state] ? `${STATE_NAMES[result.state]} (not supported)` : "Pick the state"}</option>}
+        {SUPPORTED.map((c) => <option key={c} value={c}>{packFor(c).name}</option>)}
+      </select>
+    </label>
+  );
+
+  if (result && state === "done" && !chosen) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Card className="flex flex-wrap items-center gap-3 px-4 py-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-surface text-ink-3"><Icon name="doc" className="size-[15px]" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium" title={fileName}>{fileName || "Lease"}</p>
+            <p className="truncate text-xs text-ink-3">{result.terms.propertyAddress ?? "Address not found in the lease"}</p>
+          </div>
+          {picker}
+          <Button variant="link" onClick={reset}>Check another</Button>
+        </Card>
+        <Notice>{result.refusal ?? unsupportedMessage(result.state)}</Notice>
+      </div>
+    );
+  }
+
+  if (chosen && pack && state === "done") {
+    const r = chosen;
+    const counts = (["violation", "warning", "info", "note"] as const).map((s) => [s, r.flags.filter((f) => kindOf(f) === s).length] as const).filter(([, n]) => n);
     const lawful = r.lawfulDeposit;
     const over = lawful && lawful.charged > lawful.amount ? lawful.charged - lawful.amount : 0;
     const t = r.terms;
@@ -134,21 +226,24 @@ export function LeaseCheck() {
             <p className="truncate text-sm font-medium" title={fileName}>{fileName || "Lease"}</p>
             <p className="truncate text-xs text-ink-3">{t.propertyAddress ?? "Address not found in the lease"}</p>
           </div>
+          {pack.lease.confirmState || result?.state !== pack.code ? picker : null}
           <StatusChip tone="green" className="max-sm:hidden">Checked</StatusChip>
           <Button variant="link" onClick={reset}>Check another</Button>
         </Card>
 
         <FactStrip cols={3}>
-          <Fact label="Security in the lease" value={<Money value={r.totalSecurity} />}
-            sub={t.otherMoveInCharges.length ? `Deposit and ${t.otherMoveInCharges.length} fee${t.otherMoveInCharges.length === 1 ? "" : "s"}` : "Deposit"} />
+          <Fact label="Security in the lease" value={<Money value={pack.lease.securityTotal(t)} />}
+            sub={(() => {
+              // The move-in charges the state counts as security: every one in California (D1), the others by their pack.
+              const n = t.otherMoveInCharges.filter(pack.lease.securityCharge).length;
+              return n ? `Deposit and ${n} ${pack.lease.chargeWord}${n === 1 ? "" : "s"}` : "Deposit";
+            })()} />
           <Fact label="Deposit cap"
-            info={<InfoTip align="end" title="The deposit cap" cite="Civ. Code 1950.5(c)(1), (c)(5)">
-              One month&apos;s rent, or two for an owner who is a natural person (or an LLC of natural persons) with at most 2 rental properties and 4 units. A service member always pays at most one month. Everything charged at move-in except first month&apos;s rent counts.
-            </InfoTip>}
-            value={lawful ? <Money value={lawful.cap} /> : "Can't tell"}
-            sub={r.smallLandlordExempt == null ? "Owner type unknown" : r.smallLandlordExempt ? "Two months' rent" : "One month's rent"} />
+            info={<InfoTip align="end" title={pack.lease.capTip.title} cite={pack.lease.capTip.cite}>{pack.lease.capTip.text}</InfoTip>}
+            value={lawful ? (lawful.cap != null ? <Money value={lawful.cap} /> : "No cap") : "Can't tell"}
+            sub={pack.lease.capSub(t, lawful)} />
           <Fact label="Lawful deposit" big value={lawful ? <Money value={lawful.amount} cents="small" phoneCents="full" /> : "Can't tell"}
-            sub={!lawful ? "Confirm the owner first" : over ? `Lease asks ${usd(over)} more` : "Within the cap"} />
+            sub={pack.lease.lawfulSub(lawful, over)} />
         </FactStrip>
 
         <Card>
@@ -162,7 +257,7 @@ export function LeaseCheck() {
           {r.flags.length ? (
             <ul>
               {r.flags.map((f, i) => {
-                const s = SEVERITY[f.severity];
+                const s = SEVERITY[kindOf(f)];
                 const fact = factOf(f, r);
                 return (
                   <li key={i} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5 border-b border-line-2 px-5 py-3.5 last:border-b-0 sm:grid-cols-[112px_minmax(0,1fr)_auto]">
@@ -204,9 +299,12 @@ export function LeaseCheck() {
           <div className="min-w-0 flex-[1_1_18rem]">
             <p className="text-sm font-medium">Start this tenancy</p>
             <p className="mt-0.5 text-sm text-ink-3">
-              {lawful
-                ? `Next: the refund agreement, then a PayPal invoice for ${usd(lawful.amount)}${over ? ", the lawful amount" : ""}.`
-                : "Next: the refund agreement. The deposit invoice waits until the cap is known."}
+              {(() => {
+                const first = pack.refund.agreementRequired ? "the refund agreement" : "the tenants' PayPal account";
+                return lawful
+                  ? `Next: ${first}, then a PayPal invoice for ${usd(lawful.amount)}${over ? ", the lawful amount" : ""}.`
+                  : `Next: ${first}. The deposit invoice waits until the cap is known.`;
+              })()}
             </p>
           </div>
           <Button variant="primary" onClick={startTenancy} disabled={starting} className="max-sm:w-full">{starting ? "Starting..." : "Start tenancy"}</Button>
@@ -248,6 +346,13 @@ export function LeaseCheck() {
           </span>
         )}
       </label>
+      <p className="mt-3 flex items-center gap-1.5 text-sm text-ink-3">
+        For properties in {supportedNames()}
+        <InfoTip title="Supported states">
+          {SUPPORTED.map((c) => <span key={c} className="block">{packFor(c).name}: {packFor(c).statute.short}</span>)}
+          <span className="mt-1.5 block text-white/70">The lease&apos;s state picks the rules. Any other state is refused, by name. Not legal advice.</span>
+        </InfoTip>
+      </p>
       {state === "error" && <Notice className="mt-4">{error}</Notice>}
     </div>
   );

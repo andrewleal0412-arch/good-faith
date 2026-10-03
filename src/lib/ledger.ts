@@ -1,13 +1,14 @@
-import { TAGS } from "./copy";
 import { pacificDate, paypalPaidAt, shortDate } from "./dates";
 import { usd } from "./deductions";
 import { paidElectronically, returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 import { lawfulDeposit, type LeaseTerms } from "./rules";
+import { packFor } from "./states";
+import type { ClientPack } from "./states/types";
 
-// The landlord's deposit ledger: one row per money event or deduction, with the subsection of Civ. Code 1950.5 that
-// applies to it, so the grid can filter on it and the CSV can go to an accountant or a small claims clerk as it is.
-// Pure, so the grid (in the browser) and the tenancy page (on the server) read the same rows. The database query is
-// in ledger-load.ts.
+// The landlord's deposit ledger: one row per money event or deduction, with the part of the tenancy's state law that
+// applies to it (California: the subsection of Civ. Code 1950.5, e.g. (h)(1); other states: the full citation), so
+// the grid can filter on it and the CSV can go to an accountant or a small claims clerk as it is. Pure, so the grid
+// (in the browser) and the tenancy page (on the server) read the same rows. The database query is in ledger-load.ts.
 
 export type LedgerKind = "deposit_invoice" | "payment" | "deduction" | "refund" | "payout" | "damage_invoice";
 
@@ -50,7 +51,7 @@ export type LedgerRow = {
   paypalId: string | null;
   method: string | null; // how the money moved, in words ("PayPal", "Credit card"); null for a deduction
   status: string; // plain words
-  tag: string; // the Civ. Code 1950.5 subsection, e.g. (b)(2)
+  tag: string; // California: the Civ. Code 1950.5 subsection, e.g. (b)(2); other states: the full citation
   tagShort: string; // a word or two beside the tag, e.g. "damage"
   tagLabel: string; // what the subsection says, in a sentence
 };
@@ -62,7 +63,7 @@ export type LedgerTenancy = {
   move_out_date: string | null;
   statement_delivered_at: string | null;
   lease_terms: LeaseTerms | null;
-  properties: { address: string; city: string | null } | null;
+  properties: { address: string; city: string | null; state?: string | null } | null;
 };
 export type LedgerPayment = {
   id: string;
@@ -87,8 +88,12 @@ const words = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(
 const cents = (n: number) => Math.round(n * 100) / 100;
 const ms = (ts: string) => Date.parse(ts);
 
-/** The street line of an address: the lease spells out "..., Orange, CA 92866", which the tooltip and the CSV keep. */
-export const streetLine = (address: string) => address.replace(/,\s*[^,]+,\s*CA\s*\d{5}(?:-\d{4})?\s*$/i, "");
+/** The street line of an address: the lease spells out "..., Orange, CA 92866" (or any state's two letters), which
+ *  the tooltip and the CSV keep. */
+export const streetLine = (address: string) => address.replace(/,\s*[^,]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?\s*$/i, "");
+
+/** A row's tag as a full citation, for its tooltip: California's subsections read "Civ. Code 1950.5(h)(1)". */
+export const tagCite = (r: Pick<LedgerRow, "tag">) => (r.tag.startsWith("(") ? `Civ. Code 1950.5${r.tag}` : r.tag);
 
 /** PayPal's payment method codes in plain words (the landlord enters CASH or CHECK when marking an invoice paid). */
 const METHOD_WORDS: Record<string, string> = {
@@ -109,19 +114,22 @@ const invoiceWords = (status: string) => INVOICE_WORDS[status] ?? words(status);
 const dayDiff = (from: string, to: string) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
 
 /** The same in a few words: "1 day after move-out", "23 days after move-out, late". */
-function timingShort(moveOut: string | null, date: string): string {
+function timingShort(moveOut: string | null, date: string, pack: ClientPack): string {
   if (!moveOut) return "";
   const n = dayDiff(moveOut, date);
   if (n < 0) return "before move-out";
-  return `${n} day${n === 1 ? "" : "s"} after move-out${n > 21 ? ", late" : ""}`;
+  const allowed = pack.deadline.ledgerAllowed;
+  return `${n} day${n === 1 ? "" : "s"} after move-out${allowed != null && n > allowed ? ", late" : ""}`;
 }
 
-/** How long after the move-out the money went back, against the 21 days (h)(1) allows. */
-function timing(moveOut: string | null, date: string): string {
+/** How long after the move-out the money went back, against the days the state allows (California (h)(1): 21). A state
+ *  whose deadline turns on more than the move-out (Florida's claim track) gets the days alone. */
+function timing(moveOut: string | null, date: string, pack: ClientPack): string {
   if (!moveOut) return "";
   const n = dayDiff(moveOut, date);
   if (n < 0) return ", before the move-out date on record";
-  return `, ${n} day${n === 1 ? "" : "s"} after the ${shortDate(moveOut)} move-out${n > 21 ? " and past the 21 allowed" : " (21 allowed)"}`;
+  const allowed = pack.deadline.ledgerAllowed;
+  return `, ${n} day${n === 1 ? "" : "s"} after the ${shortDate(moveOut)} move-out${allowed == null ? "" : n > allowed ? ` and past the ${allowed} allowed` : ` (${allowed} allowed)`}`;
 }
 
 /** Every ledger row for one tenancy, oldest first. */
@@ -129,7 +137,8 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
   const address = t.properties?.address ?? t.lease_terms?.propertyAddress ?? "Address not recorded";
   const tenants = (t.tenants ?? []).map((x) => x.name).join(" and ") || "No tenants named";
   const base = { tenancyId: t.id, unit: streetLine(address), address, tenants };
-  const lawful = t.lease_terms ? lawfulDeposit(t.lease_terms) : null;
+  const pack = packFor(t.properties?.state);
+  const lawful = t.lease_terms ? lawfulDeposit(t.lease_terms, pack) : null;
   const rent = t.monthly_rent == null ? null : Number(t.monthly_rent);
   const rows: LedgerRow[] = [];
   const row = (r: Omit<LedgerRow, keyof typeof base | "type">) => rows.push({ ...base, ...r, type: KIND_LABEL[r.kind] });
@@ -138,11 +147,8 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
     const amount = Number(p.amount);
     const date = pacificDate(p.created_at);
     if (p.kind === "deposit_invoice") {
-      // The cap the invoice was held to: two months only for the small natural-person owner (D3, D4).
-      const cap = lawful && rent != null && lawful.cap > rent
-        ? { tag: "(c)(5)(A)", tagShort: "two-month cap", tagLabel: "Two months' rent allowed: an owner of no more than two properties and four units" }
-        : lawful ? { tag: "(c)(1)", tagShort: "one-month cap", tagLabel: "Security capped at one month's rent" }
-          : { tag: "(b)", tagShort: "security", tagLabel: "Every move-in charge but first month's rent is security" };
+      // The cap the invoice was held to (California: two months only for the small natural-person owner, D3, D4).
+      const cap = pack.ledger.capTag(lawful, rent);
       row({
         id: p.id, date, at: p.created_at, kind: "deposit_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
         detail: lawful && lawful.charged > lawful.amount
@@ -169,31 +175,25 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
             : electronic ? `Deposit paid by ${method}${onInvoice}` : `Deposit recorded as paid by ${method}${onInvoice}`,
           summary: txn ? `Paid by ${method}` : "Paid",
           status: "received",
-          tag: "(h)(1)(A)",
-          // The rule, not a conclusion: (h)(1)(A)(ii)(I) turns on the security or the rent arriving electronically, and
-          // a cash deposit with rent paid by card still gets an electronic refund (D16).
-          ...(electronic
-            ? { tagShort: "electronic refund", tagLabel: "Received electronically, so the refund goes electronically" }
-            : { tagShort: "refund method", tagLabel: "Not recorded as an electronic payment. An electronic refund is still required if the security or the rent was received electronically; otherwise personal delivery, a mailed check, or a method agreed to in writing" }),
+          ...pack.ledger.paymentTag(electronic),
         });
       }
     } else if (p.kind === "refund" || p.kind === "payout") {
       const effect: LedgerEffect = returnCompleted(p.status) ? "returned" : returnFailed(p.status) ? "failed" : "pending";
       row({
         id: p.id, date, at: p.created_at, kind: p.kind, amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
-        detail: (p.kind === "refund" ? "Refund of the original PayPal payment" : "PayPal Payout to the account the tenants designated") + timing(t.move_out_date, date),
-        summary: [p.kind === "refund" ? "To the original payment" : "To the tenants' account", timingShort(t.move_out_date, date)].filter(Boolean).join(", "),
+        detail: (p.kind === "refund" ? "Refund of the original PayPal payment" : "PayPal Payout to the account the tenants designated") + timing(t.move_out_date, date, pack),
+        summary: [p.kind === "refund" ? "To the original payment" : "To the tenants' account", timingShort(t.move_out_date, date, pack)].filter(Boolean).join(", "),
         status: effect === "returned" ? (p.kind === "refund" ? "completed" : "sent") : words(p.status),
-        tag: "(h)(1)", tagShort: "21 days", tagLabel: "Statement and refund within 21 days of move-out",
+        ...pack.ledger.refundTag,
       });
     } else if (p.kind === "damage_invoice") {
       row({
         id: p.id, date, at: p.created_at, kind: "damage_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
-        // The claim-not-demand wording is the DRE guide's (LEGAL_RULES B.12), not the subsection's, so it stays in the detail.
-        detail: "PayPal invoice for the balance the deductions exceed the deposit by; recorded as a claim, not a demand for payment (DRE guide)",
+        detail: pack.ledger.balanceTag.detail,
         summary: "Balance over the deposit, a claim",
         status: invoiceWords(p.status),
-        tag: "(e)(1)", tagShort: "balance claimed", tagLabel: "Only amounts reasonably necessary for the (b) purposes may be claimed of the security",
+        tag: pack.ledger.balanceTag.tag, tagShort: pack.ledger.balanceTag.tagShort, tagLabel: pack.ledger.balanceTag.tagLabel,
       });
     }
   }
@@ -213,7 +213,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
       detail: `${d.item}${d.room ? ` (${d.room})` : ""}`,
       summary: `${d.item}${d.room ? ` (${d.room})` : ""}`,
       status: d.is_estimate ? "good-faith estimate" : onStatement ? "on the statement" : final ? "final" : delivered != null ? "added after the statement" : "draft",
-      tag: TAGS[d.category].tag, tagShort: TAGS[d.category].short, tagLabel: TAGS[d.category].label,
+      tag: pack.tags[d.category].tag, tagShort: pack.tags[d.category].short, tagLabel: pack.tags[d.category].label,
     });
   }
 

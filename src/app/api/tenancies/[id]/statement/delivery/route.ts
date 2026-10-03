@@ -1,6 +1,7 @@
 import { pacificToday, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
-import type { DeliveryRecord } from "@/lib/statement";
+import { DELIVERY_LABEL, type DeliveryRecord } from "@/lib/delivery";
+import { packFor } from "@/lib/states";
 import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -8,10 +9,12 @@ export const runtime = "nodejs";
 const MAX_LEN = 200;
 const str = (v: unknown) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim() : "");
 
-// Records how and when the itemized statement was delivered: personal delivery, first-class mail to the address the
-// tenant provided or to the vacated unit when there is none (Civ. Code 1950.5(h)(1)(B), (h)(6)), or email, which is
-// allowed only when both sides agreed to it in writing ((h)(1)(B)). The statement may go to any one adult tenant
-// ((h)(1)(C)). Recording it moves the tenancy to statement_sent.
+// Records how and when the itemized statement was delivered, under the tenancy's state pack. California: personal
+// delivery, first-class mail to the address the tenant provided or to the vacated unit when there is none (Civ. Code
+// 1950.5(h)(1)(B), (h)(6)), or email, which is allowed only when both sides agreed to it in writing ((h)(1)(B)); the
+// statement may go to any one adult tenant ((h)(1)(C)). Other states: email as the record only where their rule allows
+// it (Washington never; Texas and Florida on a condition the landlord confirms), and Texas never mails to the vacated
+// unit in place of a written forwarding address. Recording it moves the tenancy to statement_sent.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/statement/delivery">) {
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
@@ -28,7 +31,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const to = str(b.to), address = str(b.address), email = str(b.email);
   if ([to, address, email].some((v) => v.length > MAX_LEN)) return Response.json({ error: `That's too long: keep each field under ${MAX_LEN} characters.` }, { status: 400 });
 
-  const { data: t } = await db.from("tenancies").select("tenants, move_out_date, statement_delivery, properties(address)").eq("id", id).single();
+  const { data: t } = await db.from("tenancies").select("tenants, move_out_date, statement_delivery, properties(address, state)").eq("id", id).single();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   // The statement follows the move-out ((h)(1)) and goes to an adult on the lease ((h)(1)(C)); without either there is nothing to deliver.
   if (!t.move_out_date) return Response.json({ error: "Set the move-out date first: the statement follows the move-out." }, { status: 409 });
@@ -37,9 +40,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const toName = to || adults[0];
   if (!adults.includes(toName)) return Response.json({ error: "The statement goes to one of the adult tenants on the lease." }, { status: 400 });
 
+  const pack = packFor((t.properties as unknown as { state?: string | null }).state);
   if (method === "email") {
-    if (b.by_agreement !== true) {
-      return Response.json({ error: "Email is allowed only when the tenant agreed to it in writing (Civ. Code 1950.5(h)(1)(B)). Confirm the agreement, or use first-class mail or personal delivery." }, { status: 400 });
+    if (pack.delivery.emailRule === "courtesy" || (pack.delivery.emailRule === "agreement" && b.by_agreement !== true)) {
+      return Response.json({ error: pack.delivery.emailRefused }, { status: 400 });
     }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ error: "Enter the email address the statement went to." }, { status: 400 });
   }
@@ -47,12 +51,15 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   // Mail goes to the forwarding address the tenant gave; with none, to the vacated unit, and the record says which ((h)(6)).
   const unit = (t.properties as unknown as { address: string }).address;
   const forwarding = method === "mail" && !!address && address.toLowerCase() !== unit.toLowerCase();
+  if (method === "mail" && !forwarding && !pack.delivery.unitFallback) return Response.json({ error: pack.delivery.noForwarding }, { status: 400 });
   const record: DeliveryRecord = {
     method, date, to: toName,
     address: method === "mail" ? (forwarding ? address : unit) : null,
     address_kind: method === "mail" ? (forwarding ? "forwarding" : "unit") : null,
     email: method === "email" ? email : null,
-    by_agreement: method === "email",
+    by_agreement: method === "email" && pack.delivery.emailRule === "agreement",
+    // The rule an email went under, in the pack's words, when it is not the written agreement the default label names.
+    ...(method === "email" && pack.delivery.emailWord !== DELIVERY_LABEL.email ? { basis: pack.delivery.emailWord } : {}),
   };
   // Today's delivery keeps the exact time; a back-dated one is stored at noon UTC like every other date in the app.
   const deliveredAt = date === today ? new Date().toISOString() : `${date}T12:00:00.000Z`;

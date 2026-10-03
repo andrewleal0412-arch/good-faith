@@ -3,6 +3,7 @@ import { audit, db } from "@/lib/db";
 import { takeAllowance } from "@/lib/limits";
 import { evaluateLease, type LeaseTerms } from "@/lib/rules";
 import { ACCESS_MESSAGES } from "@/lib/session";
+import { isSupported, packFor, stateCode, unsupportedMessage } from "@/lib/states";
 import { currentWorkspace, uploadPrefix } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -16,10 +17,12 @@ const count = z.number().finite().min(0).max(100_000);
 const termsSchema = z.object({
   propertyAddress: text(300).nullable(),
   city: text(120).nullable(),
+  state: text(40).nullable().optional(),
   landlordName: text(200).nullable(),
   ownerType: z.enum(["natural_person", "llc_natural_persons", "llc_other", "corporation", "unknown"]),
   ownerPropertyCount: count.nullable(),
   ownerUnitCount: count.nullable(),
+  buildingUnitCount: count.nullable().optional(),
   tenants: z.array(text(200)).max(20),
   tenancyStartDate: text(40).nullable(),
   leaseEndDate: text(40).nullable().optional(),
@@ -38,13 +41,16 @@ const termsSchema = z.object({
 
 const bodySchema = z.object({
   terms: termsSchema,
+  // The state the landlord confirmed on the lease check (the lease's own, or the one picked). Without it, the lease's.
+  state: z.string().max(40).nullable().optional(),
   // The name the lease check gave the stored PDF (src/app/api/lease/route.ts): ws/<workspace>/<uuid>.pdf, or null when
   // it wasn't stored. The workspace must be the session's own, checked below.
   leasePath: z.string().regex(/^ws\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/).nullable().optional(),
 });
 
-// Start a tenancy from a checked lease: the property, the tenancy with its extracted terms and flags, and the
-// first audit entries. Flags are recomputed here rather than trusted from the browser.
+// Start a tenancy from a checked lease: the property (with the state whose law it follows), the tenancy with its
+// extracted terms and flags, and the first audit entries. Flags are recomputed here with the state's pack rather than
+// trusted from the browser, and a state with no pack is refused.
 export async function POST(req: Request) {
   // The tenancy goes into the session's workspace: the owner's, or this visitor's copy of the demo.
   const ws = await currentWorkspace();
@@ -56,13 +62,17 @@ export async function POST(req: Request) {
   // Only a lease this workspace uploaded: a path under another workspace's prefix would put that visitor's PDF here.
   if (leasePath && !leasePath.startsWith(uploadPrefix(ws))) return Response.json({ error: "Those lease terms couldn't be read. Check the lease again." }, { status: 400 });
   if (!terms.propertyAddress?.trim()) return Response.json({ error: "The lease has no property address." }, { status: 400 });
-  const flags = evaluateLease(terms);
+  const state = stateCode(parsed.data.state) ?? stateCode(terms.state) ?? stateCode(terms.propertyAddress);
+  if (!isSupported(state)) return Response.json({ error: unsupportedMessage(state) }, { status: 400 });
+  const pack = packFor(state);
+  terms.state = state;
+  const flags = evaluateLease(terms, pack);
   // Today's allowance of new tenancies (src/lib/limits.ts), so an open demo can't fill the database.
   const run = await takeAllowance("tenancy");
   if (run.refused) return run.refused;
 
   const { data: property, error: pErr } = await db.from("properties").insert({
-    workspace_id: ws.id, address: terms.propertyAddress, city: terms.city, owner_name: terms.landlordName, owner_type: terms.ownerType,
+    workspace_id: ws.id, address: terms.propertyAddress, city: terms.city, state, owner_name: terms.landlordName, owner_type: terms.ownerType,
     owner_property_count: terms.ownerPropertyCount, owner_unit_count: terms.ownerUnitCount,
   }).select("id").single();
   if (pErr) return Response.json({ error: pErr.message }, { status: 500 });
@@ -79,6 +89,6 @@ export async function POST(req: Request) {
     violations: flags.filter((f) => f.severity === "violation").map((f) => f.id),
     warnings: flags.filter((f) => f.severity === "warning").map((f) => f.id),
   });
-  await audit(tenancy.id, "landlord", "tenancy_started", { address: terms.propertyAddress });
+  await audit(tenancy.id, "landlord", "tenancy_started", { address: terms.propertyAddress, state });
   return Response.json({ id: tenancy.id });
 }

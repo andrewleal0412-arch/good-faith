@@ -7,6 +7,7 @@ import { paidElectronically, returnFailed } from "./invoice-status";
 import { byUrgency, nextStep, type NextStep, type TenancySummary } from "./next-step";
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
+import { packFor } from "./states/server";
 import { tenantMoveOutSentOn, type TenantMoveOut } from "./tenant";
 import { currentWorkspace, DEMO_ACCOUNT, signedUrlsFor } from "./workspace";
 
@@ -21,6 +22,7 @@ export type TenancyRow = {
   start_date: string | null;
   end_date: string | null;
   notice_given_on: string | null;
+  notice_given_by?: "tenant" | "landlord" | null; // added with the state packs; absent before the column existed
   planned_move_out: string | null;
   move_out_date: string | null;
   move_out_inspected_at: string | null;
@@ -29,7 +31,7 @@ export type TenancyRow = {
   lease_terms: LeaseTerms | null;
   notices: Notices | null;
   tenant_move_out: TenantMoveOut | null;
-  properties: { address: string; city: string | null; owner_name: string | null } | null;
+  properties: { address: string; city: string | null; owner_name: string | null; state?: string | null } | null;
 };
 export type PaymentRow = { kind: string; paypal_id: string | null; amount: number | string; status: string; raw: { transactions?: { method?: string }[] } | null };
 export type PhotoRow = { phase: string };
@@ -40,6 +42,7 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
   // A refund PayPal refused or reversed returned nothing, so it does not close the tenancy out (the ledger counts the same way).
   const returned = payments.find((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status)) ?? null;
   const terms = t.lease_terms;
+  const pack = packFor(t.properties?.state);
   const agreement: RefundAgreementSummary | null = t.refund_agreement
     ? { paypalEmail: t.refund_agreement.paypal_email, signedBy: t.refund_agreement.signed_by, signedAt: t.refund_agreement.signed_at }
     : null;
@@ -53,6 +56,7 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
       : null;
   return {
     id: t.id,
+    state: pack.code,
     address: t.properties?.address ?? terms?.propertyAddress ?? "Address not recorded",
     city: t.properties?.city ?? terms?.city ?? null,
     landlord: t.properties?.owner_name ?? terms?.landlordName ?? null,
@@ -74,10 +78,15 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
     deductions: deductions.map((d) => ({ category: d.category, amount: Number(d.amount) })),
     returned: returned ? { amount: Number(returned.amount), kind: returned.kind } : null,
     notices: t.notices ?? {},
-    refundNotice: refundNoticeStatus(agreement, evidence),
+    refundNotice: refundNoticeStatus(agreement, evidence, pack),
     tenantMoveOut: t.tenant_move_out
       ? { name: t.tenant_move_out.name, plannedMoveOut: t.tenant_move_out.planned_move_out, forwardingAddress: t.tenant_move_out.forwarding_address, sentOn: tenantMoveOutSentOn(t.tenant_move_out) }
       : null,
+    // Who gave the notice to end the tenancy, and the unit counts some states' rules turn on (New York's inspection-rights
+    // notice; Florida's holding notice; New York's interest). California's rules read none of them.
+    noticeGivenBy: t.notice_given_by ?? null,
+    landlordUnits: terms?.ownerUnitCount ?? null,
+    buildingUnits: terms?.buildingUnitCount ?? null,
   };
 }
 
@@ -85,7 +94,7 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
  *  workspace first (pageTenancy, routeTenancy). */
 export async function loadUnit(id: string): Promise<TenancySummary | null> {
   const [{ data: t }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
-    db.from("tenancies").select("*, properties(address, city, owner_name)").eq("id", id).single(),
+    db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("id", id).single(),
     db.from("payments").select("kind, paypal_id, amount, status, raw").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("phase").eq("tenancy_id", id),
     db.from("deductions").select("category, amount").eq("tenancy_id", id),
@@ -108,7 +117,7 @@ export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow
   const ws = await currentWorkspace();
   if (!ws) return { today, units: [], upcoming: [], owners: [] };
   const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
-    db.from("tenancies").select("*, properties(address, city, owner_name)").eq("workspace_id", ws.id).order("created_at"),
+    db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("workspace_id", ws.id).order("created_at"),
     db.from("payments").select("tenancy_id, kind, paypal_id, amount, status, raw, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).order("created_at"),
     db.from("photos").select("tenancy_id, phase, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
     db.from("deductions").select("tenancy_id, category, amount, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),

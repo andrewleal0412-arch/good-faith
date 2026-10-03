@@ -6,16 +6,18 @@ import { drawerFooter } from "@/components/drawer";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
 import { Notice, inputClass, textareaClass } from "@/components/ui";
-import { KIND, type Classification } from "@/lib/findings";
+import { kindsFor, type Classification } from "@/lib/findings";
+import { packFor } from "@/lib/states";
 
 // A finding the comparison missed, added by the landlord for one room's photos. It is recorded as theirs; a deduction
 // can then be made from it like any other, except wear and tear, which is recorded and never charged.
 
 const KINDS: Classification[] = ["damage", "cleaning", "wear_and_tear"];
 
-export function FindingForm({ tenancyId, room, like, onDone, onCancel }: {
-  tenancyId: string; room: string; like: string | null; onDone: () => void; onCancel: () => void;
+export function FindingForm({ tenancyId, state, room, like, onDone, onCancel }: {
+  tenancyId: string; state: string; room: string; like: string | null; onDone: () => void; onCancel: () => void;
 }) {
+  const KIND = kindsFor(packFor(state));
   const [item, setItem] = useState("");
   const [kind, setKind] = useState<Classification>("damage");
   const [observation, setObservation] = useState("");

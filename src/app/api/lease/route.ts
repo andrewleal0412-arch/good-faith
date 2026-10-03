@@ -3,6 +3,7 @@ import { extractLeaseTerms } from "@/lib/extract";
 import { isPdf, readForm, UNREADABLE } from "@/lib/images";
 import { claudeNeverAnswered, takeAllowance } from "@/lib/limits";
 import { evaluateLease, lawfulDeposit, smallLandlordExempt, totalSecurity } from "@/lib/rules";
+import { isSupported, packFor, stateCode, unsupportedMessage } from "@/lib/states";
 import { ACCESS_MESSAGES } from "@/lib/session";
 import { mb, UPLOAD_BUDGET } from "@/lib/uploads";
 import { currentWorkspace, uploadPrefix } from "@/lib/workspace";
@@ -10,8 +11,10 @@ import { currentWorkspace, uploadPrefix } from "@/lib/workspace";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// POST a lease PDF (form field "file"): Claude extracts the deposit terms, then the rules engine flags anything
-// that breaks California law. The PDF goes to the private leases bucket so a tenancy can be started from it.
+// POST a lease PDF (form field "file"): Claude extracts the deposit terms, including the state the property is in, and
+// that state's rule pack flags anything that breaks its law. A state with no pack gets a plain refusal naming the
+// supported states; the landlord can pick the state when the lease got it wrong, and the page re-checks with that
+// pack. The PDF goes to the private leases bucket so a tenancy can be started from it.
 export async function POST(req: Request) {
   const ws = await currentWorkspace();
   if (!ws) return Response.json({ error: ACCESS_MESSAGES.signedOut }, { status: 401 });
@@ -40,13 +43,19 @@ export async function POST(req: Request) {
       db.storage.from("leases").upload(leasePath, bytes, { contentType: "application/pdf" }),
     ]);
     if (upload.error) console.error("lease upload failed", upload.error.message);
+    // The state the lease names, else the one its address ends with.
+    const state = stateCode(terms.state) ?? stateCode(terms.propertyAddress);
+    terms.state = state;
+    const supported = isSupported(state);
+    const pack = supported ? packFor(state) : null;
     return Response.json({
       leasePath: upload.error ? null : leasePath,
-      lawfulDeposit: lawfulDeposit(terms),
+      state, supported, refusal: supported ? null : unsupportedMessage(state),
+      lawfulDeposit: pack ? lawfulDeposit(terms, pack) : null,
       terms,
       totalSecurity: totalSecurity(terms),
       smallLandlordExempt: smallLandlordExempt(terms),
-      flags: evaluateLease(terms),
+      flags: pack ? evaluateLease(terms, pack) : [],
     });
   } catch (e) {
     console.error("lease extraction failed", e);

@@ -2,11 +2,12 @@ import Link from "next/link";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, EmptyState, Fact, FactStrip, Money, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
 import { shortDate } from "@/lib/dates";
-import { ledgerTotals, type LedgerRow } from "@/lib/ledger";
+import { ledgerTotals, tagCite, type LedgerRow } from "@/lib/ledger";
+import type { Tip } from "@/lib/states/types";
 
 // One tenancy's money, oldest first: the same rows the Payments ledger shows for every unit, with a way into it
 // filtered to this tenancy. Inflows green, outflows ink with a minus; the status is plain text unless something failed.
-export function MoneyTimeline({ tenancyId, rows }: { tenancyId: string; rows: LedgerRow[] }) {
+export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string; rows: LedgerRow[]; typeTip: Tip }) {
   if (!rows.length) {
     return <Card><EmptyState icon="card" title="No payments yet" sub="The deposit invoice starts the record." /></Card>;
   }
@@ -50,9 +51,7 @@ export function MoneyTimeline({ tenancyId, rows }: { tenancyId: string; rows: Le
               <Th>
                 <span className="inline-flex items-center gap-1.5">
                   Type
-                  <InfoTip title="Each row's rule" cite="Civ. Code 1950.5">
-                    Hover a type for the part of Civil Code 1950.5 behind that row. The Payments export lists it for every row.
-                  </InfoTip>
+                  <InfoTip title={typeTip.title} cite={typeTip.cite}>{typeTip.text}</InfoTip>
                 </span>
               </Th>
               <Th>Detail</Th><Th>Status</Th><Th last align="right">Amount</Th>
@@ -62,7 +61,7 @@ export function MoneyTimeline({ tenancyId, rows }: { tenancyId: string; rows: Le
             {rows.map((r) => (
               <tr key={r.id} className={trClass}>
                 <Td first className="whitespace-nowrap tabular-nums text-ink-2">{shortDate(r.date)}</Td>
-                <Td className="whitespace-nowrap font-medium" title={r.tag ? `Civ. Code 1950.5${r.tag}: ${r.tagLabel}` : undefined}>{r.type}</Td>
+                <Td className="whitespace-nowrap font-medium" title={r.tag ? `${tagCite(r)}: ${r.tagLabel}` : undefined}>{r.type}</Td>
                 <Td title={r.detail}>
                   {r.summary}
                   {r.paypalId && <span className="block text-xs text-ink-3">{r.paypalId}</span>}

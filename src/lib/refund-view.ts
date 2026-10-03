@@ -1,15 +1,17 @@
 import "server-only";
 import type { Pending } from "./agent";
 import { timeline, type TimelineItem } from "./agent-timeline";
-import { closeOutFacts, guardWithFacts, paidAgo, RULES, type CloseOutFacts, type Rail } from "./closeout";
+import { closeOutFacts, guardWithFacts, paidAgo, type CloseOutFacts, type Rail } from "./closeout";
 import { pacificDate, shortDate, whenText } from "./dates";
 import { db } from "./db";
-import { statementDue, usd } from "./deductions";
+import { usd } from "./deductions";
 import { DEMO_DEPOSIT_DATE, POOL_EMPTY } from "./demo-pool";
 import { returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 import { streetLine } from "./ledger";
 import { tabHref } from "./property-view";
 import type { DeliveryRecord } from "./statement";
+import { deadlineWords, packFor } from "./states/server";
+import type { StatePack } from "./states/types";
 
 // The refund as Mercury's Review transfer reads it, for the focused /tenancy/<id>/refund page: who gets what from
 // which deposit, the checks the rules ran (the same closeOutFacts the agent reads and guardRefund re-runs before
@@ -57,6 +59,7 @@ export type RefundView = {
     depositHeld: number;
     deductions: number;
     balanceClaimed: number;
+    standing?: string; // how the claimed amount stands when it is not a plain deduction ("Claimed, disputed"); absent in California
     rail: Rail;
     why: string;
     method: string | null; // how the tenants paid, PayPal's code
@@ -73,10 +76,12 @@ export type RefundView = {
 /** "m•••@gmail.com": enough to recognize the account without spelling it out on screen. Shared with the tenant page. */
 export { maskEmail } from "./copy";
 
-/** A RULES entry split into its citation and its words, e.g. "Civ. Code 1950.5(h)(1)" and "The itemized...". */
-function rule(text: string): { cite?: string; body: string } {
+/** A rules entry split into its citation and its words, e.g. "Civ. Code 1950.5(h)(1)" and "The itemized...". An entry
+ *  whose head is not a citation (no section number in it) stays whole. */
+function rule(text: string | undefined): { cite?: string; body: string } {
+  if (!text) return { body: "" };
   const i = text.indexOf(": ");
-  if (!text.startsWith("Civ. Code") || i < 0) return { body: text };
+  if (i < 0 || !/\d/.test(text.slice(0, i)) || i > 90) return { body: text };
   const body = text.slice(i + 2);
   return { cite: text.slice(0, i), body: body.charAt(0).toUpperCase() + body.slice(1) };
 }
@@ -85,8 +90,9 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const statusWords = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, " ");
 
 /** The rules engine's answers as one-line checks, each with the rule behind it in a tip. */
-function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean): Check[] {
+function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean, pack: StatePack, words: { within: string; title: string }): Check[] {
   const out: Check[] = [];
+  const RULES = f.rules;
   const d = f.deposit;
   out.push({
     key: "deposit", label: "Deposit paid in PayPal",
@@ -97,12 +103,14 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean)
       : "No deposit was collected through PayPal for this tenancy." },
   });
   const a = f.refundAgreement;
-  out.push({
-    key: "agreement", label: "Refund by PayPal agreed in writing",
-    value: a ? `Signed ${shortDate(pacificDate(a.signedAt))}` : "Not on file",
-    state: a ? "ok" : "fail",
-    tip: { title: "Refund by PayPal", ...rule(RULES.electronicRefund) },
-  });
+  if (a || pack.refund.agreementRequired) {
+    out.push({
+      key: "agreement", label: "Refund by PayPal agreed in writing",
+      value: a ? `Signed ${shortDate(pacificDate(a.signedAt))}` : "Not on file",
+      state: a ? "ok" : "fail",
+      tip: { title: "Refund by PayPal", ...rule(RULES.electronicRefund) },
+    });
+  }
   if (f.tenancy.tenants.length > 1) {
     out.push({
       key: "payees", label: "One refund for all tenants",
@@ -114,23 +122,23 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean)
   out.push({
     key: "documents", label: "Deductions documented",
     value: !f.deductions.length ? "No deductions" : missing.length ? `${plural(missing.length, "item")} missing documents`
-      : f.totals.documentsRequired ? "Invoices, labor and photos" : `${usd(125)} or less, not required`,
+      : pack.documents.refundCheck(f.totals.documentsRequired, f.totals.deductions),
     state: missing.length ? "fail" : "ok",
     tip: { title: "Documents", ...rule(RULES.documents) },
   });
   const matches = pendingAmount == null || pendingAmount.toFixed(2) === f.plan.amount.toFixed(2);
   out.push({
-    key: "amount", label: "Deposit less deductions",
+    key: "amount", label: f.standing ? `Deposit less the amount ${f.standing.label.toLowerCase()}` : "Deposit less deductions",
     value: `${usd(f.totals.depositHeld)} less ${usd(f.totals.deductions)}`,
     state: matches ? "ok" : "fail",
-    tip: { title: "The refund", body: "What is left of the deposit after the itemized deductions goes back to the tenants.", cite: "Civ. Code 1950.5(h)(1)" },
+    tip: { title: "The refund", body: "What is left of the deposit after the itemized deductions goes back to the tenants.", cite: pack.deadline.tip.cite },
   });
   const t = f.tenancy;
   out.push({
-    key: "deadline", label: "Within the 21 days",
+    key: "deadline", label: words.within,
     value: t.statementDue && t.daysLeft != null ? `Due ${shortDate(t.statementDue)}, ${whenText(t.daysLeft)}` : "No move-out date",
     state: !t.moveOutDate ? "fail" : t.daysLeft != null && t.daysLeft < 0 ? "warn" : "ok",
-    tip: { title: "21-day deadline", ...rule(RULES.deadline) },
+    tip: { title: words.title, ...rule(RULES.deadline) },
   });
   if (f.plan.rail === "refund_original_payment" || f.plan.rail === "payout") {
     out.push({
@@ -157,16 +165,26 @@ async function runView(run: Record<string, unknown> | null | undefined): Promise
 }
 
 export async function loadRefundView(id: string, opts: { demo?: boolean } = {}): Promise<RefundView | null> {
-  const { data: t } = await db.from("tenancies").select("*, properties(address, city, owner_name)").eq("id", id).maybeSingle();
+  const { data: t } = await db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("id", id).maybeSingle();
   if (!t) return null;
-  const [{ data: payments }, { data: runs }, { data: approvals }] = await Promise.all([
+  const pack = packFor((t.properties as { state?: string | null } | null)?.state);
+  const [{ data: payments }, { data: runs }, { data: approvals }, { count: deductionCount }] = await Promise.all([
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(10),
     db.from("audit_log").select("created_at, detail").eq("tenancy_id", id).eq("action", "refund_approved").order("created_at", { ascending: false }).limit(1),
+    // Whether anything is claimed: Florida's deadline turns on it (15 days with no claim, 30 after a claim notice).
+    db.from("deductions").select("id", { count: "exact", head: true }).eq("tenancy_id", id),
   ]);
   const prop = t.properties as { address: string; city: string | null; owner_name: string | null } | null;
   const terms = t.lease_terms as { landlordName?: string | null; propertyAddress?: string | null } | null;
   const agreement = t.refund_agreement as { paypal_email: string } | null;
+  // The deadline on the tenancy's track, as the close-out facts count it (closeout.ts): the same inputs, so the receipt
+  // page and the review agree with the tenancy page.
+  const clock = {
+    moveOutDate: t.move_out_date as string | null, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null,
+    claimed: (deductionCount ?? 0) > 0, claimNoticeDate: (t.notices as { claim_notice?: { date: string } } | null)?.claim_notice?.date ?? null,
+  };
+  const words = deadlineWords(pack, clock);
   const base = {
     tenancyId: id,
     landlord: prop?.owner_name ?? terms?.landlordName ?? "Landlord",
@@ -175,7 +193,7 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
     paypalEmail: agreement?.paypal_email ?? null,
     back: tabHref(id, "move-out", "refund"),
     statement: {
-      due: t.move_out_date ? statementDue(t.move_out_date as string) : null,
+      due: clock.moveOutDate ? pack.deadline.due(clock) : null,
       delivery: (t.statement_delivery ?? null) as DeliveryRecord | null,
     },
   };
@@ -224,8 +242,8 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
     sent: null,
     review: {
       amount: pending?.amount ?? f.totals.refund, depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
-      balanceClaimed: f.totals.balanceClaimed, rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
-      blockers: f.blockers.filter((b) => b !== POOL_EMPTY), warnings: f.warnings, poolEmpty, checks: checksOf(f, pending?.amount ?? null, !!opts.demo),
+      balanceClaimed: f.totals.balanceClaimed, ...(f.standing ? { standing: f.standing.label } : {}), rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
+      blockers: f.blockers.filter((b) => b !== POOL_EMPTY), warnings: f.warnings, poolEmpty, checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
       run: await runView(run), pending,
     },
   };

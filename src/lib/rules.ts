@@ -1,16 +1,21 @@
-// California security deposit rules, enforced in plain code so every flag is explainable and cites the statute.
-// Source of truth: docs/LEGAL_RULES.md (Civil Code 1950.5 as amended through AB 414, effective 2026-01-01).
-// The AI reads the lease; these functions decide what is lawful. Rule ids (D3, D8, ...) match that doc.
+// The lease rules, enforced in plain code so every flag is explainable and cites the statute. The rules themselves live
+// in the state rule packs (src/lib/states/): California's in ca.ts from docs/LEGAL_RULES.md, the others from
+// docs/rules/<state>.md. The AI reads the lease; the tenancy's pack decides what is lawful. Rule ids (D3, N7, T2, ...)
+// match those specs.
+
+import type { LawfulDeposit, ClientPack } from "./states/types";
 
 export type OwnerType = "natural_person" | "llc_natural_persons" | "llc_other" | "corporation" | "unknown";
 
 export type LeaseTerms = {
   propertyAddress: string | null;
   city: string | null;
+  state?: string | null; // USPS code of the property's state, as the lease gives it (absent on records from before the packs)
   landlordName: string | null;
   ownerType: OwnerType;
   ownerPropertyCount: number | null; // residential rental properties the owner holds
   ownerUnitCount: number | null; // units across those properties
+  buildingUnitCount?: number | null; // dwelling units in the property's building, when the lease says (New York's interest rule)
   tenants: string[]; // adults named on the lease
   tenancyStartDate: string | null; // YYYY-MM-DD
   leaseEndDate?: string | null; // YYYY-MM-DD end of a fixed term; null when month to month or not stated (absent on older records)
@@ -31,14 +36,11 @@ export type Flag = {
   detail: string;
   cite: string;
   quote?: string;
+  fact?: string; // one short fact for the lease check's row (packs other than California set it)
+  note?: boolean; // an "info" flag that is a fact to know rather than a step to take (packs other than California)
 };
 
-const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/** D13, (g)(1): move-in photos are required for tenancies that began on or after this date. */
-export const MOVE_IN_PHOTOS_FROM = "2025-07-01";
-
-/** D4: the two-month allowance applies only to a natural person (or an LLC of natural persons) with at most
+/** California D4: the two-month allowance applies only to a natural person (or an LLC of natural persons) with at most
  *  two residential rental properties and four units, and never to a service member (D5). */
 export function smallLandlordExempt(t: LeaseTerms): boolean | null {
   if (t.tenantIsServiceMember) return false;
@@ -47,89 +49,27 @@ export function smallLandlordExempt(t: LeaseTerms): boolean | null {
   return naturalPerson && t.ownerPropertyCount <= 2 && t.ownerUnitCount <= 4;
 }
 
-/** D1: "security" is everything charged at the start of the tenancy except first month's rent, however labeled. */
+/** California D1: "security" is everything charged at the start of the tenancy except first month's rent, however
+ *  labeled. */
 export function totalSecurity(t: LeaseTerms): number {
   return (t.securityDeposit ?? 0) + t.otherMoveInCharges.reduce((s, c) => s + c.amount, 0);
 }
 
-export function evaluateLease(t: LeaseTerms): Flag[] {
-  const flags: Flag[] = [];
-  const rent = t.monthlyRent;
-  const security = totalSecurity(t);
-
-  // D1 + D3/D4/D5: the cap.
-  if (rent) {
-    const exempt = smallLandlordExempt(t);
-    const capMonths = exempt ? 2 : 1;
-    const cap = rent * capMonths;
-    const parts = [t.securityDeposit ? `deposit ${usd(t.securityDeposit)}` : null,
-      ...t.otherMoveInCharges.map((c) => `${c.label.toLowerCase()} ${usd(c.amount)}`)].filter(Boolean).join(" + ");
-    if (exempt === null) {
-      flags.push({ id: "D4", severity: "warning", title: "Can't tell which deposit cap applies",
-        detail: `The cap is one month's rent (${usd(rent)}) unless the owner is a natural person or an LLC of natural persons with at most 2 rental properties and 4 units, who may charge two months. Confirm the owner type and portfolio size.`,
-        cite: "Civ. Code 1950.5(c)(1), (c)(5)" });
-    }
-    if (security > cap && exempt !== null) {
-      flags.push({ id: "D3", severity: "violation", title: `Security over the ${capMonths === 1 ? "one-month" : "two-month"} cap`,
-        detail: `Total security collected at move-in is ${usd(security)} (${parts}). Everything charged at the start of the tenancy counts as security except first month's rent. The cap here is ${usd(cap)}${exempt ? "" : t.tenantIsServiceMember ? " (service member: always one month)" : ` because the owner ${t.ownerType.startsWith("llc") || t.ownerType === "corporation" ? "is an entity or holds" : "holds"} more than 2 properties or 4 units`}. Excess: ${usd(security - cap)}.`,
-        cite: "Civ. Code 1950.5(b), (c)(1), (c)(5)" });
-    }
-  }
-
-  // D8: nothing may be "nonrefundable".
-  for (const q of t.nonrefundableLanguage) {
-    flags.push({ id: "D8", severity: "violation", title: "\"Nonrefundable\" security",
-      detail: "California bars any lease term that makes a security deposit or move-in fee nonrefundable. It counts as security and must be accounted for at move-out.",
-      cite: "Civ. Code 1950.5(n), (b)", quote: q });
-  }
-
-  // D10: no professional cleaning charge unless needed to restore move-in condition.
-  if (t.mandatoryCleaningClause) {
-    flags.push({ id: "D10", severity: "violation", title: "Mandatory professional cleaning",
-      detail: "Since 2025 a landlord can't charge for professional carpet or other professional cleaning unless it's reasonably necessary to return the unit to its move-in condition, excluding ordinary wear and tear. A blanket \"regardless of condition\" charge isn't allowed.",
-      cite: "Civ. Code 1950.5(e)(2)(C) (AB 2801)", quote: t.mandatoryCleaningClause });
-  }
-
-  // D26: late fees are liquidated damages and only deductible if lawfully owed.
-  if (t.lateFee) {
-    const pct = t.lateFee.percentOfRent ?? (t.lateFee.amount && rent ? Math.round((t.lateFee.amount / rent) * 1000) / 10 : null);
-    flags.push({ id: "D26", severity: "warning", title: "Late fee needs to be a reasonable estimate",
-      detail: `The lease sets a late fee${pct ? ` of about ${pct}% of rent` : ""}${t.lateFee.deductibleFromDeposit ? " and lets it come out of the deposit" : ""}. Residential late fees are enforceable only as a reasonable estimate of the landlord's actual loss; courts have voided flat fees that weren't (Orozco v. Casimiro). Only a fee that is lawfully owed can be deducted.`,
-      cite: "Civ. Code 1671(c)-(d); Civ. Code 1950.5(b)(1)", quote: t.lateFee.quote });
-  }
-
-  // D13: move-in photos for tenancies beginning on or after 2025-07-01.
-  if (t.tenancyStartDate && t.tenancyStartDate >= MOVE_IN_PHOTOS_FROM) {
-    flags.push({ id: "D13", severity: "info", title: "Move-in photos are required",
-      detail: "This tenancy began on or after July 1, 2025, so the landlord must photograph the unit immediately before or at the start of the tenancy. Without them, deductions are hard to support at move-out.",
-      cite: "Civ. Code 1950.5(g)(1) (AB 2801)" });
-  }
-
-  // D16/D17: electronic payments mean an electronic refund; PayPal needs the tenant's written agreement.
-  if (t.electronicPaymentMethods.length) {
-    flags.push({ id: "D16", severity: "info", title: "Refund must go back electronically",
-      detail: `The tenant can pay electronically (${t.electronicPaymentMethods.join(", ")}). Since January 2026, a landlord who received rent or the deposit electronically must refund electronically to an account the tenant designates, and may use PayPal only if the tenant agrees in writing. Collect that agreement now.`,
-      cite: "Civ. Code 1950.5(h)(1)(A) (AB 414)" });
-  }
-
-  // D19: roommates.
-  if (t.tenants.length > 1) {
-    flags.push({ id: "D19", severity: "info", title: `${t.tenants.length} adult tenants on the lease`,
-      detail: "By default the refund is one payment to all adult tenants together, with the statement to any one of them. To split it, every adult must sign a written allocation agreement.",
-      cite: "Civ. Code 1950.5(h)(1)(C)" });
-  }
-
-  const order = { violation: 0, warning: 1, info: 2 } as const;
-  return flags.sort((a, b) => order[a.severity] - order[b.severity]);
+/** The deposit and every move-in charge the lease does not label nonrefundable: what the other packs hold and return
+ *  as the deposit (a fee the lease labels nonrefundable is the state's own question, flagged by its pack). */
+export function refundableSecurity(t: LeaseTerms): number {
+  return (t.securityDeposit ?? 0) + t.otherMoveInCharges.filter((c) => c.refundable !== false).reduce((s, c) => s + c.amount, 0);
 }
 
-/** What the agent will actually invoice at move-in: everything the lease charges as security, capped at the legal
- *  maximum (D3/D4). Null when the cap can't be determined yet. */
-export function lawfulDeposit(t: LeaseTerms): { amount: number; cap: number; charged: number } | null {
-  if (!t.monthlyRent) return null;
-  const exempt = smallLandlordExempt(t);
-  if (exempt === null) return null;
-  const cap = t.monthlyRent * (exempt ? 2 : 1);
-  const charged = totalSecurity(t);
-  return { amount: Math.min(charged, cap), cap, charged };
+/** The lease's flags under the tenancy's state pack, violations first. */
+export function evaluateLease(t: LeaseTerms, pack: ClientPack): Flag[] {
+  return pack.lease.evaluate(t);
 }
+
+/** What the agent will actually invoice at move-in under the tenancy's pack: the security, held to the state's cap.
+ *  Null when the cap can't be determined yet. */
+export function lawfulDeposit(t: LeaseTerms, pack: ClientPack): LawfulDeposit | null {
+  return pack.lease.lawful(t);
+}
+
+export type { LawfulDeposit };

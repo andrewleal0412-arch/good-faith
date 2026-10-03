@@ -20,6 +20,7 @@ export type ShellData = {
   sandbox: boolean;
   alerts: ShellAlert[];
   disclaimer: string;
+  rules: { label: string; href: string }[]; // the Help menu's deposit-law guides, one per state the workspace rents in
   signOut: boolean; // the demo access gate is on, so there is a session to end (src/proxy.ts)
   startOver: boolean; // this is a visitor's private copy of the demo, which can be replaced by a fresh one
 };
@@ -116,7 +117,7 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
               trigger={<Icon name="help" />}
               items={[
                 { label: "Check a lease", href: "/lease", icon: "file-check" },
-                { label: "California deposit rules", href: "https://selfhelp.courts.ca.gov/guide-security-deposits-california", icon: "arrow-up-right", newTab: true },
+                ...data.rules.map((r) => ({ label: r.label, href: r.href, icon: "arrow-up-right" as const, newTab: true })),
               ]}>
               <p className="border-t border-line-2 px-2.5 pb-2 pt-2.5 text-xs text-ink-3">{data.disclaimer}</p>
             </Menu>

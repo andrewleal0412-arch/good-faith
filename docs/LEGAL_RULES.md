@@ -4,6 +4,8 @@ Researched 2026-10-01 by a Fable research agent from primary sources. Spot-check
 
 This is the rulebook the app enforces. The product never gives legal advice; it enforces, warns, informs and drafts for the landlord to approve (section F).
 
+California is one of the app's state rule packs (`src/lib/states/ca.ts`). The other states' specs, how the packs work, and the inventory of where each California rule lives in code are in [docs/rules/](rules/README.md).
+
 **Status of the law.** Civil Code 1950.5 was last amended by AB 414 (Stats. 2025, ch. 340), effective January 1, 2026 [S1]. It already includes:
 - AB 12 (Stats. 2023, ch. 733): the deposit cap [S2]
 - SB 611 (Stats. 2024, ch. 287): fees and service members [S4]

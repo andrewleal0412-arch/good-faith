@@ -7,15 +7,18 @@ import { FormField } from "@/components/field";
 import { FilePick } from "@/components/file-pick";
 import { Money, Notice, inputClass, textareaClass } from "@/components/ui";
 import { chargeable, defaultProration, suggestedLife, type Performer, type Proration, type Work } from "@/lib/deductions";
+import { packFor } from "@/lib/states";
 import { AFTER_PHOTOS_MAX, mb, notAPhoto, shrinkPhoto, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
 
 type Finding = { id: string; room: string; item: string; classification: string; remedy: string };
 
 const input = inputClass;
 
-export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
-  tenancyId: string; finding: Finding; onDone: () => void; onCancel: () => void;
+export function DeductionForm({ tenancyId, state, finding, onDone, onCancel }: {
+  tenancyId: string; state: string; finding: Finding; onDone: () => void; onCancel: () => void;
 }) {
+  const pack = packFor(state);
+  const docs = pack.documents;
   const startWork: Work = finding.remedy === "replace" ? "replace"
     : finding.remedy === "clean" || finding.classification === "cleaning" ? "clean" : "repair";
   const [work, setWork] = useState<Work>(startWork);
@@ -113,11 +116,11 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
         </div>
       )}
 
-      <Field label="Why this work (optional)" hint={<InfoTip title="On the statement" cite="Civ. Code 1950.5(h)(2)(D)">Goes on the statement with the cost, as part of the written explanation.</InfoTip>}>
+      <Field label="Why this work (optional)" hint={<InfoTip title={docs.noteTip.title} cite={docs.noteTip.cite}>{docs.noteTip.text}</InfoTip>}>
         <textarea className={textareaClass} rows={2} placeholder="Spot cleaning didn't lift the stain, so the carpet was replaced" value={v.note} onChange={set("note")} />
       </Field>
 
-      <Field label="Prorate by age" group hint={<InfoTip title="DRE guidance, not statute">Useful-life proration and the paint schedule come from the DRE&apos;s California Tenants guide. A court may decide differently.</InfoTip>}>
+      <Field label="Prorate by age" group hint={<InfoTip title={`${pack.copy.guidanceLabel}, not statute`}>{pack.copy.guidanceNote}</InfoTip>}>
         <Segmented value={proration} onChange={setProration}
           options={[["none", "No"], ["useful_life", "Useful life"], ["paint_schedule", "Paint schedule"]]} />
       </Field>
@@ -131,7 +134,7 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
         <Field label="Years since it was last painted"><input className={input} inputMode="decimal" value={v.itemAgeYears} onChange={set("itemAgeYears")} /></Field>
       )}
 
-      <Field label="After-repair photos" hint={<InfoTip title="Before and after" cite="Civ. Code 1950.5(g)(2)">Required for every repair or cleaning deduction.</InfoTip>}>
+      <Field label="After-repair photos" hint={<InfoTip title={docs.afterPhotoTip.title} cite={docs.afterPhotoTip.cite}>{docs.afterPhotoTip.text}</InfoTip>}>
         <FilePick label="Add photos" icon="camera" accept="image/*" multiple files={after} onChange={setAfter} />
       </Field>
       <div className="flex items-center gap-1.5 text-sm text-ink-2">
@@ -139,7 +142,7 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
           <input type="checkbox" className="size-[15px]" checked={isEstimate} onChange={(e) => setIsEstimate(e.target.checked)} />
           Work not finished yet: deduct an estimate
         </label>
-        <InfoTip title="Good-faith estimate" cite="Civ. Code 1950.5(h)(3)">Deduct a good-faith estimate now, then send the invoice within 14 days of finishing.</InfoTip>
+        <InfoTip title={docs.estimateTip.title} cite={docs.estimateTip.cite}>{docs.estimateTip.text}</InfoTip>
       </div>
 
       {error && <Notice>{error}</Notice>}
@@ -150,7 +153,7 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
           ) : (
             <>
               <p className="text-lg font-medium">Deduct <Money value={preview.amount} /></p>
-              <p className="text-xs text-ink-3">{preview.math}{preview.guidance ? " (DRE guidance)" : ""}</p>
+              <p className="text-xs text-ink-3">{preview.math}{preview.guidance ? ` (${pack.copy.guidanceLabel})` : ""}</p>
             </>
           )}
         </div>

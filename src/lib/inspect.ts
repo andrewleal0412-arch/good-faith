@@ -4,11 +4,12 @@ import { generateText, Output } from "ai";
 import sharp from "sharp";
 import { z } from "zod";
 import { cleanBox, type Box } from "./boxes";
+import type { StatePack } from "./states/types";
 
 // Move-out inspection: Claude compares a room's move-in photos with its move-out photos and lists every change,
-// classified the way California treats it, with a box around each change on the photo. It doesn't set dollar amounts;
-// costs, useful-life proration and the $125 receipt rule are applied in code once the landlord enters invoices
-// (docs/LEGAL_RULES.md, sections A and C).
+// classified the way the tenancy's state treats it (the pack's inspection guide), with a box around each change on the
+// photo. It doesn't set dollar amounts; costs, proration and the state's documentation rule are applied in code once
+// the landlord enters invoices (California: docs/LEGAL_RULES.md, sections A and C).
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
@@ -43,17 +44,6 @@ export const findingSchema = z.object({
 /** A finding as stored on the tenancy: the boxes checked and clamped, the room it belongs to. */
 export type Finding = Omit<z.infer<typeof findingSchema>, "box" | "moveInBox"> & { room: string; box: Box | null; moveInBox: Box | null };
 
-const GUIDE = `California Civil Code 1950.5 and the DRE's California Tenants guide (2026), as applied here:
-- A deposit may cover damage beyond ordinary wear and tear, and cleaning only back to the cleanliness at move-in.
-- Never chargeable (ordinary wear and tear): faded or lightly scuffed paint, paint worn behind furniture, a few small
-  nail or pin holes, minor nicks, carpet worn or matted from normal traffic, moderate carpet spotting, drapes or blinds
-  faded or loose from age, grime that predates this tenancy.
-- Chargeable damage: a large number of holes or large holes/gouges in walls, carpet rips, burns, pet urine or other
-  indelible stains, blinds snapped or torn, broken fixtures, chewed trim.
-- Chargeable cleaning: a dirty oven or range, greasy surfaces, mildew, unwashed floors, decals, fleas, left-behind trash,
-  but only beyond how clean it was at move-in.
-- Professional carpet cleaning is chargeable only when needed to restore move-in condition, never as a routine charge.
-Report only what the photos show. If lighting or angle makes it uncertain, say "unclear".`;
 
 /** A photo's bytes with the media type they were stored under (read from the bytes at upload, src/lib/images.ts). */
 export type InspectPhoto = { data: Uint8Array; mediaType: string };
@@ -69,16 +59,21 @@ async function sizeOf(p: InspectPhoto): Promise<{ width: number; height: number 
   }
 }
 
-/** Compare one room. Photos are passed as bytes, move-in first. */
-export async function inspectRoom(room: string, moveIn: InspectPhoto[], moveOut: InspectPhoto[]): Promise<Finding[]> {
+/** The finding schema with the pack's example for the reason (California's names the DRE guide). */
+const schemaFor = (pack: StatePack) => (pack.ai.reasonExample
+  ? findingSchema.extend({ reason: z.string().describe(`Why, in plain words, tied to the guidance (e.g. '${pack.ai.reasonExample}')`) })
+  : findingSchema);
+
+/** Compare one room under the tenancy's state pack. Photos are passed as bytes, move-in first. */
+export async function inspectRoom(room: string, moveIn: InspectPhoto[], moveOut: InspectPhoto[], pack: StatePack): Promise<Finding[]> {
   const img = (p: InspectPhoto) => ({ type: "file" as const, mediaType: p.mediaType, data: p.data });
   const [inSizes, outSizes] = await Promise.all([Promise.all(moveIn.map(sizeOf)), Promise.all(moveOut.map(sizeOf))]);
   const size = (s: { width: number; height: number } | null) => (s ? `, ${s.width} x ${s.height} pixels` : "");
   const { output } = await generateText({
     model: anthropic(MODEL),
-    output: Output.object({ schema: z.object({ findings: z.array(findingSchema) }) }),
+    output: Output.object({ schema: z.object({ findings: z.array(schemaFor(pack)) }) }),
     system:
-      "You inspect rental units at move-out for a California landlord's security deposit tool. You compare move-in and " +
+      `${pack.ai.inspectorRole} You compare move-in and ` +
       "move-out photos of the same room and list every visible change. You classify, you don't price. Be fair to the " +
       "tenant: when something is ordinary wear and tear, say so.\n\n" +
       "Mark where each change is. On the move-out photo, give a tight box around the visible change itself, in " +
@@ -86,7 +81,7 @@ export async function inspectRoom(room: string, moveIn: InspectPhoto[], moveOut:
       "corner, w and h its size, all between 0 and 1). Give the same area on the move-in photo when it shows there. " +
       "The landlord sees these boxes drawn over the photos, so place them on the stain, hole or grime, not around " +
       "the whole wall or appliance. The photo sizes are only for placing the boxes: describe sizes in the room's terms " +
-      "(inches, feet), never in pixels.\n\n" + GUIDE,
+      "(inches, feet), never in pixels.\n\n" + pack.ai.inspectionGuide,
     messages: [{
       role: "user",
       content: [

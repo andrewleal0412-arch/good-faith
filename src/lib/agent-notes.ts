@@ -3,17 +3,24 @@
 
 import type { TimelineItem } from "./agent-timeline";
 
+/** The statutes the state packs' rules cite: California's Civil Code, New York's General Obligations Law (and Real
+ *  Property Law), Texas's Property Code, Florida Statutes and Washington's RCW. */
+const STATUTE = String.raw`(?:(?:Cal\. )?Civ\. Code|(?:N\.Y\. )?GOL|(?:N\.Y\. )?RPL|Tex\. Prop\. Code|Fla\. Stat\.|RCW)`;
+
 /** A quoted rule ("Civ. Code 1950.5(h)(1): the itemized statement...") with the words that lead into it. */
-const QUOTED = /((?:As the rules? puts? it|In the rules' words|The rules? says?),?\s*)?(,?\s*\b(?:since|because|as|per|under)\s+)?["“](?:Cal\. )?Civ\. Code (?:§\s*)?([^:"”]+):[^"”]*?([.!?])?["”]/g;
+const QUOTED = new RegExp(String.raw`((?:As the rules? puts? it|In the rules' words|The rules? says?),?\s*)?(,?\s*\b(?:since|because|as|per|under)\s+)?["“](${STATUTE}) (?:§\s*)?([^:"”]+):[^"”]*?([.!?])?["”]`, "g");
+
+/** "Cal. Civ. Code" reads "Civ. Code", as the rules list writes it. */
+const statuteName = (s: string) => s.replace(/^Cal\. /, "");
 
 /** The text without quoted statute, and the citations it quoted. */
 export function stripQuotes(text: string): { text: string; cites: string[] } {
   const cites: string[] = [];
-  const out = text.replace(QUOTED, (_m, sent?: string, clause?: string, cite = "", end?: string) => {
-    cites.push(`Civ. Code ${cite.trim()}`);
+  const out = text.replace(QUOTED, (_m, sent: string | undefined, clause: string | undefined, statute = "", cite = "", end?: string) => {
+    cites.push(`${statuteName(statute)} ${cite.trim()}`);
     if (sent) return "";
     if (clause) return end ?? "";
-    return `Civ. Code ${cite.trim()}${end ?? ""}`;
+    return `${statuteName(statute)} ${cite.trim()}${end ?? ""}`;
   }).replace(/\s{2,}/g, " ").replace(/\s+([.,])/g, "$1").trim();
   return { text: out, cites: [...new Set(cites)] };
 }
@@ -21,7 +28,7 @@ export function stripQuotes(text: string): { text: string; cites: string[] } {
 // A citation the agent wrote in its own words rather than quoted from the rules list: "(Civ. Code 1950.5(h)(2))" or
 // "Under Civ. Code 1950.5(h)(1), you...". Its subsections are not checked against the rules (an early run cited (g)
 // for (h)), so the summary drops them; the checked citations sit in the summary's tip.
-const SECTION = String.raw`(?:Cal\. )?Civ\. Code (?:§\s*)?[\d.]+(?:\([a-zA-Z0-9]+\))*(?:(?:,|;| and| or)\s*(?:[\d.]+)?(?:\([a-zA-Z0-9]+\))+)*`;
+const SECTION = String.raw`${STATUTE} (?:§\s*)?[\d.-]+(?:\([a-zA-Z0-9-]+\))*(?:(?:,|;| and| or)\s*(?:[\d.-]+)?(?:\([a-zA-Z0-9-]+\))+)*`;
 const PAREN = new RegExp(String.raw`\s*\(${SECTION}\)`, "g");
 const LEAD = new RegExp(String.raw`\b(?:Under|Per|By) ${SECTION},\s*(\w)`, "g");
 

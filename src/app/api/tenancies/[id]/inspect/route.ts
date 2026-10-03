@@ -1,6 +1,7 @@
 import { audit, db } from "@/lib/db";
 import { inspectRoom, type Finding, type InspectPhoto } from "@/lib/inspect";
 import { claudeNeverAnswered, inspectPhotoLimit, inspectRoomLimit, takeAllowance } from "@/lib/limits";
+import { tenancyPack } from "@/lib/tenancy-pack";
 import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -12,7 +13,10 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const { data: photos } = await db.from("photos").select("phase, room, storage_path, created_at").eq("tenancy_id", id).order("created_at");
+  const [{ data: photos }, pack] = await Promise.all([
+    db.from("photos").select("phase, room, storage_path, created_at").eq("tenancy_id", id).order("created_at"),
+    tenancyPack(id),
+  ]);
   const rooms = new Map<string, { in: string[]; out: string[] }>();
   for (const p of photos ?? []) {
     if (p.phase === "move_out_after") continue;
@@ -49,7 +53,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
     try {
       const [inP, outP] = await Promise.all([Promise.all(r.in.map(photo)), Promise.all(r.out.map(photo))]);
       asked = true;
-      const findings = await inspectRoom(room, inP, outP);
+      const findings = await inspectRoom(room, inP, outP, pack);
       // Attach the actual photo paths so the statement can show each before/after pair (AB 2801).
       return { room, findings: findings.map((f) => ({ ...f, id: crypto.randomUUID(), source: "inspection" as const, moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] })), spent: true };
     } catch (e) {

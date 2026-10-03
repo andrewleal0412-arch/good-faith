@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { longDate, shortDate } from "@/lib/dates";
-import type { DeliveryRecord } from "@/lib/statement";
+import { shortDate } from "@/lib/dates";
+import type { DeliveryRecord } from "@/lib/delivery";
+import { packFor } from "@/lib/states";
 import { Button } from "@/components/button";
 import { Drawer, drawerFooter } from "@/components/drawer";
 import { InfoTip } from "@/components/info-tip";
@@ -13,13 +14,16 @@ import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui"
 const input = inputClass;
 
 const METHODS: [DeliveryRecord["method"], string][] = [["personal", "In person"], ["mail", "First-class mail"], ["email", "Email"]];
-const METHOD_WORD: Record<DeliveryRecord["method"], string> = { personal: "In person", mail: "First-class mail", email: "Email, by agreement" };
+const METHOD_WORD: Record<"personal" | "mail", string> = { personal: "In person", mail: "First-class mail" };
 
-// How and when the statement went out (Civ. Code 1950.5(h)(1)(B), (h)(6)): a card beside the statement with what is
-// on record, and a drawer to record or change it. Email stays behind a confirmation that the tenant agreed to it in
-// writing; the server refuses it otherwise. A link to #delivery opens the drawer straight away.
+// How and when the statement went out, under the tenancy's state pack (California: Civ. Code 1950.5(h)(1)(B), (h)(6)):
+// a card beside the statement with what is on record, and a drawer to record or change it. Email stays behind a
+// confirmation where the state's rule needs one (California: the tenant agreed in writing) and is not offered where
+// the state's safe harbor leaves it out (Washington); the server refuses it otherwise. A link to #delivery opens the
+// drawer straight away.
 export function DeliveryPanel(p: {
   tenancyId: string;
+  state: string;
   tenants: { name: string; email: string | null }[];
   unitAddress: string;
   today: string;
@@ -49,7 +53,7 @@ export function DeliveryPanel(p: {
       <div className="px-5 py-4">
         {d ? (
           <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
-            <dt className="text-ink-3">Method</dt><dd>{METHOD_WORD[d.method]}</dd>
+            <dt className="text-ink-3">Method</dt><dd>{d.method === "email" ? packFor(p.state).delivery.emailShort : METHOD_WORD[d.method]}</dd>
             <dt className="text-ink-3">To</dt><dd className="truncate" title={where ?? undefined}>{d.method === "mail" ? where : d.to ?? where}</dd>
             <dt className="text-ink-3">Date</dt><dd className="tabular-nums">{shortDate(d.date)}</dd>
           </dl>
@@ -64,6 +68,9 @@ export function DeliveryPanel(p: {
 }
 
 function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () => void; onSaved: () => void }) {
+  const rules = packFor(p.state).delivery;
+  const methods = METHODS.filter(([k]) => k !== "email" || rules.emailRule !== "courtesy");
+  const needsAgreement = rules.emailRule === "agreement";
   const emailOf = (name: string) => p.tenants.find((t) => t.name === name)?.email ?? "";
   // A mailing to the vacated unit was the fallback, so the forwarding field starts empty for it. Records from
   // before the kind was stored count as forwarding only when the address differs from the unit's.
@@ -74,9 +81,7 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
   const [to, setTo] = useState(p.existing?.to ?? p.tenants[0]?.name ?? "");
   // With no record yet, the field starts from the forwarding address the tenants gave through their link ((h)(6)).
   const [address, setAddress] = useState(mailedForwarding ? p.existing!.address! : p.existing ? "" : p.forwarding?.address ?? "");
-  const mailHint = p.forwarding
-    ? `${p.forwarding.name ?? "The tenants"} gave this forwarding address through the tenant link on ${longDate(p.forwarding.date)}. Leave it blank to use the vacated unit, ${p.unitAddress}.`
-    : `The forwarding address the tenant gave. Leave it blank to use the vacated unit, ${p.unitAddress}.`;
+  const mailHint = rules.mailHint(p.unitAddress, p.forwarding ? { name: p.forwarding.name, date: p.forwarding.date } : null);
   const [email, setEmail] = useState(p.existing?.email ?? emailOf(p.existing?.to ?? p.tenants[0]?.name ?? ""));
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -94,7 +99,7 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
     setError("");
     const r = await fetch(`/api/tenancies/${p.tenancyId}/statement/delivery`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ method, date, to, address, email, by_agreement: method === "email" ? agreed : false }),
+      body: JSON.stringify({ method, date, to, address, email, by_agreement: method === "email" ? agreed || !needsAgreement : false }),
     }).catch(() => null);
     setBusy(false);
     if (!r?.ok) return setError((r && (await r.json().catch(() => ({}))).error) ?? "Couldn't record that.");
@@ -105,11 +110,9 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
     <Drawer open onClose={p.onClose} title={p.existing ? "Change the delivery record" : "Record delivery"} sub="How the itemized statement went out">
       <div className="flex flex-col gap-5">
         <FormField group label="Method" hint={
-          <InfoTip title="How the statement goes out" cite="Civ. Code 1950.5(h)(1)(B), (h)(6)">
-            Personal delivery or first-class mail to the address the tenant gave, or the vacated unit if none. Email only if you and the tenant agreed to it in writing.
-          </InfoTip>}>
+          <InfoTip title={rules.tip.title} cite={rules.tip.cite}>{rules.tip.text}</InfoTip>}>
           <div className="inline-flex flex-wrap gap-0.5 rounded-md bg-surface-2 p-[3px]">
-            {METHODS.map(([k, label]) => (
+            {methods.map(([k, label]) => (
               <button key={k} type="button" onClick={() => setMethod(k)} aria-pressed={method === k} data-autofocus={method === k || undefined}
                 className={`h-7 rounded-sm px-2.5 text-sm ${method === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
                 {label}
@@ -119,7 +122,7 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
         </FormField>
 
         {method === "mail" && (
-          <Field label="Mailed to" hint={mailHint} cite="Civ. Code 1950.5(h)(6)">
+          <Field label="Mailed to" hint={mailHint} cite={rules.addressedCite}>
             <input className={input} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Forwarding address" />
           </Field>
         )}
@@ -128,8 +131,8 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
             <input className={input} inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tenant@example.com" />
           </Field>
         )}
-        <Field label="Addressed to" cite="Civ. Code 1950.5(h)(1)(C)"
-          hint={p.tenants.length > 1 ? "With more than one adult tenant, the statement may go to any one of them." : undefined}>
+        <Field label="Addressed to" cite={rules.toCite}
+          hint={p.tenants.length > 1 ? rules.multipleTo : undefined}>
           <select className={input} value={to} onChange={(e) => pickTenant(e.target.value)}>
             {p.tenants.map((t) => <option key={t.name}>{t.name}</option>)}
           </select>
@@ -138,16 +141,16 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
           <input type="date" className={input} value={date} max={p.today} onChange={(e) => setDate(e.target.value)} />
         </Field>
 
-        {method === "email" && (
+        {method === "email" && needsAgreement && (
           <label className="flex items-start gap-2 text-sm text-ink-2">
             <input type="checkbox" className="mt-0.5 size-[15px]" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
-            {to || "The tenant"} and I agreed in writing that the itemized statement may be sent by email.
+            {to || "The tenant"} {rules.emailLabel}
           </label>
         )}
         {error && <Notice>{error}</Notice>}
       </div>
       <div className={drawerFooter}>
-        <Button variant="primary" onClick={save} disabled={busy || (method === "email" && !agreed)}>{busy ? "Saving..." : "Record delivery"}</Button>
+        <Button variant="primary" onClick={save} disabled={busy || (method === "email" && needsAgreement && !agreed)}>{busy ? "Saving..." : "Record delivery"}</Button>
         <Button onClick={p.onClose}>Cancel</Button>
       </div>
     </Drawer>
