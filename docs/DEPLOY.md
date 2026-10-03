@@ -104,6 +104,8 @@ Changing a code: the proxy runs on the Node.js runtime and reads these variables
 | `GOOD_FAITH_DAILY_INVOICE` | 5 | PayPal sandbox deposit invoices per demo session |
 | `GOOD_FAITH_DAILY_TENANCY` | 10 | New tenancies per demo session |
 | `GOOD_FAITH_DAILY_UPLOAD_MB` | 100 | Megabytes of photos, receipts and after-repair photos stored per demo session |
+| `GOOD_FAITH_DAILY_ADVOCATE` | 3 | Runs of the tenants' advocate per tenant link (the tenants' page has no session, so it counts by link; each run is one Claude job of a few steps with the disputed charges' photos) |
+| `GOOD_FAITH_DAILY_TENANT_UPLOAD_MB` | 20 | Megabytes of dispute photos per tenant link |
 | `GOOD_FAITH_DAILY_COPIES` | 5 | New demo copies per caller address (entering the code, or Start over) |
 | `GOOD_FAITH_DAILY_AI_TOTAL` | 150 | Claude jobs per day across every session, the owner's included |
 | `GOOD_FAITH_DAILY_INVOICE_TOTAL` | 100 | Sandbox invoices per day across every session |

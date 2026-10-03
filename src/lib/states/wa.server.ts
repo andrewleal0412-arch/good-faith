@@ -2,7 +2,7 @@
 // prompt, the next-step hooks, the calendar, the tenant page). The rest is in wa.ts, which client components load.
 
 import { wasPaid } from "../invoice-status";
-import { longDate, usd } from "./common";
+import { addDays, longDate, usd } from "./common";
 import {
   checklistTool, claim, closeOutSystem, delivered, documents, factsTool, grade, inspectionGuide, lines, parties, refund,
   security, shortOf, wear, type ItemSpec,
@@ -187,5 +187,48 @@ export const WA_SERVER: ServerPart = {
     }),
     factsToolDescription: factsTool("30-day"),
     checklistToolDescription: checklistTool(13, "RCW 59.18.260 to 59.18.285"),
+  },
+
+  // WA spec W2, W25: a late statement or refund makes the landlord liable for the full deposit; no checklist bars
+  // damage charges. The spec names no small claims limit, so none is stated.
+  dispute: {
+    late: {
+      effect: "forfeit",
+      text: "The statement or the refund went out after the 30 days, so the landlord is liable for the full deposit and may not keep any of it, unless the tenants abandoned the unit or circumstances were beyond the landlord's control.",
+      cite: R("59.18.280(2)"),
+    },
+    // W17 and open question 1: the 30 days run from "the termination of the rental agreement and vacation of the
+    // premises", the later of the two. When the tenants left before the tenancy ended, the deadline counts from the
+    // move-out (the safe reading for the landlord's warning), but a forfeiture is applied only when the statement is
+    // late counted from the later date too; otherwise the lateness is a point for the tenants, not a forfeiture.
+    isLate: (c) => {
+      if (!c.moveOutDate || !c.sentOn) return { late: null };
+      if (c.sentOn <= addDays(c.moveOutDate, 30)) return { late: false };
+      const later = [c.plannedMoveOut, c.endDate].reduce<string>((a, d) => (d && d > a ? d : a), c.moveOutDate);
+      if (c.sentOn > addDays(later, 30)) return { late: true };
+      return {
+        late: true,
+        doubt: {
+          text: `Counted from the move-out, the statement or the refund went out after the 30 days; counted from the end of the tenancy on ${longDate(later)}, it did not. The 30 days run from the end of the tenancy and the move-out together, and which date counts when tenants leave first is unsettled, so the forfeiture is arguable.`,
+          cite: R("59.18.280(1)(a), (2)"),
+        },
+      };
+    },
+    evidence: { text: "Each damage charge needs copies of the estimates or invoices, or for the landlord's own work the materials receipt, the time spent and the hourly rate.", cite: R("59.18.280(1)(b)") },
+    forum: {
+      name: "Court", limit: null,
+      text: "The tenants can sue to recover the deposit, and the side that wins recovers its costs and reasonable attorneys' fees. WashingtonLawHelp explains the courts.",
+      cite: R("59.18.280(2)"),
+    },
+    lineBar: (d, notices) => (d.category !== "rent" && !notices.move_in_checklist
+      ? { text: "No signed move-in checklist is on record, so damage and cleaning charges are barred.", cite: R("59.18.260(2), 59.18.280(1)(c)(iii)") }
+      : null),
+    // W21: no carpet cleaning charge without documented wear beyond ordinary use.
+    cleaningRule: (d) => (d.category === "cleaning" && /\b(carpet|rug)/i.test(d.item)
+      ? { text: "A carpet cleaning charge is allowed only when the landlord documents wear to the carpet beyond ordinary use.", cite: R("59.18.280(1)(c)(ii)") }
+      : null),
+    // W19, W25, W27: a charge without its documents may not be charged, so a gap bars it rather than weakening it.
+    documentsCure: null,
+    sendNote: null,
   },
 };

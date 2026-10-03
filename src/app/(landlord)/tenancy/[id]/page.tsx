@@ -16,6 +16,7 @@ import { DEMO_DEPOSIT_DATE } from "@/lib/demo-pool";
 import { settle, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
+import { loadLandlordDispute } from "@/lib/disputes";
 import { dayLabel, daysBetween, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
@@ -34,6 +35,7 @@ import { MoneyTimeline } from "./money";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView, type QuietRoom } from "./move-out";
 import { CloseOut } from "./close-out";
+import { DisputeBanner, DisputeCard } from "./dispute";
 import { NoticeSection } from "./notice";
 import { Settlement } from "./settlement";
 import { TenantLinkPanel } from "./tenant-link";
@@ -68,7 +70,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // Move-out, the tenant link on Tenants. The rest (payments, photos, deductions) feeds the record header's status on
   // every tab. Nothing read here is used, refreshed or signed before the tenancy itself is found in the session's
   // workspace (loadTenancy); for any other id the page is the not-found page.
-  const [t, { data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink] = await Promise.all([
+  const [t, { data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink, dispute] = await Promise.all([
     loadTenancy(id),
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("*").eq("tenancy_id", id).order("created_at"),
@@ -80,6 +82,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       ? db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1)
       : Promise.resolve({ data: [] }),
     tab === "tenants" ? activeTenantLink(id) : Promise.resolve(null),
+    // The tenants' dispute once they sent it (a draft stays theirs): the banner on every tab, the card on Move-out.
+    loadLandlordDispute(id),
   ]);
   if (!t) notFound();
 
@@ -113,6 +117,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       ...photoRows.filter((x) => x.phase === "move_out_before").map((x) => x.storage_path),
       ...stored.flatMap((f) => [f.moveInPath, f.moveOutPath]),
       ...quietPairs.flatMap(({ i, o }) => [i.storage_path, o.storage_path]),
+      ...(dispute?.evidence ?? []).map((e) => e.path),
     ] : []),
   ];
   const [invoice, urlOf] = await Promise.all([
@@ -264,6 +269,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
       <Tabs className="mb-6 mt-5" active={tab} items={TABS.map((x) => ({ key: x.key, label: x.label, href: tabHref(id, x.key) }))} />
 
+      {dispute && (dispute.status === "open" || dispute.status === "negotiating") && (
+        <DisputeBanner v={dispute} href={tabHref(id, "move-out", "dispute")} tenantsLabel={summary.tenants.join(" and ") || "The tenants"} />
+      )}
+
       {tab === "overview" && (
         <>
           <FactStrip cols={4} className="mb-6">
@@ -365,6 +374,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
               value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
               sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(pacificDate(t.statement_delivered_at))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out)}` : "No move-out yet"} />
           </FactStrip>
+
+          {dispute && <DisputeCard v={dispute} photoUrl={(p) => url(p)} tenantsLabel={summary.tenants.join(" and ") || "The tenants"} />}
 
           {/* Before the comparison the notice and its dates lead; after it, the photos and the money do, and the notice
               record moves to the foot of the tab. */}

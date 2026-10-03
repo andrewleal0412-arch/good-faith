@@ -14,6 +14,10 @@ import type { ClientPack, ClockInput } from "./types";
 
 const F = (s: string) => `Fla. Stat. ${s}`;
 
+/** The landlord's burden of proof is the ordinary one (Durene, said of the landlord's damages suit); 83.49(3)(c) is the
+ *  fee-shifting that makes a lost dispute expensive (FL spec section E). The subsection alone doesn't state a burden. */
+export const FL_BURDEN_CITE = "Durene v. Alcime, 448 So. 2d 1208 (Fla. 3d DCA 1984); Fla. Stat. 83.49(3)(c)";
+
 /** The disclosure s. 83.49(2)(d) puts in the holding notice, word for word, as the 2026 Florida Statutes print it
  *  (amended by ch. 2025-16), read from https://www.flsenate.gov/Laws/Statutes/2026/83.49 on 2026-10-03. */
 export const FL_HOLDING_DISCLOSURE = [
@@ -252,7 +256,7 @@ export const FL: ClientPack = {
     damage: { rule: "Damage beyond normal wear and tear", note: "May be claimed: the reasonable repair cost, and a replacement prorated by age as common practice.", cite: F("83.52(6), 83.43(14)") },
     cleaning: { rule: "Cleaning to the clean and sanitary standard", note: "May be claimed, only back to how clean the unit was at move-in.", cite: F("83.52(2)") },
     wear_and_tear: { rule: "Normal wear and tear", note: "Not chargeable: ordinary deterioration from normal use is not a breach the deposit secures.", cite: F("83.43(14), 83.52") },
-    unclear: { rule: "Can't tell from the photos", note: "Needs a better photo before anything is claimed. A landlord claiming damages carries the burden of proof.", cite: F("83.49(3)(c)") },
+    unclear: { rule: "Can't tell from the photos", note: "Needs a better photo before anything is claimed. A landlord claiming damages carries the burden of proof.", cite: FL_BURDEN_CITE },
   },
 
   records: [

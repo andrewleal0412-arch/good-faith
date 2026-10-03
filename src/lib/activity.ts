@@ -93,13 +93,21 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "tenant_moving_out": return `${d?.name ?? "The tenants"} sent through the tenant link: moving out ${day(d?.planned_move_out)}; forwarding address ${d?.forwarding_address}`;
     case "tenant_moving_out_changed": return `${d?.name ?? "The tenants"} changed their move-out details through the tenant link: moving out ${day(d?.planned_move_out)}; forwarding address ${d?.forwarding_address}`;
     case "tenant_opened_statement": return "Opened the itemized statement through the tenant link";
+    case "dispute_opened": return `${d?.name ?? "The tenants"} disputed ${d?.lines} deduction${d?.lines === 1 ? "" : "s"} through the tenant link and asked for ${usd(d?.amount_back as number)} back${d?.by_advocate ? ", with the case their advocate wrote" : ""}`;
+    case "dispute_drafted": return "The tenants started a dispute through the tenant link";
+    case "dispute_draft_changed": return "The tenants changed their draft dispute";
+    case "dispute_evidence_added": return `The tenants added ${d?.count} photo${d?.count === 1 ? "" : "s"} to their draft dispute`;
+    case "dispute_evidence_removed": return "The tenants removed a photo from their draft dispute";
+    case "advocate_case_written": return `The tenants' advocate wrote their case: ${usd(d?.amount_back as number)} back proposed${(d?.adjustments as number) ? `, ${d?.adjustments} answer${d?.adjustments === 1 ? "" : "s"} corrected to fit the rules` : ""}`;
     default: return action.replace(/_/g, " ");
   }
 }
 
 /** Actions too small for the Properties page's Recent activity (each PDF build, each lease check before a tenancy,
  *  the tenant link's bookkeeping). */
-export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved", "finding_reviewed", "tenant_link_created", "tenant_link_revoked"];
+export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved", "finding_reviewed", "tenant_link_created", "tenant_link_revoked",
+  // The tenants' dispute while it is still their draft: theirs until they send it.
+  "dispute_drafted", "dispute_draft_changed", "dispute_evidence_added", "dispute_evidence_removed", "advocate_case_written"];
 
 /** The same for one tenancy's own Activity, which keeps the lease check, the tenant link and the tenants opening
  *  their statement. */
@@ -166,6 +174,7 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "tenant_link_revoked": return "Tenant link turned off";
     case "tenant_moving_out": return `${d?.name ?? "Tenant"} sent a move-out date`;
     case "tenant_moving_out_changed": return `${d?.name ?? "Tenant"} changed the move-out date`;
+    case "dispute_opened": return `${d?.name ?? "Tenant"} disputed ${d?.lines} deduction${d?.lines === 1 ? "" : "s"}`;
     default: {
       const s = describe(action, d);
       return s.length > 60 ? `${s.slice(0, 57).replace(/\s+\S*$/, "")}...` : s;

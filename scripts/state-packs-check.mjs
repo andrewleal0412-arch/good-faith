@@ -211,7 +211,7 @@ check("CA adds no blockers", CA.close.extraBlockers(facts(), ctx()).length === 0
 /* ---------- The shape every pack shares ---------- */
 const keys = (o, p = "") => Object.entries(o).flatMap(([k, v]) => (v && typeof v === "object" && !Array.isArray(v) && !(v instanceof RegExp) && !["rules", "findings", "short", "tags"].includes(k) ? keys(v, `${p}${k}.`) : [`${p}${k}`])).sort();
 // Optional hooks a state has only when its rule does (an inspection notice, a claim track, a weekend extension).
-const optional = (k) => k.startsWith("notices.inspection.") || k.startsWith("steps.flow.inspection");
+const optional = (k) => k.startsWith("notices.inspection.") || k.startsWith("steps.flow.inspection") || k.startsWith("dispute.documentsCure."); // null where the state has none
 const caKeys = keys(CA).filter((k) => !optional(k));
 for (const [code, p] of Object.entries(PACKS)) {
   const pk = keys(p).filter((k) => !optional(k));

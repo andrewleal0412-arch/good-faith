@@ -1,7 +1,7 @@
 // California: the half of the pack only the server reads (the statement checklist, the close-out agent's rules and
 // prompt, the next-step hooks, the calendar, the tenant page). The rest is in ca.ts, which client components load.
 
-import { longDate, pacificDate } from "../dates";
+import { addDays, longDate, pacificDate } from "../dates";
 import { describeDelivery } from "../delivery";
 import { totalSecurity } from "../rules";
 import type { ChecklistItem, ChecklistState, Statement } from "../statement";
@@ -379,5 +379,33 @@ export const CA_SERVER: ServerPart = {
     closeOutSystem: SYSTEM,
     factsToolDescription: "The tenancy's close-out file from the rules engine: move-out date and 21-day deadline, the deposit as PayPal reports it, the tenants' written refund agreement, every deduction with its math and any missing documents, totals, blockers, warnings, and the refund plan the rules allow (rail, amount, and the capture id or email). Call this first.",
     checklistToolDescription: "The itemized statement's completeness: the 13 items of the rules spec's checklist (Civ. Code 1950.5(h), local deposit-interest ordinances and DRE guidance), each done, missing or not applicable with a one-line reason, what is still missing, and whether delivery was recorded. Read-only; call it after the refund, or when the deposit was already returned.",
+  },
+
+  // LEGAL_RULES D24 and section D (tenant dispute): lateness alone forfeits nothing; bad faith does. The 21 days cover
+  // the statement and the refund ((g)(1)), so the later of the two counts.
+  dispute: {
+    late: {
+      effect: "flag",
+      text: "The statement or the refund went out after the 21 days. Late compliance in good faith keeps the right to deduct; bad-faith retention can cost up to twice the deposit.",
+      cite: "Civ. Code 1950.5(h)(7), (m)",
+    },
+    isLate: (c) => ({ late: c.moveOutDate && c.sentOn ? c.sentOn > addDays(c.moveOutDate, 21) : null }),
+    evidence: { text: "The landlord carries the burden of proving each deduction reasonable.", cite: "Civ. Code 1950.5(m)" },
+    forum: {
+      name: "Small claims court", limit: 12500,
+      text: "Either side may take a deposit dispute to small claims court, for up to $12,500. The courts' guide explains how.",
+      cite: "Civ. Code 1950.5(o); Code Civ. Proc. 116.221",
+    },
+    lineBar: null,
+    // D10: professional cleaning only when reasonably necessary to reach move-in condition.
+    cleaningRule: (d) => (d.category === "cleaning" && d.performer === "vendor"
+      ? { text: "A professional cleaning charge is allowed only when it was reasonably necessary to return the unit to how clean it was at move-in, apart from ordinary wear and tear.", cite: "Civ. Code 1950.5(e)(2)(C)" }
+      : null),
+    // D22, D24, section D and uncertainty 4: a missing document weakens the claim; good-faith late compliance keeps it.
+    documentsCure: {
+      text: "Until the landlord supplies them, nothing on file supports the charge. Supplying them late in good faith keeps the right to deduct it.",
+      cite: "Civ. Code 1950.5(h)(2); Granberry v. Islay Investments (1995) 9 Cal.4th 738",
+    },
+    sendNote: null,
   },
 };

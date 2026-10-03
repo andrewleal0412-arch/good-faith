@@ -323,11 +323,58 @@ export type StatePack = {
 
   /** Local rules the pack knows of, shown as a warning that local rules may add requirements, never enforced. */
   localOverlays: { city: string; match: RegExp; line: string }[];
+
+  /** A tenant's dispute of the itemized statement (src/lib/lawful-range.ts, src/lib/advocate.ts): what a late statement
+   *  costs the landlord, the evidence rule a deduction is weighed by, where a dispute goes when the two sides don't
+   *  agree, any rule that bars a line outright, and the state's own cleaning and documents rules. The lawful range
+   *  reads these; the advocate cites them. */
+  dispute: {
+    /** "forfeit": a late statement loses the right to keep any of the deposit (New York, Florida, Washington); "flag":
+     *  lateness is evidence of bad faith, not a forfeiture by itself (California, Texas). */
+    late: { effect: "forfeit" | "flag"; text: string; cite: string };
+    /** Whether the statement and refund (or Florida's claim notice) went out after the state's deadline, from the
+     *  dates on file. A forfeiture is applied only when it is late on every reading the state's spec documents and no
+     *  fact the file doesn't record could excuse it; otherwise `doubt` says why, and the lateness is a point for the
+     *  tenants, not a forfeiture. */
+    isLate: (c: LateInput) => Lateness;
+    evidence: { text: string; cite: string }; // who must prove a deduction, or what documents each one needs
+    forum: { name: string; limit: number | null; text: string; cite: string }; // where a dispute goes, said plainly
+    /** A rule that bars a line before any evidence is weighed (Washington: no damage or cleaning charge without the
+     *  signed move-in checklist); null where the state has none. */
+    lineBar: ((d: { category: string }, notices: Notices) => { text: string; cite: string } | null) | null;
+    /** A state's own rule on a cleaning charge (California's professional cleaning, Washington's carpet cleaning): a
+     *  point for the tenants that leaves the ceiling alone; null where the state has none. */
+    cleaningRule: ((d: { category: string; performer: string; item: string }) => { text: string; cite: string } | null) | null;
+    /** Where a charge missing the documents the statute requires can still be supported by supplying them (California:
+     *  good-faith late compliance keeps the right to deduct), the sentence that says so: the charge is then
+     *  "unsupported", not "unlawful". Null where a missing document bars the charge (Washington) or none is required. */
+    documentsCure: { text: string; cite: string } | null;
+    /** Shown above Send on the tenants' dispute page, where sending could be mistaken for a step the statute asks of
+     *  the tenants (Florida's written objection to a claim notice); null elsewhere. */
+    sendNote: string | null;
+  };
 };
 
+/** The dates a late statement is judged from. `deliveredOn` is the delivery record's date; `refundedOn` the day the
+ *  first refund or Payout that didn't fail was sent; `sentOn` the later of the two (the day both were out). */
+export type LateInput = {
+  today: string;
+  moveOutDate: string | null;
+  endDate: string | null;
+  plannedMoveOut: string | null;
+  notices: Notices;
+  deliveredOn: string | null;
+  refundedOn: string | null;
+  sentOn: string | null;
+  claimed: boolean;
+};
+
+/** isLate's answer: late or not (null: the file can't tell), and when late, any reason the forfeiture is arguable. */
+export type Lateness = { late: boolean | null; doubt?: { text: string; cite: string } | null };
+
 /** The sections only server code reads (statement.ts, closeout.ts, agent.ts, inspect.ts, next-step.ts, ics.ts, the
- *  tenant page); they live in `<state>.server.ts`. */
-export type ServerKeys = "ai" | "close" | "statement" | "tenant" | "calendar" | "steps";
+ *  tenant page, the dispute); they live in `<state>.server.ts`. */
+export type ServerKeys = "ai" | "close" | "statement" | "tenant" | "calendar" | "steps" | "dispute";
 /** What client components get from `packFor` in `src/lib/states/index.ts`. */
 export type ClientPack = Omit<StatePack, ServerKeys>;
 /** A pack's server half, joined to its ClientPack by `src/lib/states/server.ts`. */

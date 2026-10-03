@@ -245,4 +245,25 @@ export const NY_SERVER: ServerPart = {
     factsToolDescription: factsTool("14-day"),
     checklistToolDescription: checklistTool(13, "New York General Obligations Law 7-103 and 7-108"),
   },
+
+  // NY spec N19, N21, N22 and section F: the statement and the refund both by day 14 (as General Construction Law 25-a
+  // runs it), or the landlord forfeits the right to keep any of it.
+  dispute: {
+    late: {
+      effect: "forfeit",
+      text: "The statement or the refund went out after day 14, so the landlord forfeits any right to keep any part of the deposit.",
+      cite: G("7-108(1-a)(e)"),
+    },
+    isLate: (c) => ({ late: c.moveOutDate && c.sentOn ? c.sentOn > nyLastDay(addDays(c.moveOutDate, 14)) : null }),
+    evidence: { text: "The landlord bears the burden of proof as to the reasonableness of the amount kept.", cite: G("7-108(1-a)(f)") },
+    forum: {
+      name: "Small claims court", limit: 10000,
+      text: "A deposit dispute can go to small claims court: up to $10,000 in New York City Civil Court, $5,000 in city courts outside the city and $3,000 in town and village courts. A complaint to the Attorney General is another route.",
+      cite: "N.Y.C. Civ. Ct. Act 1801",
+    },
+    lineBar: null,
+    cleaningRule: null,
+    documentsCure: null,
+    sendNote: null,
+  },
 };

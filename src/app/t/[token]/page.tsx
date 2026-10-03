@@ -7,6 +7,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money } from "@/components/ui";
 import { displayName, maskEmail } from "@/lib/copy";
+import { isClosed, tenantDisputeStatus } from "@/lib/disputes";
 import { longDate, pacificDate, shortDate } from "@/lib/dates";
 import { returnCompleted, returnFailed } from "@/lib/invoice-status";
 import { streetLine } from "@/lib/ledger";
@@ -35,14 +36,19 @@ export const metadata: Metadata = { title: "Your security deposit", robots: { in
 const words = (status: string) => status.toLowerCase().replace(/_/g, " ");
 const payMethod = (m: string | null) => (!m || m === "PAYPAL" ? "PayPal" : words(m).replace(/^./, (c) => c.toUpperCase()));
 const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const usdText = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+const CLOSED_WORDS: Record<string, string> = { settled: "settled", no_agreement: "no agreement", withdrawn: "withdrawn" };
 
 export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   const { token } = await params;
   const link = await resolveTenantToken(token);
   if (!link) notFound();
-  const v = await loadTenantView(link.tenancyId);
+  const [v, dispute] = await Promise.all([loadTenantView(link.tenancyId), tenantDisputeStatus(link.tenancyId)]);
   if (!v) notFound();
+  // A dispute the tenants sent, live or closed: a statement is disputed here once.
+  const disputeSent = !!dispute && dispute.status !== "draft";
+  const disputeClosed = !!dispute && isClosed(dispute.status);
 
   // The law of the state the unit is in: its pack's rules, deadline and citations (California's LEGAL_RULES source S7
   // is the courts' guide, where disputes go).
@@ -110,6 +116,26 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
           </Section>
         )}
 
+        {/* The tenants' dispute once they sent it: where it stands, and the way to their case. */}
+        {st && disputeSent && (
+          <Section title="Your dispute">
+            <a href={`/t/${token}/dispute`} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3.5 hover:bg-surface">
+              <StatusMark tone={disputeClosed ? "gray" : "amber"} />
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">
+                  {disputeClosed
+                    ? `Closed: ${CLOSED_WORDS[dispute.status] ?? "closed"}`
+                    : `Sent to ${landlord}${dispute.sentAt ? ` ${shortDate(pacificDate(dispute.sentAt))}` : ""}`}
+                </span>
+                <span className="block text-sm text-ink-3">
+                  {dispute.lines} charge{dispute.lines === 1 ? "" : "s"} disputed{dispute.askedBack != null ? `, ${usdText(dispute.askedBack)} asked back` : ""}
+                </span>
+              </span>
+              <Icon name="chev-right" className="size-3.5 text-ink-4" />
+            </a>
+          </Section>
+        )}
+
         {!st && (
           <Section title={v.moveOutDate ? "Where to mail your statement" : "Moving out"}
             info={<InfoTip align="end" title={pack.tenant.mailTip(!!v.moveOutDate).title} cite={pack.tenant.mailTip(!!v.moveOutDate).cite}>
@@ -159,8 +185,17 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 
             <div className="mt-4 rounded-lg border border-line-2 bg-surface px-4 py-3.5">
               <p className="font-medium">Questions about a deduction?</p>
-              <p className="mt-0.5 text-sm text-ink-3">Ask {landlord} first. The courts&apos; guide explains how disputes are handled.</p>
+              <p className="mt-0.5 text-sm text-ink-3">
+                {st.deductions.length && !disputeSent
+                  ? `Dispute it here: your advocate reads the statement, the photos and ${pack.name} law and drafts your case for ${landlord}.`
+                  : <>Ask {landlord} first. The courts&apos; guide explains how disputes are handled.</>}
+              </p>
               <div className="mt-3 flex flex-wrap gap-2">
+                {st.deductions.length > 0 && !disputeSent && (
+                  <a href={`/t/${token}/dispute`} className={buttonClass("secondary", "sm")}>
+                    {dispute?.status === "draft" ? "Continue your dispute" : "Dispute a deduction"}
+                  </a>
+                )}
                 <a href="#rights" className={buttonClass("secondary", "sm")}>Your rights</a>
                 <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className={buttonClass("secondary", "sm")}>{pack.courtsGuide.label}<Icon name="arrow-up-right" /></a>
               </div>

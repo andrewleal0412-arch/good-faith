@@ -7,7 +7,7 @@ import {
   checklistTool, claim, closeOutSystem, disclaimer, evidence, factsTool, grade, inspectionGuide, lines, parties, refund,
   security, shortOf, wear, type ItemSpec,
 } from "./common.server";
-import { flClockStart, objectionOf, receivedOn } from "./fl";
+import { FL_BURDEN_CITE, flClockStart, objectionOf, receivedOn } from "./fl";
 import type { ServerPart, StandingInput } from "./types";
 
 const F = (s: string) => `Fla. Stat. ${s}`;
@@ -264,5 +264,50 @@ export const FL_SERVER: ServerPart = {
     }),
     factsToolDescription: factsTool("15 or 30-day"),
     checklistToolDescription: checklistTool(12, "Florida Statutes 83.49"),
+  },
+
+  // FL spec F9, F10 and section F: no claim notice within 30 days forfeits the claim and any setoff.
+  dispute: {
+    late: {
+      effect: "forfeit",
+      text: "No claim notice went out within 30 days after the tenancy ended, so the landlord forfeits the right to impose a claim on the deposit and may not set it off.",
+      cite: F("83.49(3)(a)"),
+    },
+    // Late when no claim notice is on record by day 30 (counted, as the deadline is, from the earlier of the move-out
+    // and the end of the tenancy). Never a certain forfeiture: F13 (83.49(5)) relieves the landlord of the notice when
+    // the tenant left without 7 days' written notice with an address, and the file doesn't record that notice
+    // (docs/rules/README.md lists it as a gap); and counted from the later date, the notice may have been in time.
+    isLate: (c) => {
+      if (!c.claimed) return { late: false };
+      const start = flClockStart(c);
+      if (!start || !c.moveOutDate) return { late: null };
+      const n = c.notices.claim_notice;
+      const by = (from: string) => (n ? n.date <= addDays(from, 30) : c.today <= addDays(from, 30));
+      if (by(start)) return { late: false };
+      const termination = c.plannedMoveOut ?? c.endDate ?? c.moveOutDate;
+      const later = termination > c.moveOutDate ? termination : c.moveOutDate;
+      const timing = !by(later) ? "" : n
+        ? ` Counted from the end of the tenancy on ${longDate(later)} instead of the move-out, it was in time.`
+        : ` Counted from the end of the tenancy on ${longDate(later)} instead of the move-out, there is still time for it.`;
+      return {
+        late: true,
+        doubt: {
+          text: `No claim notice went out within the 30 days.${timing} A missed notice forfeits the landlord's claim on the deposit, but the notice isn't required when the tenant left without giving 7 days' written notice with an address, and the file doesn't record whether that notice was given.`,
+          cite: F("83.49(3)(a), (5)"),
+        },
+      };
+    },
+    // Durene states the burden (of the landlord's damages suit); 83.49(3)(c) is the fee-shifting (FL spec section E).
+    evidence: { text: "A landlord claiming damages carries the ordinary burden of proof, and the side that loses a suit over the deposit pays the other side's court costs and a reasonable attorney fee.", cite: FL_BURDEN_CITE },
+    forum: {
+      name: "County court, small claims", limit: 8000,
+      text: "A deposit dispute goes to county court, under the small claims rules up to $8,000. The side that wins recovers court costs and a reasonable attorney fee.",
+      cite: "Fla. Sm. Cl. R. 7.010(b); Fla. Stat. 83.49(3)(c)",
+    },
+    lineBar: null,
+    cleaningRule: null,
+    documentsCure: null,
+    // F11: the statutory objection is the tenants' own written reply to the claim notice (83.49(3)(b)).
+    sendNote: "Sending this doesn't replace the written objection Florida gives you 15 days to send to the address on the claim notice.",
   },
 };

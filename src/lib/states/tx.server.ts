@@ -193,4 +193,38 @@ export const TX_SERVER: ServerPart = {
     factsToolDescription: factsTool("30-day"),
     checklistToolDescription: checklistTool(11, "Texas Property Code 92.103 to 92.113"),
   },
+
+  // TX spec T27 and section F: lateness is presumed bad faith, rebuttable; the forum is justice court.
+  dispute: {
+    late: {
+      effect: "flag",
+      text: "The refund and itemized list went out after the 30th day after surrender. That is presumed bad faith, a presumption the landlord can rebut.",
+      cite: C("92.109(d)"),
+    },
+    // T22 and section C: the presumption runs from surrender, as deadline.due does (the legislature twice declined to
+    // run it from the forwarding address). A written address that came after the move-out is the landlord's evidence
+    // against the presumption (92.107(a)), so it is said beside the flag, not used to move the clock.
+    isLate: (c) => {
+      if (!c.moveOutDate || !c.sentOn) return { late: null };
+      if (c.sentOn <= addDays(c.moveOutDate, 30)) return { late: false };
+      const fwd = c.notices.forwarding_address?.date ?? null;
+      return {
+        late: true,
+        doubt: fwd && fwd > c.moveOutDate ? {
+          text: `The refund and itemized list went out after the 30th day after surrender, which is presumed bad faith. The written forwarding address came on ${longDate(fwd)}, and nothing is owed until it does, which the landlord can use to rebut the presumption.`,
+          cite: C("92.107(a), 92.109(d)"),
+        } : null,
+      };
+    },
+    evidence: { text: "The landlord has the burden of proving the retention reasonable.", cite: C("92.109(c)") },
+    forum: {
+      name: "Justice court", limit: 20000,
+      text: "A deposit dispute can go to justice court, which hears claims up to $20,000. TexasLawHelp explains how.",
+      cite: "Tex. Gov't Code 27.031(a)(1)",
+    },
+    lineBar: null,
+    cleaningRule: null,
+    documentsCure: null,
+    sendNote: null,
+  },
 };
