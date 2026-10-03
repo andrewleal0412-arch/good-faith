@@ -1,6 +1,7 @@
 import { startCloseOut } from "@/lib/agent";
-import { db } from "@/lib/db";
+import { POOL_EMPTY, tenancyDepositNotOurs } from "@/lib/demo-pool";
 import { takeAllowance } from "@/lib/limits";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -8,8 +9,11 @@ export const maxDuration = 300;
 // Start the close-out agent. It runs until it finishes or asks the landlord to approve a money movement.
 export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/close-out">) {
   const { id } = await ctx.params;
-  const { data: t } = await db.from("tenancies").select("id").eq("id", id).maybeSingle();
-  if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
+  // A demo copy made when the day's sandbox deposits were used up can't send its refund, so the agent isn't started
+  // for it (no Claude call is spent on a refund that would be blocked). Everything else on the copy still works.
+  if (await tenancyDepositNotOurs(ws.id, id)) return Response.json({ error: POOL_EMPTY }, { status: 409 });
   // Today's allowance, checked before the agent's first Claude call. The approval that resumes this run is part of
   // the same run and isn't counted again.
   const run = await takeAllowance("close_out");

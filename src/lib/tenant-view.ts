@@ -4,6 +4,7 @@ import { pacificToday } from "./dates";
 import { db } from "./db";
 import { basisWords, chargeTitle, settle, statementDue, type Performer, type Proration, type Work } from "./deductions";
 import { refreshDepositInvoice, type DepositInvoiceRow } from "./deposit";
+import { isTemplate } from "./workspace";
 import { paidElectronically, wasPaid } from "./invoice-status";
 import type { Category, DeliveryRecord } from "./statement";
 import type { TenantMoveOut } from "./tenant";
@@ -66,7 +67,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   ]);
 
   const stored = (payments ?? []).find((p) => p.kind === "deposit_invoice") as DepositInvoiceRow | undefined;
-  const inv = stored ? await refreshDepositInvoice(stored) : null;
+  const inv = stored ? await refreshDepositInvoice(stored, { store: !(await isTemplate(tenancyId)) }) : null;
   const txn = inv?.raw?.transactions?.[0];
   const paid = !!inv && wasPaid(inv.status);
   const deposit: TenantView["deposit"] = inv ? {

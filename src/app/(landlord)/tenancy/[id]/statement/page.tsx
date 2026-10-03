@@ -7,9 +7,9 @@ import { Icon, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Card, CardHead, Fact, FactStrip, Money, StatusChip, type Tone } from "@/components/ui";
 import { shortDate, whenText } from "@/lib/dates";
-import { signedUrl } from "@/lib/db";
 import { RECEIPT_THRESHOLD, usd } from "@/lib/deductions";
 import { streetLine } from "@/lib/ledger";
+import { pageTenancy, signedUrlsFor } from "@/lib/workspace";
 import { buildStatement, describeDelivery, DISCLAIMERS, longDate, pacificDate, type ChecklistItem, type StatementDeduction } from "@/lib/statement";
 import { DeliveryPanel } from "./delivery-form";
 
@@ -39,15 +39,19 @@ const SHORT: Record<number, string> = {
 
 export default async function StatementPage({ params }: PageProps<"/tenancy/[id]/statement">) {
   const { id } = await params;
+  const ws = await pageTenancy(id);
   const s = await buildStatement(id);
   if (!s) notFound();
 
-  // Short-lived links to the private photos and invoices. No link means the file is not in the bucket.
+  // Short-lived links to the private photos and invoices, two requests in all. No link means the file is not in the
+  // bucket (or not one this workspace may open).
   const urls = new Map<string, string | null>();
-  await Promise.all(s.deductions.flatMap((d) => [
-    ...d.photos.map(async (p) => { urls.set(`photos/${p.path}`, await signedUrl("photos", p.path)); }),
-    ...(d.vendor?.invoicePath ? [signedUrl("receipts", d.vendor.invoicePath).then((u) => { urls.set(`receipts/${d.vendor!.invoicePath}`, u); })] : []),
-  ]));
+  const [photoLinks, receiptLinks] = await Promise.all([
+    signedUrlsFor(ws, "photos", s.deductions.flatMap((d) => d.photos.map((p) => p.path))),
+    signedUrlsFor(ws, "receipts", s.deductions.flatMap((d) => (d.vendor?.invoicePath ? [d.vendor.invoicePath] : []))),
+  ]);
+  for (const [p, u] of photoLinks) urls.set(`photos/${p}`, u);
+  for (const [p, u] of receiptLinks) urls.set(`receipts/${p}`, u);
 
   const repairs = s.deductions.filter((d) => d.category !== "rent");
   const invoicesMissing = s.deductions.filter((d) => d.vendor?.invoicePath && !urls.get(`receipts/${d.vendor.invoicePath}`));

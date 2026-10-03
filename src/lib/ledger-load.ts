@@ -3,6 +3,7 @@ import { pacificToday } from "./dates";
 import { statementDue } from "./deductions";
 import { db } from "./db";
 import { ledgerRows, streetLine, type LedgerDeduction, type LedgerPayment, type LedgerRow, type LedgerTenancy } from "./ledger";
+import { currentWorkspace } from "./workspace";
 
 // The whole ledger from the database alone: no PayPal round trip per row, so a status is as last stored (the tenancy
 // page refreshes the deposit invoice from PayPal whenever it opens). Read-only. Only names, amounts, PayPal ids and
@@ -16,10 +17,16 @@ export type Ledger = { today: string; rows: LedgerRow[]; units: LedgerUnit[] };
 /** The ledger, or the reason it could not be read. A query error is never shown as an empty ledger: to a landlord that
  *  would read as the records being gone. */
 export async function loadLedger(): Promise<Ledger | { error: string }> {
+  // The session's workspace only: its tenancies, and the payments and deductions read through them.
+  const ws = await currentWorkspace();
+  if (!ws) return { today: pacificToday(), rows: [], units: [] };
   const [tenancies, payments, deductions] = await Promise.all([
-    db.from("tenancies").select("id, tenants, monthly_rent, move_out_date, statement_delivered_at, lease_terms, properties(address, city)").order("created_at"),
-    db.from("payments").select("id, tenancy_id, kind, paypal_id, amount, status, raw, created_at").order("created_at"),
-    db.from("deductions").select("id, tenancy_id, category, room, item, amount, is_estimate, created_at").order("created_at"),
+    db.from("tenancies").select("id, tenants, monthly_rent, move_out_date, statement_delivered_at, lease_terms, properties(address, city)")
+      .eq("workspace_id", ws.id).order("created_at"),
+    db.from("payments").select("id, tenancy_id, kind, paypal_id, amount, status, raw, created_at, tenancies!inner(workspace_id)")
+      .eq("tenancies.workspace_id", ws.id).order("created_at"),
+    db.from("deductions").select("id, tenancy_id, category, room, item, amount, is_estimate, created_at, tenancies!inner(workspace_id)")
+      .eq("tenancies.workspace_id", ws.id).order("created_at"),
   ]);
   const failed = [tenancies.error, payments.error, deductions.error].find(Boolean);
   if (failed) {

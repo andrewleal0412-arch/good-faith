@@ -10,7 +10,8 @@ import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBo
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
 import { wasPaid } from "@/lib/invoice-status";
-import { db, signedUrls } from "@/lib/db";
+import { db } from "@/lib/db";
+import { DEMO_DEPOSIT_DATE } from "@/lib/demo-pool";
 import { settle, statementDue, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
@@ -25,6 +26,7 @@ import { deliveryLine, describeDelivery, type DeliveryRecord } from "@/lib/state
 import { describeTenantMoveOut, type TenantMoveOut } from "@/lib/tenant";
 import { activeTenantLink } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
+import { currentWorkspace, isTemplate, isUuid, signedUrlsFor, type Workspace } from "@/lib/workspace";
 import { MoneyTimeline } from "./money";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView, type QuietRoom } from "./move-out";
@@ -35,8 +37,14 @@ import { TenantLinkPanel } from "./tenant-link";
 
 export const dynamic = "force-dynamic";
 
-/** The tenancy row with its property, read once per request: the page title and the page share it. */
-const loadTenancy = cache(async (id: string) => (await db.from("tenancies").select("*, properties(*)").eq("id", id).maybeSingle()).data);
+/** The tenancy row with its property, read once per request (the page title and the page share it), and only when it
+ *  is in the session's workspace: a tenancy in another visitor's copy reads exactly like one that doesn't exist. */
+const loadTenancy = cache(async (id: string) => {
+  const ws = await currentWorkspace();
+  if (!ws || !isUuid(id)) return null;
+  const { data } = await db.from("tenancies").select("*, properties(*)").eq("id", id).eq("workspace_id", ws.id).maybeSingle();
+  return data ? { ...data, ws } : null;
+});
 
 export async function generateMetadata({ params }: PageProps<"/tenancy/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -55,7 +63,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
   // One round of reads, all at once. Each tab loads what it shows: the activity on Overview, the latest close-out run on
   // Move-out, the tenant link on Tenants. The rest (payments, photos, deductions) feeds the record header's status on
-  // every tab.
+  // every tab. Nothing read here is used, refreshed or signed before the tenancy itself is found in the session's
+  // workspace (loadTenancy); for any other id the page is the not-found page.
   const [t, { data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink] = await Promise.all([
     loadTenancy(id),
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
@@ -104,8 +113,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     ] : []),
   ];
   const [invoice, urlOf] = await Promise.all([
-    refresh ? refreshDepositInvoice(storedInvoice) : Promise.resolve(storedInvoice ?? null),
-    signedUrls("photos", toSign),
+    refresh ? refreshDepositInvoice(storedInvoice, { store: !(await isTemplate(id)) }) : Promise.resolve(storedInvoice ?? null),
+    signedUrlsFor(t.ws, "photos", toSign),
   ]);
   const invoiceStatus: string | null = invoice?.status ?? null;
   const paymentRows = (payments ?? []).map((p) => (invoice && p.id === invoice.id ? invoice : p));
@@ -168,6 +177,9 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // This unit's money events, from the refreshed invoice row and the deductions, as the Payments ledger lists them.
   const moneyRows = ledgerRows(t, paymentRows, (deductionRows ?? []) as LedgerDeduction[]);
   const paidOn = moneyRows.find((r) => r.kind === "payment")?.date ?? null;
+  // A demo copy's deposit is a real sandbox payment made for the demo, so PayPal dates it recently, not at move-in.
+  const demoDepositTip = t.ws.kind === "demo" && paidOn
+    ? <InfoTip title="A sandbox payment">{DEMO_DEPOSIT_DATE}</InfoTip> : undefined;
   // Activity: short titles, the quiet bookkeeping left out, runs of deductions or photos folded into one line.
   const activity = foldActivity((log ?? []).filter((e) => !QUIET_ON_RECORD.includes(e.action))
     .map((e) => ({ id: e.id as string, tenancyId: id, actor: e.actor as string, action: e.action as string, detail: e.detail as Record<string, unknown> | null, createdAt: e.created_at as string })),
@@ -246,7 +258,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       {tab === "overview" && (
         <>
           <FactStrip cols={4} className="mb-6">
-              <Fact label={returned || closed ? "Deposit" : "Deposit held"} big={held != null} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
+              <Fact label={returned || closed ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
                 sub={held != null ? (returned ? `Refunded ${shortDate(pacificDate(returned.created_at))}` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested"} />
               <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
               <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date) : <span className="text-ink-3">Not stated</span>} sub={t.end_date ? "Fixed term" : undefined} />
@@ -331,7 +343,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       {tab === "move-out" && (
         <div className="flex flex-col gap-7">
           <FactStrip cols={4}>
-            <Fact label="Deposit held" value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
+            <Fact label="Deposit held" info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
               sub={held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid"} />
             <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}`} />
             <Fact label={returned ? "Refunded" : money.balanceClaimed > 0 ? "Balance claimed" : "Refund due"} big
@@ -395,7 +407,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       )}
 
       {tab === "documents" && (
-        <Documents id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
+        <Documents ws={t.ws} id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
           notices={summary.notices} refundNoticeNeeded={summary.refundNotice.needed} noticeGiven={!!summary.noticeGivenOn}
           inspected={inspected} delivery={delivery} hasEvents={events.length > 0} />
       )}
@@ -477,11 +489,11 @@ function LogRow({ a, today }: { a: { entry: { actor: string; action: string; det
 
 /** Every paper the law asks for on this tenancy, in the order they come up, with where each one opens. */
 async function Documents(p: {
-  id: string; leasePath: string | null; flags: Flag[]; agreement: { signed_by: string[]; signed_at: string } | null; moveInCount: number;
+  ws: Workspace; id: string; leasePath: string | null; flags: Flag[]; agreement: { signed_by: string[]; signed_at: string } | null; moveInCount: number;
   notices: Notices; refundNoticeNeeded: boolean | null;
   noticeGiven: boolean; inspected: boolean; delivery: DeliveryRecord | null; hasEvents: boolean;
 }) {
-  const leaseUrl = p.leasePath ? (await signedUrls("leases", [p.leasePath])).get(p.leasePath) ?? null : null;
+  const leaseUrl = p.leasePath ? (await signedUrlsFor(p.ws, "leases", [p.leasePath])).get(p.leasePath) ?? null : null;
   const v = p.flags.filter((f) => f.severity === "violation").length;
   const notice = (kind: NoticeKind) => {
     const given = p.notices[kind];

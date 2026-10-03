@@ -1,5 +1,6 @@
 import { audit, db } from "@/lib/db";
 import { createTenantLink, revokeTenantLinks } from "@/lib/tenant-links";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -7,6 +8,8 @@ export const runtime = "nodejs";
 // live link); the token is in this one response and nowhere else. DELETE revokes it. Both are audited.
 export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/tenant-link">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const { data: t } = await db.from("tenancies").select("id").eq("id", id).maybeSingle();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   try {
@@ -21,6 +24,8 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
 
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/tenant-link">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const { data: t } = await db.from("tenancies").select("id").eq("id", id).maybeSingle();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const revoked = await revokeTenantLinks(id);

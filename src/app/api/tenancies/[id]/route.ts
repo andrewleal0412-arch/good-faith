@@ -1,6 +1,7 @@
 import { longDate, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { statementDue } from "@/lib/deductions";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,8 @@ export const runtime = "nodejs";
 // two-week inspection window, (f)(1)); null means month to month.
 export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const body: unknown = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send the date to set." }, { status: 400 });
   const b = body as { moveOutDate?: unknown; endDate?: unknown };

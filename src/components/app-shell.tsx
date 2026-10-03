@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { ConfirmDialog } from "./confirm";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { Menu } from "./menu";
-import { Avatar, Wordmark } from "./ui";
+import { Avatar, Notice, Wordmark } from "./ui";
 
 // The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Documents, then the Workflows group),
 // PayPal's connection and the account at its foot; a 56px top bar with search, the Test mode switch (the only place
@@ -13,13 +14,14 @@ import { Avatar, Wordmark } from "./ui";
 
 export type ShellAlert = { title: string; sub: string; href: string; tone: "red" | "amber" };
 export type ShellData = {
-  account: string; // GOOD_FAITH_ACCOUNT, or the owner of the oldest tenancy (accountName in units.ts)
+  account: string; // a demo copy's "Harbor View Rentals"; the owner's GOOD_FAITH_ACCOUNT or oldest tenancy's owner (accountName)
   initials: string;
   owners: string[]; // every owner on file, for the account card
   sandbox: boolean;
   alerts: ShellAlert[];
   disclaimer: string;
   signOut: boolean; // the demo access gate is on, so there is a session to end (src/proxy.ts)
+  startOver: boolean; // this is a visitor's private copy of the demo, which can be replaced by a fresh one
 };
 
 const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) => boolean } | { group: string })[] = [
@@ -120,13 +122,55 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
             </Menu>
             <Menu label="Account" width={260} buttonClass="inline-flex rounded-full outline-none focus-visible:ring-3 focus-visible:ring-brand-100"
               trigger={<Avatar initials={data.initials} />}>
-              <AccountCard data={data} />
+              {(close) => <AccountCard data={data} close={close} />}
             </Menu>
           </div>
         </header>
         <main className="w-full max-w-content px-4 pb-12 pt-5 md:px-7 md:pt-7 print:max-w-none print:p-0">{children}</main>
       </div>
+      {data.startOver && <StartOver />}
     </div>
+  );
+}
+
+/** The question behind the account menu's Start over: a fresh copy of the demo for this browser. It lives outside the
+ *  menu, which closes when an item is chosen, and opens on the gf:start-over event. */
+function StartOver() {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const show = () => { setError(""); setOpen(true); };
+    window.addEventListener("gf:start-over", show);
+    return () => window.removeEventListener("gf:start-over", show);
+  }, []);
+
+  async function go() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const r = await fetch("/api/access/start-over", { method: "POST" }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    if (r?.ok) {
+      // Every page this browser has read so far was the old copy's. A full load drops them all, the router's cache
+      // included, and opens the new copy's Properties; the dialog stays on "Starting over..." until it does. (Sign out
+      // is a full load too: both change whose data this browser sees.)
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a client navigation would keep the old copy's cached pages
+      window.location.assign("/units");
+      return;
+    }
+    setBusy(false);
+    setError(j.error ?? "Couldn't start over. Try again in a moment.");
+  }
+
+  return (
+    <ConfirmDialog open={open} title="Start over?" action={busy ? "Starting over..." : "Start over"}
+      body={<>
+        You get a fresh copy of the demo, dated today. What you changed in this copy is gone.
+        {error && <Notice className="mt-3">{error}</Notice>}
+      </>}
+      onConfirm={go} onCancel={() => { if (!busy) setOpen(false); }} />
   );
 }
 
@@ -158,14 +202,14 @@ function Sidebar({ path, data, onNavigate }: { path: string; data: ShellData; on
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{data.account}</span>
             <Icon name="updown" className="size-3.5 text-ink-4" />
           </>}>
-          <AccountCard data={data} />
+          {(close) => <AccountCard data={data} close={close} />}
         </Menu>
       </div>
     </>
   );
 }
 
-function AccountCard({ data }: { data: ShellData }) {
+function AccountCard({ data, close }: { data: ShellData; close: () => void }) {
   return (
     <div className="p-1.5">
       <div className="flex items-center gap-2.5 px-1 py-1.5">
@@ -185,6 +229,12 @@ function AccountCard({ data }: { data: ShellData }) {
       )}
       {data.signOut && (
         <form method="post" action="/api/access/sign-out" className="mt-1.5 border-t border-line-2 pt-1.5">
+          {data.startOver && (
+            <button type="button" role="menuitem" onClick={() => { close(); window.dispatchEvent(new Event("gf:start-over")); }}
+              className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 hover:bg-surface hover:text-ink">
+              <Icon name="restart" className="size-[15px] text-ink-3" />Start over
+            </button>
+          )}
           <button type="submit" role="menuitem"
             className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 hover:bg-surface hover:text-ink">
             <Icon name="sign-out" className="size-[15px] text-ink-3" />Sign out

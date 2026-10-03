@@ -1,6 +1,7 @@
 import { buildIcs, tenancyEvents } from "@/lib/ics";
 import { closedOut } from "@/lib/next-step";
 import { loadUnit } from "@/lib/units";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,8 @@ export const runtime = "nodejs";
 // deadline ((h)(1)). Reminders without an email service.
 export async function GET(req: Request, ctx: RouteContext<"/api/tenancies/[id]/calendar">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id);
+  if (ws instanceof Response) return ws;
   const t = await loadUnit(id);
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const events = tenancyEvents(t);

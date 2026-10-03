@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "./db";
+import { isTemplate } from "./workspace";
 
 // Private tenant links. The token (32 random bytes, base64url) is shown to the landlord once and never stored; the
 // table keeps its SHA-256, so a copy of the database opens no tenant page. From outside, an unknown token and a
@@ -46,7 +47,10 @@ export async function resolveTenantToken(token: string, opts: { touch?: boolean 
   if (!TOKEN_RE.test(token)) return null;
   const { data } = await db.from("tenant_links").select("id, tenancy_id").eq("token_hash", hashToken(token)).is("revoked_at", null).maybeSingle();
   if (!data) return null;
-  if (opts.touch !== false) await db.from("tenant_links").update({ last_seen_at: new Date().toISOString() }).eq("id", data.id);
+  // A template's link isn't stamped: nothing writes to the demo's templates.
+  if (opts.touch !== false && !(await isTemplate(data.tenancy_id as string))) {
+    await db.from("tenant_links").update({ last_seen_at: new Date().toISOString() }).eq("id", data.id);
+  }
   return { linkId: data.id as string, tenancyId: data.tenancy_id as string };
 }
 

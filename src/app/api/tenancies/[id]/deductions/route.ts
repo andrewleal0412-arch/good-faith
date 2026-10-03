@@ -3,6 +3,7 @@ import { chargeable, type DeductionInput, type Performer, type Proration, type W
 import { imageType, notAPhotoServer, readForm, sniff, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
 import { AFTER_PHOTOS_MAX, mb, UPLOAD_BUDGET } from "@/lib/uploads";
+import { routeTenancy, uploadPrefix } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,6 +18,8 @@ const num = (v: FormDataEntryValue | null) => (str(v) === "" ? null : Number(str
 // so the statement's numbers always match its explanation. Ordinary wear and tear can't be deducted at all.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/deductions">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const form = await readForm(req);
   if (!form) return Response.json({ error: UNREADABLE }, { status: 400 });
   // The files first, by count and size, before anything is read from the database. The messages are the browser's
@@ -92,13 +95,13 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   let receiptPath: string | null = null;
   if (receipt && receiptBytes) {
     const ext = receiptType.slice(receiptType.indexOf("/") + 1);
-    receiptPath = `${id}/${crypto.randomUUID()}.${ext}`;
+    receiptPath = `${uploadPrefix(ws)}${id}/${crypto.randomUUID()}.${ext}`;
     const up = await db.storage.from("receipts").upload(receiptPath, receiptBytes, { contentType: receiptType });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
   }
   const afterPaths: string[] = [];
   for (const { bytes, type } of afterFiles) {
-    const path = `${id}/move_out_after/${crypto.randomUUID()}.${type.slice("image/".length)}`;
+    const path = `${uploadPrefix(ws)}${id}/move_out_after/${crypto.randomUUID()}.${type.slice("image/".length)}`;
     const up = await db.storage.from("photos").upload(path, bytes, { contentType: type });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
     afterPaths.push(path);

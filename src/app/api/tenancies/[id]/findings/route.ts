@@ -1,5 +1,6 @@
 import { audit, db } from "@/lib/db";
 import { KIND, type Classification, type StoredFinding } from "@/lib/findings";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,8 @@ const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\
 // as everywhere else, never charged. A new comparison keeps it.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/findings">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object") return Response.json({ error: "Send the finding." }, { status: 400 });
   const item = text(b.item, 120), observation = text(b.observation, 600), room = text(b.room, 60);

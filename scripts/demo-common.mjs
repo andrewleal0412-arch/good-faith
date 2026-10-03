@@ -1,6 +1,6 @@
-// Shared by demo-seed.mjs and demo-reset.mjs: .env.local, the server-side Supabase client, dates, the Python that
-// runs Playwright, and the one tenancy these scripts never touch. .env.local is read the way scripts/pay_invoice.py
-// reads it, and nothing from it is ever printed.
+// Shared by the demo scripts (demo-seed, demo-reset, demo-pool, demo-sweep): .env.local, the server-side Supabase
+// client, dates, the Python that runs Playwright, PayPal's sandbox REST API, and the template tenancies these scripts
+// never touch. .env.local is read the way scripts/pay_invoice.py reads it, and nothing from it is ever printed.
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -12,8 +12,24 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** Where the app is running. The dev server for this project listens on 3210. */
 export const BASE = (process.env.DEMO_BASE_URL ?? "http://localhost:3210").replace(/\/$/, "");
 
-/** The original demo tenancy (482 N. Glassell St, Unit B, Orange), closed out end to end. Never deleted or changed. */
+/** The original demo tenancy (482 N. Glassell St, Unit B, Orange), closed out end to end. Never deleted or changed.
+ *  It is one of the templates every demo copy is made from (demo_templates); templateIds() lists them all. */
 export const ORIGINAL_DEMO_TENANCY = "94ee6bca-7a26-4671-96b6-75498112155a";
+
+/** The template tenancies every demo copy is made from (the demo_templates table), with the original demo tenancy
+ *  always among them. Read only: no script deletes or changes them. */
+export async function templateIds(db) {
+  const { data, error } = await db.from("demo_templates").select("tenancy_id, role");
+  if (error) fail(`Couldn't read the demo templates: ${error.message}`);
+  return new Map([[ORIGINAL_DEMO_TENANCY, "closed"], ...(data ?? []).map((r) => [r.tenancy_id, r.role])]);
+}
+
+/** The owner's workspace: everything made before workspaces existed, the templates, and what the owner code opens. */
+export async function ownerWorkspaceId(db) {
+  const { data, error } = await db.from("workspaces").select("id").eq("kind", "owner").maybeSingle();
+  if (error || !data) fail(`Couldn't find the owner workspace${error ? `: ${error.message}` : ""}. Run supabase/migrations in order.`);
+  return data.id;
+}
 
 /** A lowercase uuid, the way the app writes ids into storage paths. Callers lowercase the argument first. */
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -25,6 +41,8 @@ export function fail(message) {
 
 export function loadEnv() {
   const file = join(ROOT, ".env.local");
+  // On a host (a Render cron job running the sweep) the variables are in the environment, not in a file.
+  if (!existsSync(file) && process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) return { ...process.env };
   if (!existsSync(file)) fail("No .env.local in the project root. Run the scripts/setup-*.sh scripts first (see README.md).");
   const env = {};
   for (const line of readFileSync(file, "utf8").split("\n")) {
@@ -84,3 +102,69 @@ export function addDays(iso, n) {
 export const longDate = (iso) =>
   new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
 export const usd = (n) => `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** PayPal's REST API in the sandbox, with the app's own credentials from .env.local (never printed). Refuses LIVE. */
+export function paypalSandbox(env) {
+  if ((env.PAYPAL_ENVIRONMENT ?? "").trim().toUpperCase() === "LIVE") {
+    fail("PAYPAL_ENVIRONMENT is LIVE in .env.local. The demo scripts only run against the PayPal sandbox.");
+  }
+  need(env, ["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET"], "Run scripts/setup-sandbox.sh.");
+  const base = "https://api-m.sandbox.paypal.com";
+  let token = null;
+  async function auth() {
+    if (token && Date.now() < token.until) return token.value;
+    const r = await fetch(`${base}/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!r.ok) throw new Error(`PayPal sign-in failed (HTTP ${r.status}). Check the sandbox app's credentials (scripts/setup-sandbox.sh).`);
+    const j = await r.json();
+    token = { value: j.access_token, until: Date.now() + (j.expires_in - 60) * 1000 };
+    return token.value;
+  }
+  return async function call(method, path, body) {
+    const r = await fetch(`${base}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${await auth()}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const text = await r.text();
+    if (!r.ok) throw new Error(`PayPal ${method} ${path} -> ${r.status}: ${text.slice(0, 300)}`);
+    return text ? JSON.parse(text) : {};
+  };
+}
+
+/** The deposit invoice the app sends (src/lib/paypal.ts sendDepositInvoice): created, then sent to the tenant. */
+export async function sendSandboxDepositInvoice(paypal, { tenantEmail, amount, landlordName, address, note }) {
+  const created = await paypal("POST", "/v2/invoicing/invoices", {
+    detail: {
+      currency_code: "USD",
+      note,
+      terms_and_conditions: "Security deposit held and returned under California Civil Code 1950.5.",
+      payment_term: { term_type: "DUE_ON_RECEIPT" },
+    },
+    invoicer: { business_name: landlordName },
+    primary_recipients: [{ billing_info: { email_address: tenantEmail } }],
+    items: [{ name: `Security deposit: ${address}`, quantity: "1", unit_amount: { currency_code: "USD", value: Number(amount).toFixed(2) } }],
+  });
+  const id = created.id ?? created.href?.split("/").pop();
+  if (!id) throw new Error("PayPal didn't return an invoice id.");
+  await paypal("POST", `/v2/invoicing/invoices/${id}/send`, { send_to_invoicer: false });
+  return { id, payLink: `https://www.sandbox.paypal.com/invoice/p/#${id}` };
+}
+
+/** Pays a sandbox invoice as the sandbox tenant with scripts/pay_invoice.py (Playwright). True when it finished. */
+export function payAsSandboxTenant(py, env, invoiceId) {
+  need(env, ["PAYPAL_SANDBOX_BUYER_EMAIL", "PAYPAL_SANDBOX_BUYER_PASSWORD"], "Run scripts/setup-sandbox-tenant.sh to store the sandbox test tenant's login.");
+  const r = spawnSync(py, [join(ROOT, "scripts/pay_invoice.py"), invoiceId], {
+    stdio: "inherit", timeout: 300_000,
+    env: { ...process.env, PAYPAL_SANDBOX_BUYER_EMAIL: env.PAYPAL_SANDBOX_BUYER_EMAIL, PAYPAL_SANDBOX_BUYER_PASSWORD: env.PAYPAL_SANDBOX_BUYER_PASSWORD },
+  });
+  return r.status === 0;
+}

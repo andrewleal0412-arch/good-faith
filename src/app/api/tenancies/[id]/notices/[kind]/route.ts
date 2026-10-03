@@ -1,6 +1,7 @@
 import { pacificToday, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { kindFromSlug, NOTICE_METHODS, type NoticeGiven, type NoticeMethod, type Notices } from "@/lib/notices";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,8 @@ type NoticeChange = { previous: NoticeGiven | null; notices: Notices };
 // same time (a double click, two tabs) both land instead of one overwriting the other.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/notices/[kind]">) {
   const { id, kind: slug } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const kind = kindFromSlug(slug);
   if (!kind) return Response.json({ error: "No such notice." }, { status: 404 });
   const body: unknown = await req.json().catch(() => null);
@@ -48,6 +51,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
 /** Undo a record made by mistake. The audit log keeps both entries. */
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/notices/[kind]">) {
   const { id, kind: slug } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const kind = kindFromSlug(slug);
   if (!kind) return Response.json({ error: "No such notice." }, { status: 404 });
   const { data, error } = await db.rpc("remove_notice", { p_tenancy: id, p_kind: kind });

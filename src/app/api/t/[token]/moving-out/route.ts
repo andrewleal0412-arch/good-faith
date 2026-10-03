@@ -2,6 +2,7 @@ import { addDays, longDate, pacificToday, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { FORWARDING_MAX, FORWARDING_MIN, PLANNED_MOVE_OUT_HORIZON_DAYS, PLANNED_MOVE_OUT_PAST_DAYS, type TenantMoveOut } from "@/lib/tenant";
 import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
+import { isTemplate } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/movin
   const { token } = await ctx.params;
   const link = await resolveTenantToken(token);
   if (!link) return tokenNotFound();
+  // The demo's template tenancies don't change, through their own tenant link either.
+  if (await isTemplate(link.tenancyId)) return bad("This is a demo page, so it can't be changed. Your landlord's copy of the demo can.", 409);
 
   const body: unknown = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return bad("Send your move-out date and a forwarding address.");

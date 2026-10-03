@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { clientAddress, recordWrong, throttled } from "@/lib/access-throttle";
 import { ACCESS_MESSAGES as M, cookieOptions, gate, issueSession, matchCode, safeNext, sameOrigin, SESSION_COOKIE } from "@/lib/session";
+import { createDemoCopy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
 // The access page's form posts here (and the demo seed, with JSON). A right code sets the signed session cookie and
 // goes on to the page that was asked for; a wrong one goes back to the form with a plain message. Public: the proxy
-// lets it through without a session.
+// lets it through without a session. The judges' code makes this browser's own copy of the demo first.
 export async function POST(req: Request) {
   const json = (req.headers.get("content-type") ?? "").includes("application/json");
   // A form on another site can't sign anyone in or out here.
@@ -45,7 +46,18 @@ export async function POST(req: Request) {
     return json ? Response.json({ error: M.wrong }, { status: 401 }) : back("wrong");
   }
 
-  const { value } = issueSession(kind, g.secret);
+  // The judges' code opens a private copy of the demo, made now for this browser (src/lib/workspace.ts): the owner's
+  // data is never in it, and nobody else's copy either. The owner's code opens the owner's workspace.
+  let ws: string | undefined;
+  if (kind === "demo") {
+    const copy = await createDemoCopy(address);
+    if (!copy.ok) {
+      if (json) return Response.json({ error: copy.message }, { status: copy.status });
+      return back(copy.message === M.copiesTotal ? "copies_total" : copy.message === M.copiesAddress ? "copies" : "copy_failed");
+    }
+    ws = copy.ws;
+  }
+  const { value } = issueSession(kind, g.secret, { ws });
   const res = json
     ? NextResponse.json({ ok: true, kind })
     : new NextResponse(null, { status: 303, headers: { Location: next } });

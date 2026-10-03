@@ -1,5 +1,7 @@
 import "server-only";
+import { pacificDate } from "./dates";
 import { db } from "./db";
+import { depositNotOurs, POOL_EMPTY } from "./demo-pool";
 import { missingDocs, settle, statementDue, usd, type StoredDeduction } from "./deductions";
 import { wasPaid } from "./invoice-status";
 import { getInvoice, type Invoice } from "./paypal";
@@ -49,6 +51,8 @@ export const RULES = {
 const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
+/** How long ago a payment was, in words: today, yesterday, or so many days ago. */
+export const paidAgo = (n: number) => (n <= 0 ? "today" : n === 1 ? "yesterday" : `${days(n)} ago`);
 
 export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   const today = pacificToday();
@@ -86,7 +90,8 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
     deposit = {
       invoiceId: live.id, status: live.status, amount: Number(inv.amount), paidAt, method: txn?.method ?? null,
       captureId: txn?.payment_id ?? null,
-      daysSincePaid: paidAt ? daysBetween(paidAt.slice(0, 10), today) : null,
+      // The Pacific day it was paid, as every page shows it, so "Paid yesterday" and the payment's date agree.
+      daysSincePaid: paidAt ? daysBetween(pacificDate(paidAt), today) : null,
       billedTo: live.primary_recipients?.[0]?.billing_info?.email_address ?? null,
       live: isLive,
     };
@@ -110,6 +115,9 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   const alreadyReturned = returned
     ? { kind: returned.kind, amount: Number(returned.amount), paypalId: returned.paypal_id, at: returned.created_at }
     : null;
+  // A demo copy refunds only a sandbox deposit of its own (src/lib/demo-pool.ts): one made when the pool was empty
+  // shows the template's deposit, which is never refunded from a copy.
+  if (!alreadyReturned && inv?.paypal_id && (await depositNotOurs(t.workspace_id as string, inv.paypal_id))) blockers.push(POOL_EMPTY);
   if (alreadyReturned) blockers.push(`The deposit was already returned: ${usd(alreadyReturned.amount)} by PayPal ${alreadyReturned.kind} ${alreadyReturned.paypalId} on ${alreadyReturned.at.slice(0, 10)}, sent by this close-out after the landlord approved it. Don't send another.`);
 
   const facts: CloseOutFacts = {
@@ -142,7 +150,7 @@ function plan(f: CloseOutFacts): CloseOutFacts["plan"] {
   const sameAccount = !!d.billedTo && d.billedTo.toLowerCase() === email.toLowerCase();
   if (d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS && sameAccount) {
     return { rail: "refund_original_payment", amount, captureId: d.captureId, email,
-      why: `Paid ${days(d.daysSincePaid)} ago through PayPal from the account the tenants designated, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment.` };
+      why: `Paid ${paidAgo(d.daysSincePaid)} through PayPal from the account the tenants designated, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment.` };
   }
   return { rail: "payout", amount, email,
     why: !d.captureId ? "There's no PayPal payment to refund against, so the money goes out as a Payout to the designated account."

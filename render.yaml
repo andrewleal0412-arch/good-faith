@@ -1,0 +1,90 @@
+# Render Blueprint for the hosted demo (docs/DEPLOY.md, section 4). It holds no values: every variable below is
+# entered in the Render dashboard when the Blueprint is created (sync: false), and the secrets never enter the repo.
+services:
+  - type: web
+    name: good-faith
+    runtime: node
+    # Match this to the Supabase project's region, shown in the Supabase dashboard (Project Settings > General >
+    # Region): a West US (North California) project pairs with oregon. Every page makes several database calls, so
+    # the distance shows in every load.
+    region: oregon
+    # Starter stays awake. The free plan sleeps after 15 minutes without traffic, and a judge's first page would then
+    # wait about a minute for it to wake.
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    # One instance: the wrong-code limit on the access page is counted in memory (docs/DEPLOY.md, section 8).
+    numInstances: 1
+    envVars:
+      # Required
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: PAYPAL_ENVIRONMENT # SANDBOX; the close-out routes refuse LIVE
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOD_FAITH_ACCESS_CODE # the judges' code: each browser that enters it gets its own copy of the demo
+        sync: false
+      - key: GOOD_FAITH_OWNER_CODE # your code: your own data
+        sync: false
+      - key: GOOD_FAITH_SESSION_SECRET # 32+ random characters (openssl rand -base64 48)
+        sync: false
+      # Optional: leave empty for the defaults in docs/DEPLOY.md, section 8
+      - key: ANTHROPIC_MODEL
+        sync: false
+      - key: GOOD_FAITH_ACCOUNT # the owner workspace's account name; demo copies always show Harbor View Rentals
+        sync: false
+      - key: GOOD_FAITH_DAILY_AI_TOTAL # set it to what a day of judging needs, for example 40
+        sync: false
+      - key: GOOD_FAITH_DAILY_LEASE
+        sync: false
+      - key: GOOD_FAITH_DAILY_INSPECT
+        sync: false
+      - key: GOOD_FAITH_DAILY_CLOSE_OUT
+        sync: false
+      - key: GOOD_FAITH_DAILY_INVOICE
+        sync: false
+      - key: GOOD_FAITH_DAILY_INVOICE_TOTAL
+        sync: false
+      - key: GOOD_FAITH_DAILY_TENANCY
+        sync: false
+      - key: GOOD_FAITH_DAILY_TENANCY_TOTAL
+        sync: false
+      - key: GOOD_FAITH_DAILY_UPLOAD_MB
+        sync: false
+      - key: GOOD_FAITH_DAILY_UPLOAD_MB_TOTAL
+        sync: false
+      - key: GOOD_FAITH_DAILY_COPIES # new demo copies per caller address a day; set 15 to 20 for judging (judges may share one network)
+        sync: false
+      - key: GOOD_FAITH_DAILY_COPIES_TOTAL # new demo copies a day across everyone
+        sync: false
+      - key: GOOD_FAITH_INSPECT_ROOMS
+        sync: false
+      - key: GOOD_FAITH_INSPECT_PHOTOS
+        sync: false
+      # Not on Render: GOOD_FAITH_CLIENT_IP_HEADER (Render's CF-Connecting-IP is found by itself), and the laptop-only
+      # PAYPAL_SANDBOX_BUYER_*, PLAYWRIGHT_PYTHON, DEMO_BASE_URL and DEMO_ACCESS_CODE.
+
+# Later, the daily sweep of demo copies older than 14 days (scripts/demo-sweep.mjs, docs/DEPLOY.md section 9) can run
+# as a Render cron job. It needs only the two Supabase variables. Uncomment, then set them in the dashboard:
+#
+#  - type: cron
+#    name: good-faith-sweep
+#    runtime: node
+#    region: oregon
+#    plan: starter
+#    schedule: "15 11 * * *" # 11:15 UTC, early morning in California
+#    buildCommand: npm ci
+#    startCommand: npm run demo:sweep -- --apply
+#    envVars:
+#      - key: SUPABASE_URL
+#        sync: false
+#      - key: SUPABASE_SECRET_KEY
+#        sync: false

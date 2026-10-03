@@ -8,17 +8,21 @@ import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money, Notice, StatusChip, Wordmark } from "@/components/ui";
 import { PAGE_PATH, runNotes, stripQuotes, type Step } from "@/lib/agent-notes";
 import { atText, pacificTime, shortDate } from "@/lib/dates";
-import { db } from "@/lib/db";
 import { usd } from "@/lib/deductions";
+import { db } from "@/lib/db";
+import { POOL_EMPTY } from "@/lib/demo-pool";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { loadRefundView, maskEmail, type Check, type RefundView, type RunView } from "@/lib/refund-view";
 import { CopyId } from "@/components/copy-id";
+import { ownedTenancy, pageTenancy } from "@/lib/workspace";
 import { RefundActions } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: PageProps<"/tenancy/[id]/refund">): Promise<Metadata> {
   const { id } = await params;
+  // Nothing about a tenancy in another workspace, not even whether its refund went out.
+  if (!(await ownedTenancy(id))) return { title: "Not found" };
   const { data } = await db.from("payments").select("kind").eq("tenancy_id", id).in("kind", ["refund", "payout"]).limit(1);
   return { title: data?.length ? "Refund sent" : "Review refund" };
 }
@@ -30,7 +34,8 @@ export async function generateMetadata({ params }: PageProps<"/tenancy/[id]/refu
 
 export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/refund">) {
   const { id } = await params;
-  const v = await loadRefundView(id);
+  const ws = await pageTenancy(id);
+  const v = await loadRefundView(id, { demo: ws.kind === "demo" });
   if (!v) notFound();
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
@@ -113,6 +118,7 @@ function Review({ v }: { v: RefundView }) {
   const word = payout ? "payout" : "refund";
 
   const note = awaiting ? `This ${word} will be sent today through PayPal.`
+    : r.poolEmpty && !r.blockers.length ? `This demo copy can't send the ${word}.`
     : blocked ? "Nothing can be sent until the checks below pass."
       : nothing ? "The deductions use the whole deposit, so no money goes back."
         : "Prepared by the agent and sent only when you approve it.";
@@ -135,6 +141,7 @@ function Review({ v }: { v: RefundView }) {
       <Money value={r.amount} className="mt-3 block text-2xl font-medium" />
       <p className="mt-2 text-ink-3">{note}</p>
 
+      {r.poolEmpty && <Notice tone="gray" className="mt-5">{POOL_EMPTY}</Notice>}
       {r.blockers.length > 0 && (
         <div role="alert" className="mt-5 rounded-md bg-red-bg px-3.5 py-2.5 text-sm text-red">
           {r.blockers.map((b, i) => <p key={i} className={i ? "mt-1" : ""}>{b}</p>)}
@@ -181,7 +188,8 @@ function Review({ v }: { v: RefundView }) {
         disabled={awaiting ? !!failedCheck : blocked || running}
         auth={awaiting
           ? `By clicking “Send ${word},” you authorize Good Faith to issue this PayPal ${payout ? "Payout" : "refund"}.`
-          : "The agent verifies the deposit with PayPal first. Nothing is sent until you approve it."}
+          : r.poolEmpty ? "Preparing is off in this copy because today's sandbox deposits are used up."
+            : "The agent verifies the deposit with PayPal first. Nothing is sent until you approve it."}
       />
     </>
   );

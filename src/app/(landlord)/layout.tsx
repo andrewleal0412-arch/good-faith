@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { AppShell, type ShellAlert, type ShellData } from "@/components/app-shell";
 import { initialsOf } from "@/components/ui";
 import { DISCLAIMERS, displayName } from "@/lib/copy";
@@ -7,6 +8,7 @@ import { canSignOut } from "@/lib/session-server";
 import { stepLink } from "@/lib/property-view";
 import { streetLine } from "@/lib/ledger";
 import { accountName, loadUnits, type UnitRow } from "@/lib/units";
+import { currentWorkspace, type Workspace } from "@/lib/workspace";
 
 // The shell reads the database (the account, the bell), so no landlord page may be prerendered at build time with
 // whatever the data was then: every page under this layout renders per request.
@@ -14,6 +16,18 @@ export const dynamic = "force-dynamic";
 
 // Every landlord page sits in the app shell. The tenants' page (/t/<token>) is outside this group and never sees it.
 export default async function LandlordLayout({ children }: LayoutProps<"/">) {
+  // A signed session whose copy of the demo is gone (the sweep removes copies after two weeks) has nothing to show:
+  // the access page makes a new one. With the gate off (local dev) every request is the owner.
+  let ws: Workspace | null = null;
+  let unreadable = false;
+  try {
+    ws = await currentWorkspace();
+  } catch (e) {
+    unreadable = true;
+    console.error("App shell: couldn't read the workspace", e);
+  }
+  if (!ws && !unreadable && canSignOut()) redirect("/access?e=ended");
+
   // The chrome must render even when the database can't be read, so a failed read leaves an empty bell and a generic
   // account rather than taking every page down with it (the page itself reports its own error).
   let units: UnitRow[] = [];
@@ -24,8 +38,9 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
     console.error("App shell: couldn't load the units", e);
   }
 
-  // The account: GOOD_FAITH_ACCOUNT, or the owner of the oldest tenancy (accountName), shown without "LLC".
-  const named = accountName(owners);
+  // The account: a demo copy's is the demo landlord's business; the owner's GOOD_FAITH_ACCOUNT, or the owner of the
+  // oldest tenancy (accountName), shown without "LLC".
+  const named = await accountName(owners).catch(() => null);
   const account = named ? displayName(named) : "Your account";
 
   // The bell: steps that are overdue or due within five days.
@@ -39,6 +54,9 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
       tone: u.next.level === "overdue" ? "red" : "amber",
     }));
 
-  const data: ShellData = { account, initials: initialsOf(account), owners, sandbox: SANDBOX, alerts, disclaimer: DISCLAIMERS[0], signOut: canSignOut() };
+  const data: ShellData = {
+    account, initials: initialsOf(account), owners, sandbox: SANDBOX, alerts, disclaimer: DISCLAIMERS[0], signOut: canSignOut(),
+    startOver: canSignOut() && ws?.kind === "demo",
+  };
   return <AppShell data={data}>{children}</AppShell>;
 }

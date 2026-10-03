@@ -2,6 +2,7 @@ import { audit, db } from "@/lib/db";
 import { takeAllowance } from "@/lib/limits";
 import { InvoiceNotCreated, sendDepositInvoice } from "@/lib/paypal";
 import { lawfulDeposit, type LeaseTerms } from "@/lib/rules";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,8 @@ export const runtime = "nodejs";
 // is settled before it comes in.
 export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/deposit-invoice">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const { data: t } = await db.from("tenancies").select("lease_terms, refund_agreement, properties(address, owner_name)").eq("id", id).single();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const agreement = t.refund_agreement as { paypal_email: string } | null;

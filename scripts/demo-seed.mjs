@@ -26,7 +26,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  BASE, ORIGINAL_DEMO_TENANCY, ROOT, UUID, addDays, dbClient, fail, loadEnv, longDate, need, pacificDate, pacificToday, pythonBin, sleep, usd,
+  BASE, ORIGINAL_DEMO_TENANCY, ROOT, UUID, addDays, dbClient, fail, loadEnv, longDate, need, ownerWorkspaceId, pacificDate, pacificToday,
+  payAsSandboxTenant, pythonBin, sleep, templateIds, usd,
 } from "./demo-common.mjs";
 
 const STEPS = ["lease", "agreement", "invoice", "pay", "move_in_photos", "notice", "move_out_date", "move_out_photos", "inspect", "deductions", "tenant_link"];
@@ -113,6 +114,7 @@ async function main() {
   let id = args.tenancy ?? null;
   if (id) {
     if (id === ORIGINAL_DEMO_TENANCY) fail("That is the original demo tenancy (482 N. Glassell St, Unit B). It is kept as it is; run without --tenancy to build the new demo.");
+    if ((await templateIds(db)).has(id)) fail("That tenancy is a template every demo copy is made from, so it doesn't change. Run without --tenancy to build a new demo tenancy.");
     const st = await state(id);
     if (closedOut(st)) fail(`Tenancy ${id} is already closed out (the statement went out or the deposit was returned). Run with --fresh for a new demo tenancy.`);
     log(`Continuing tenancy ${id} (${st.t.properties?.address ?? "address not recorded"})`);
@@ -256,12 +258,14 @@ function closedOut(st) {
   return !!st.t.statement_delivered_at || st.payments.some((p) => p.kind === "refund" || p.kind === "payout");
 }
 
-/** The newest unfinished tenancy at the demo address, if any. */
+/** The newest unfinished tenancy at the demo address in the owner's workspace, if any: never a visitor's copy of the
+ *  demo, and never a template. */
 async function findOpenDemoTenancy() {
+  const [owner, templates] = await Promise.all([ownerWorkspaceId(db), templateIds(db)]);
   const { data } = await db.from("tenancies").select("id, created_at, properties!inner(address)")
-    .ilike("properties.address", `%${DEMO.addressMatch}%`).is("statement_delivered_at", null).neq("id", ORIGINAL_DEMO_TENANCY)
+    .ilike("properties.address", `%${DEMO.addressMatch}%`).is("statement_delivered_at", null).eq("workspace_id", owner)
     .order("created_at", { ascending: false });
-  for (const row of data ?? []) {
+  for (const row of (data ?? []).filter((r) => !templates.has(r.id))) {
     const { data: sent } = await db.from("payments").select("id").eq("tenancy_id", row.id).in("kind", ["refund", "payout"]).limit(1);
     if (!sent?.length) return row.id;
   }
@@ -322,11 +326,7 @@ async function payStep(id) {
   need(env, ["PAYPAL_SANDBOX_BUYER_EMAIL", "PAYPAL_SANDBOX_BUYER_PASSWORD"], "Run scripts/setup-sandbox-tenant.sh to store the sandbox test tenant's login.");
   log(`  paying invoice ${inv.paypal_id} (${usd(inv.amount)}) as the sandbox test tenant through PayPal's checkout (about a minute)`);
   // The login goes to the checkout script through its environment, read once here, so both sides see the same value.
-  const r = spawnSync(PY, [join(ROOT, "scripts/pay_invoice.py"), inv.paypal_id], {
-    stdio: "inherit", timeout: 300_000,
-    env: { ...process.env, PAYPAL_SANDBOX_BUYER_EMAIL: env.PAYPAL_SANDBOX_BUYER_EMAIL, PAYPAL_SANDBOX_BUYER_PASSWORD: env.PAYPAL_SANDBOX_BUYER_PASSWORD },
-  });
-  if (r.status !== 0) {
+  if (!payAsSandboxTenant(PY, env, inv.paypal_id)) {
     throw new Error(`the sandbox payment didn't finish. Pay it by hand as the test tenant at ${inv.raw?.payLink ?? "the PayPal invoice link"}, then re-run.`);
   }
   for (let i = 0; i < 12 && !PAID.includes(inv.status); i++) {

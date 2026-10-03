@@ -1,10 +1,11 @@
 import "server-only";
 import type { Pending } from "./agent";
 import { timeline, type TimelineItem } from "./agent-timeline";
-import { closeOutFacts, guardWithFacts, RULES, type CloseOutFacts, type Rail } from "./closeout";
+import { closeOutFacts, guardWithFacts, paidAgo, RULES, type CloseOutFacts, type Rail } from "./closeout";
 import { pacificDate, shortDate, whenText } from "./dates";
 import { db } from "./db";
 import { statementDue, usd } from "./deductions";
+import { DEMO_DEPOSIT_DATE, POOL_EMPTY } from "./demo-pool";
 import { returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 import { streetLine } from "./ledger";
 import { tabHref } from "./property-view";
@@ -61,6 +62,8 @@ export type RefundView = {
     method: string | null; // how the tenants paid, PayPal's code
     blockers: string[];
     warnings: string[];
+    // A demo copy made when the day's pre-paid sandbox deposits were used up: everything works but sending the money.
+    poolEmpty: boolean;
     checks: Check[];
     run: RunView | null;
     pending: { tool: string; amount: number; check: string | null } | null; // check: null = matches the rules right now
@@ -82,7 +85,7 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const statusWords = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, " ");
 
 /** The rules engine's answers as one-line checks, each with the rule behind it in a tip. */
-function checksOf(f: CloseOutFacts, pendingAmount: number | null): Check[] {
+function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean): Check[] {
   const out: Check[] = [];
   const d = f.deposit;
   out.push({
@@ -90,7 +93,7 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null): Check[] {
     value: d ? `${usd(d.amount)}${d.paidAt ? `, ${shortDate(pacificDate(d.paidAt))}` : ""}` : "Not collected",
     state: d && wasPaid(d.status) && d.live ? "ok" : "fail",
     tip: { title: "The deposit", body: d
-      ? `PayPal reports invoice ${d.invoiceId} as ${statusWords(d.status).toLowerCase()}${d.live ? ", checked just now" : ", as last recorded: PayPal could not be reached"}.`
+      ? `PayPal reports invoice ${d.invoiceId} as ${statusWords(d.status).toLowerCase()}${d.live ? ", checked just now" : ", as last recorded: PayPal could not be reached"}.${demo ? ` ${DEMO_DEPOSIT_DATE}` : ""}`
       : "No deposit was collected through PayPal for this tenancy." },
   });
   const a = f.refundAgreement;
@@ -133,7 +136,7 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null): Check[] {
     out.push({
       key: "rail", label: f.plan.rail === "payout" ? "Payout to the designated account" : "Refund to the original payment",
       value: f.plan.rail === "payout" ? "PayPal Payout"
-        : d?.daysSincePaid != null ? `Paid ${plural(d.daysSincePaid, "day")} ago` : "Inside 180 days",
+        : d?.daysSincePaid != null ? `Paid ${paidAgo(d.daysSincePaid)}` : "Inside 180 days",
       state: "ok",
       tip: { title: "How the money goes back", body: `${f.plan.why} ${RULES.refundWindow}` },
     });
@@ -153,7 +156,7 @@ async function runView(run: Record<string, unknown> | null | undefined): Promise
   };
 }
 
-export async function loadRefundView(id: string): Promise<RefundView | null> {
+export async function loadRefundView(id: string, opts: { demo?: boolean } = {}): Promise<RefundView | null> {
   const { data: t } = await db.from("tenancies").select("*, properties(address, city, owner_name)").eq("id", id).maybeSingle();
   if (!t) return null;
   const [{ data: payments }, { data: runs }, { data: approvals }] = await Promise.all([
@@ -214,13 +217,15 @@ export async function loadRefundView(id: string): Promise<RefundView | null> {
         : { rail: "payout", amount, email: pd.input.email as string }),
     };
   }
+  const poolEmpty = f.blockers.includes(POOL_EMPTY);
+  if (poolEmpty) console.warn(`demo copy tenancy ${id}: its refund page shows the empty sandbox deposit pool`);
   return {
     ...base,
     sent: null,
     review: {
       amount: pending?.amount ?? f.totals.refund, depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
       balanceClaimed: f.totals.balanceClaimed, rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
-      blockers: f.blockers, warnings: f.warnings, checks: checksOf(f, pending?.amount ?? null),
+      blockers: f.blockers.filter((b) => b !== POOL_EMPTY), warnings: f.warnings, poolEmpty, checks: checksOf(f, pending?.amount ?? null, !!opts.demo),
       run: await runView(run), pending,
     },
   };

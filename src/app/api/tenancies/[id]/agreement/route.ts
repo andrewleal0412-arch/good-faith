@@ -1,4 +1,5 @@
 import { audit, db } from "@/lib/db";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -7,6 +8,8 @@ export const runtime = "nodejs";
 // Roommates (h)(1)(C): one refund to all adults unless every adult signs an allocation, so all must sign here.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/agreement">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const { paypalEmail, signers } = (await req.json()) as { paypalEmail: string; signers: string[] };
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(paypalEmail ?? "")) {
     return Response.json({ error: "Enter the PayPal email the refund should go to." }, { status: 400 });

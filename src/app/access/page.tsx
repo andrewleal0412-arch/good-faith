@@ -4,7 +4,7 @@ import { Button } from "@/components/button";
 import { FormField } from "@/components/field";
 import { Card, EmptyState, inputClass, Notice, Wordmark } from "@/components/ui";
 import { ACCESS_MESSAGES, gate, safeNext } from "@/lib/session";
-import { currentSession } from "@/lib/session-server";
+import { currentWorkspace } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +19,19 @@ const ERRORS: Record<string, string> = {
   wrong: ACCESS_MESSAGES.wrong,
   throttled: ACCESS_MESSAGES.throttled,
   unconfigured: ACCESS_MESSAGES.unconfigured,
+  ended: ACCESS_MESSAGES.signedOut,
+  copies: ACCESS_MESSAGES.copiesAddress,
+  copies_total: ACCESS_MESSAGES.copiesTotal,
+  copy_failed: ACCESS_MESSAGES.copyFailed,
 };
 
 export default async function AccessPage({ searchParams }: PageProps<"/access">) {
   const sp = await searchParams;
   const next = safeNext(typeof sp.next === "string" ? sp.next : "/");
   const g = gate();
-  // Nothing to enter when the gate is off (local dev), or when this browser already has a session.
-  if (g.mode === "off" || (g.mode === "on" && (await currentSession()))) redirect(next);
+  // Nothing to enter when the gate is off (local dev), or when this browser already has a session and its workspace
+  // (a demo copy that has been swept needs the code again).
+  if (g.mode === "off" || (g.mode === "on" && (await currentWorkspace().catch(() => null)))) redirect(next);
   const error = typeof sp.e === "string" ? ERRORS[sp.e] : undefined;
 
   return (

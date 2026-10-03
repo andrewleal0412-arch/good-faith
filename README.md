@@ -14,6 +14,18 @@ It organizes records and fills in templates from the statute and published state
 
 Demo video: [to be added before submission]
 
+## Try it
+
+Hosted demo: [link added after the first deploy]. It runs in the PayPal sandbox, so no real money moves.
+
+1. Open the link and enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, made the moment you enter the code and dated to that day. Nobody else sees your copy, and you see nobody else's.
+2. Properties shows two units, both managed by Harbor View Rentals (1140 E. Juniper Hollow Ln is owned by Elena Marquez, whose name is on its lease and its refund). 482 N. Glassell St, Unit B closed out a few days ago: deposit refunded through PayPal, itemized statement delivered. 1140 E. Juniper Hollow Ln moved out yesterday, with 20 days left to send the statement and the refund. Each deposit is a real sandbox payment made for the demo, so PayPal dates it recently rather than at move-in a year ago.
+3. Open 1140 E. Juniper Hollow Ln and its Move-out tab: the move-in and move-out photos side by side, Claude's findings boxed on the photos, and the three deductions computed in code.
+4. Review refund, then Prepare refund. The close-out agent reads the file, checks the deposit with PayPal and proposes $3,790.00 back to the tenants' original payment. Send refund approves it, and PayPal's Agent Toolkit sends a real sandbox refund against your copy's own pre-paid sandbox deposit. Refund sent shows PayPal's refund id; the statement is next.
+5. Everything else works too: check a lease (`demo/lease-single-owner.pdf`), start a tenancy, add photos and deductions. Start over, in the account menu, gives your browser a fresh copy.
+
+The demo has daily limits on the Claude jobs and on new copies per network. If the day's pre-paid sandbox deposits run out, the Review refund page says so and the rest of the copy still works. Copies are removed after two weeks.
+
 ## The problem
 
 California rewrote the security deposit rules four times in three years, and the people most likely to get them wrong are landlords with one unit who keep everything in texts and Venmo screenshots. The rules the app enforces (all citations are to Civil Code 1950.5; the full spec is [docs/LEGAL_RULES.md](docs/LEGAL_RULES.md)):
@@ -49,7 +61,7 @@ Every action, by whom and with what, is written to an audit log the tenancy page
 | **Claude via the AI SDK** (`ai` v7, `@ai-sdk/anthropic`, Claude Opus 5.5) | Three jobs. Lease extraction and the photo inspection use `generateText` with `Output.object` and a Zod schema, so Claude returns facts in a fixed shape. The close-out agent uses `generateText` with tools, a step limit, and `needsApproval` on every money tool. |
 | **PayPal Invoicing and Payouts** (`src/lib/paypal.ts`) | REST calls in the sandbox: create and send the deposit invoice, read its live status, and send a Payout when a refund against the original payment is not possible. |
 | **PayPal Agent Toolkit over MCP** (`src/lib/agent.ts`) | `@paypal/agent-toolkit/mcp` runs as an MCP server inside the process (an in-memory transport), limited to `get_invoice`, `create_refund` and `get_refund`, and the agent consumes it through `@ai-sdk/mcp`. `create_refund` is wrapped so it waits for approval and passes the rules guard before PayPal is called. |
-| **Supabase** (`src/lib/db.ts`, `supabase/migrations`) | Postgres and Storage. The server-only client uses the secret key; row level security is on with no policies, so the publishable key can read and write nothing. Three private buckets (`leases`, `photos`, `receipts`) served through one-hour signed URLs. Row-locking functions make the concurrent writes atomic. |
+| **Supabase** (`src/lib/db.ts`, `supabase/migrations`) | Postgres and Storage. The server-only client uses the secret key; row level security is on with no policies, so the publishable key can read and write nothing. Every query is scoped in code to the session's workspace: the owner's, or a visitor's private copy of the demo, made in one Postgres function (`src/lib/workspace.ts`). Three private buckets (`leases`, `photos`, `receipts`) served through one-hour signed URLs. Row-locking functions make the concurrent writes atomic. |
 | **AG Grid Community** (`ag-grid-community`, `ag-grid-react`; `src/app/(landlord)/ledger/ledger-grid.tsx`) | The deposit ledger: every money event and deduction across every unit, with the quick filter, text, number and date column filters, auto-height rows that wrap the unit, detail and status text, the amount column pinned on the right so a phone still shows every figure, a pinned total row and the CSV export, all from the free build (no Enterprise features, no license key). The Quartz theme takes the app's color tokens through the Theming API, and the rows arrive from the server as plain data. |
 | **pdf-lib and sharp** | The statement packet: standard fonts, photos re-encoded at 1600 px, invoices embedded as pages. |
 | **Browser uploads** (`src/lib/uploads.ts`) | Photos are downscaled on a canvas before they leave the phone, with the EXIF orientation applied, and sent in requests under the host's 4.5 MB body limit. |
@@ -69,6 +81,7 @@ src/app/t/[token]/                the tenants' private page
 src/app/api/                      route handlers (lease, tenancies, photos, deductions, close-out, statement, notices, tenant link, access, health)
 src/proxy.ts                      the demo access gate: every landlord page and route needs the session /access sets
 src/lib/session.ts, limits.ts     the signed session cookie; the daily limits on Claude jobs, invoices, tenancies and uploads
+src/lib/workspace.ts, demo-pool.ts   workspaces: scoping every read and write, the private demo copies, the pre-paid deposits
 src/lib/rules.ts                  the lease rules, by rule id from docs/LEGAL_RULES.md
 src/lib/deductions.ts             deduction math, proration, the $125 rule
 src/lib/closeout.ts               close-out facts, the refund plan, guardRefund
@@ -76,9 +89,10 @@ src/lib/ledger.ts                 ledger rows with their 1950.5 tags, and the to
 src/lib/agent.ts                  the close-out agent and the PayPal toolkit over MCP
 src/lib/statement.ts, statement-pdf.ts   the itemized statement and its PDF packet
 docs/LEGAL_RULES.md               the 30-rule legal spec the code enforces
-docs/DEPLOY.md                    hosting on Vercel and Supabase
+docs/DEPLOY.md                    hosting on Render and Supabase
 supabase/migrations/              the database schema, in order
-scripts/                          setup scripts, the demo seed and reset, the sandbox payer
+scripts/                          setup scripts, the demo seed and reset, the deposit pool and the sweep, the sandbox payer
+render.yaml                       the Render service (no values; they are entered in the dashboard)
 demo/                             the fictional lease, photos and receipts
 ```
 
@@ -88,7 +102,7 @@ Money and law are handled in four layers, so the model never decides an amount a
 
 1. **Code decides the amounts.** The cap comes from `rules.ts`, each deduction from `deductions.ts`, and the refund plan (rail, amount, the PayPal capture id or the designated email) from `closeout.ts`. The agent is told that these facts are authoritative.
 2. **The agent operates.** Claude reads the facts, confirms the invoice with PayPal, proposes the refund with the plan's exact amount, confirms the refund and grades the statement. It cites only the citations the facts carry, never from memory.
-3. **The landlord approves.** `create_refund` and `send_payout` carry `needsApproval`; the run pauses, the proposal is shown next to what the rules say, and nothing moves until the landlord clicks approve. A run is claimed atomically so a double click cannot resume it twice, and after a decline the run resumes with no money moved and the agent says so. The hosted demo puts every landlord page and route behind a shared access code with daily limits on the Claude jobs, but that code is not a per-landlord login, so the close-out routes still refuse a `LIVE` PayPal environment and move sandbox money only (see [docs/DEPLOY.md](docs/DEPLOY.md), section 8).
+3. **The landlord approves.** `create_refund` and `send_payout` carry `needsApproval`; the run pauses, the proposal is shown next to what the rules say, and nothing moves until the landlord clicks approve. A run is claimed atomically so a double click cannot resume it twice, and after a decline the run resumes with no money moved and the agent says so. The hosted demo puts every landlord page and route behind a shared access code with daily limits on the Claude jobs, and each visitor works in a private copy of the demo, but that code is not a per-landlord login, so the close-out routes still refuse a `LIVE` PayPal environment and move sandbox money only (see [docs/DEPLOY.md](docs/DEPLOY.md), sections 8 and 9).
 4. **guardRefund re-checks.** At the moment a money tool executes, `guardRefund` recomputes the facts from the database and PayPal and blocks any rail, amount, capture id or email that does not match, writing the reason to the audit log. A deduction edited after the proposal, a second click, or a model mistake all stop there.
 
 Beyond money: the app never holds funds (the landlord's PayPal business account does); every action is audited with its actor; the tenants' page shows them their own records only, through a revocable hashed token; and the copy presents rules and facts, never advice (section F of the legal spec).
@@ -113,13 +127,13 @@ All of them live in `.env.local`, which is gitignored. The setup scripts below w
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | The PayPal app's credentials | `scripts/setup-sandbox.sh` |
 | `ANTHROPIC_API_KEY` | The app's own Claude calls | `scripts/setup-anthropic.sh` |
 | `ANTHROPIC_MODEL` | Optional. Overrides `claude-opus-5-5` for all three Claude jobs | by hand |
-| `GOOD_FAITH_ACCOUNT` | Optional. The account name in the app's sidebar and PayPal card; without it, the owner of the oldest tenancy | by hand |
+| `GOOD_FAITH_ACCOUNT` | Optional. The owner workspace's account name in the app's sidebar and PayPal card; without it, the owner of the oldest tenancy. Demo copies always show Harbor View Rentals | by hand |
 | `PAYPAL_SANDBOX_BUYER_EMAIL`, `PAYPAL_SANDBOX_BUYER_PASSWORD` | Optional. The sandbox personal account that pays the demo invoice | `scripts/setup-sandbox-tenant.sh` |
 | `PLAYWRIGHT_PYTHON` | Optional. The Python with Playwright the demo seed uses | by hand |
 | `DEMO_BASE_URL` | Optional. Where the demo seed sends its requests (default `http://localhost:3210`) | by hand |
 | `DEMO_ACCESS_CODE` | Optional. The code the demo seed enters when the site it seeds is behind the access gate (use the owner code) | by hand |
-| `GOOD_FAITH_ACCESS_CODE`, `GOOD_FAITH_OWNER_CODE`, `GOOD_FAITH_SESSION_SECRET` | The hosted demo's access gate: the judges' code, the owner's code, and the secret (32+ characters) that signs the session cookie. Leave them unset for local dev, where the gate is off; a production host without them shows "This demo is not configured". See [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
-| `GOOD_FAITH_DAILY_*`, `GOOD_FAITH_INSPECT_ROOMS`, `GOOD_FAITH_INSPECT_PHOTOS` | Optional. The daily limits on Claude jobs, sandbox invoices, new tenancies and stored uploads, and the inspection's size; defaults in [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
+| `GOOD_FAITH_ACCESS_CODE`, `GOOD_FAITH_OWNER_CODE`, `GOOD_FAITH_SESSION_SECRET` | The hosted demo's access gate: the judges' code (each browser that enters it gets a private copy of the demo), the owner's code (your own data), and the secret (32+ characters) that signs the session cookie. Leave them unset for local dev, where the gate is off; a production host without them shows "This demo is not configured". See [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
+| `GOOD_FAITH_DAILY_*`, `GOOD_FAITH_INSPECT_ROOMS`, `GOOD_FAITH_INSPECT_PHOTOS` | Optional. The daily limits on Claude jobs, sandbox invoices, new tenancies, stored uploads and new demo copies, and the inspection's size; defaults in [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
 | `GOOD_FAITH_CLIENT_IP_HEADER` | Optional, and not on Render. The header with the caller's real address, for the wrong-code limit; see [docs/DEPLOY.md](docs/DEPLOY.md), section 8 | on the host |
 
 ### Run it locally
@@ -135,7 +149,7 @@ npm run dev -- -p 3210
 
 Each script asks for its values with the secrets hidden, writes them to `.env.local` with mode 600, and checks them against the service before it says saved.
 
-The database schema is in `supabase/migrations`, one file per change, in order. Run them in the Supabase SQL editor from the first to the last. The first one also creates the private buckets. Hosting, including what to set in Supabase, PayPal and Vercel, is in [docs/DEPLOY.md](docs/DEPLOY.md).
+The database schema is in `supabase/migrations`, one file per change, in order. Run them in the Supabase SQL editor from the first to the last. The first one also creates the private buckets. Hosting, including what to set in Supabase, PayPal and Render, is in [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ### Checks
 
@@ -178,7 +192,13 @@ Options:
 | `npm run demo:seed -- --tenancy <id>` | Continues that tenancy |
 | `npm run demo:seed -- --until inspect` | Stops before a step, to show it live. Steps: `lease`, `agreement`, `invoice`, `pay`, `move_in_photos`, `notice`, `move_out_date`, `move_out_photos`, `inspect`, `deductions`, `tenant_link` |
 | `npm run demo:seed -- --move-out 2026-09-28` | Sets the move-out date (not in the future). Default: the day the seed runs |
-| `npm run demo:reset -- <tenancyId>` | Removes one tenancy: its rows and its photos, receipts and lease PDF in storage. It refuses the original demo tenancy. PayPal sandbox records stay |
+| `npm run demo:reset -- <tenancyId>` | Removes one tenancy: its rows and its photos, receipts and lease PDF in storage. It refuses the two templates the hosted demo's copies are made from. PayPal sandbox records stay |
+| `npm run demo:pool -- --status` / `--fill 4` | The hosted demo's pre-paid sandbox deposits: what is ready, or top it up to 4 (one invoice paid as the sandbox tenant each) |
+| `npm run demo:sweep` / `-- --apply` | Lists, then removes, the hosted demo's private copies older than 14 days, with their uploads |
+
+### The hosted demo's private copies
+
+The hosted demo doesn't show one shared tenancy. Each browser that enters the judges' code gets a copy of two template tenancies made by the seed (one closed out, one stopped before the close-out), copied in one Postgres function with every date moved to the day of the copy. The move-out unit's copy comes with a sandbox deposit paid ahead of time (`npm run demo:pool`), so its refund is a real sandbox refund of its own payment. [docs/DEPLOY.md](docs/DEPLOY.md), section 9, covers the templates, the pool, Start over and the sweep.
 
 ### The demo lease
 

@@ -158,8 +158,9 @@ async function advance(runId: string, tenancyId: string, messages: ModelMessage[
   }
 }
 
-/** The landlord pages have no sign-in yet, so the routes that start and approve a close-out accept any caller. Until
- *  there is one, the agent moves sandbox money only: a LIVE PayPal environment is refused here, before a run exists. */
+/** The landlord pages sit behind a shared demo access code (src/proxy.ts), and each visitor works in a private copy
+ *  of the demo, but that is not a landlord's own login. Until there is one, the agent moves sandbox money only: a LIVE
+ *  PayPal environment is refused here, before a run exists. */
 function refuseLiveWithoutSignIn() {
   if (!SANDBOX) throw new Error("This build has no landlord sign-in, so it won't move live money. Set PAYPAL_ENVIRONMENT=SANDBOX (docs/DEPLOY.md).");
 }

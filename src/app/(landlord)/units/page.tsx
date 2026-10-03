@@ -70,7 +70,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   // Coming up: every dated event across the units in the next few months, nearest first, less the deadline the card
   // above already shows.
   const coming = upcoming.filter((e) => !(clock && e.tenancyId === clock.summary.id && e.kind === "statement_due")).slice(0, 5);
-  const named = accountName(owners);
+  const named = await accountName(owners);
   const account = named ? displayName(named) : "Connected";
 
   // Recent activity, with a run of deductions or photos on one unit folded into one line.

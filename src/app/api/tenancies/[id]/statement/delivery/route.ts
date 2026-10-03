@@ -1,6 +1,7 @@
 import { pacificToday, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import type { DeliveryRecord } from "@/lib/statement";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,8 @@ const str = (v: unknown) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/
 // ((h)(1)(C)). Recording it moves the tenancy to statement_sent.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/statement/delivery">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const body: unknown = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send how and when the statement was delivered." }, { status: 400 });
   const b = body as Partial<DeliveryRecord>;

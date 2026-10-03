@@ -2,6 +2,7 @@ import { longDate, pacificToday, realDate } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { statementDue } from "@/lib/deductions";
 import { inspectionWindowOpens } from "@/lib/notices";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,8 @@ export const runtime = "nodejs";
 // inspection window two weeks before the end ((f)(1)) and, once possession is returned, the 21-day clock ((h)(1)).
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/notice">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const body: unknown = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send the notice date and the planned move-out date." }, { status: 400 });
   const b = body as { noticeGivenOn?: unknown; plannedMoveOut?: unknown };

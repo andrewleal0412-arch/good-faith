@@ -1,5 +1,6 @@
 import { audit, db } from "@/lib/db";
 import type { FindingStatus, StoredFinding } from "@/lib/findings";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,8 @@ const gone = () => Response.json({ error: "That finding is from an older compari
 // null reopens it.
 export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]/findings/[fid]">) {
   const { id, fid } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const b = (await req.json().catch(() => null)) as { status?: unknown } | null;
   const status = b && typeof b === "object" && "status" in b ? b.status : undefined;
   if (status !== null && status !== "accepted" && status !== "dismissed") {
@@ -60,6 +63,8 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]
 // Only a finding the landlord added can be removed; a suggested one is dismissed instead, so the record keeps it.
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/findings/[fid]">) {
   const { id, fid } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const r = await load(id, fid);
   if (r instanceof Response) return r;
   if (r.finding.source !== "landlord") return Response.json({ error: "Suggested findings are dismissed, not removed." }, { status: 400 });

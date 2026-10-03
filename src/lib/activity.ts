@@ -80,7 +80,11 @@ export function foldActivity<T extends Entry>(log: T[], tenantsOf: (tenancyId: s
   for (let i = 0; i < log.length && out.length < max; i++) {
     const e = log[i];
     let n = 1;
-    if (FOLDS.includes(e.action)) while (log[i + n] && log[i + n].action === e.action && log[i + n].tenancyId === e.tenancyId) n++;
+    // Photo uploads fold only within one phase: move-in and move-out photos of the same rooms are two steps.
+    if (FOLDS.includes(e.action)) {
+      while (log[i + n] && log[i + n].action === e.action && log[i + n].tenancyId === e.tenancyId
+        && (e.action !== "photos_added" || log[i + n].detail?.phase === e.detail?.phase)) n++;
+    }
     const title = n > 1 && e.action === "tenant_link_created" ? "Tenant link remade"
       : n > 1 && e.action === "deduction_added" ? `${n} deductions added`
       : n > 1 && e.action === "photos_added" ? `${String(e.detail?.phase).startsWith("move_out") ? "Move-out" : String(e.detail?.phase) === "after_repair" ? "After-repair" : "Move-in"} photos added for ${n} rooms`

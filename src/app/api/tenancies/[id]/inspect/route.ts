@@ -1,6 +1,7 @@
 import { audit, db } from "@/lib/db";
 import { inspectRoom, type Finding, type InspectPhoto } from "@/lib/inspect";
 import { claudeNeverAnswered, inspectPhotoLimit, inspectRoomLimit, takeAllowance } from "@/lib/limits";
+import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -9,6 +10,8 @@ export const maxDuration = 300;
 // tenancy; nothing is charged yet. The landlord reviews each one before any deduction exists.
 export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/inspect">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const { data: photos } = await db.from("photos").select("phase, room, storage_path, created_at").eq("tenancy_id", id).order("created_at");
   const rooms = new Map<string, { in: string[]; out: string[] }>();
   for (const p of photos ?? []) {

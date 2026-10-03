@@ -15,17 +15,11 @@ export async function audit(tenancyId: string | null, actor: Actor, action: stri
   if (error) console.error("audit log write failed", error.message);
 }
 
-/** Short-lived link to a private file (leases and photos are in private buckets). */
-export async function signedUrl(bucket: "leases" | "photos" | "receipts", path: string, seconds = 3600) {
-  const { data } = await db.storage.from(bucket).createSignedUrl(path, seconds);
-  return data?.signedUrl ?? null;
-}
-
 // Links handed out recently, reused while they have at least half their life left: the same photo then keeps the same
 // address from one tab to the next, so the browser shows it from its cache instead of downloading it again, and no
 // signing request is needed. A link is only ever given to a page that already lists that file. The cache is keyed by
-// path alone and shared by every session, so whoever calls this must have checked that the session may see those
-// files (with per-session workspaces: check the path's workspace first, or put the workspace in the key).
+// path alone and shared by every session, so pages call it through signedUrlsFor (src/lib/workspace.ts), which drops
+// any path the session's workspace may not see before it gets here.
 const SIGN_SECONDS = 3600;
 const REUSE_MS = (SIGN_SECONDS / 2) * 1000;
 const recentLinks = new Map<string, { url: string; until: number }>();

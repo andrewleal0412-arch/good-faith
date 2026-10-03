@@ -1,9 +1,11 @@
 // Removes one tenancy made by demo:seed (or any throwaway one): its photos, receipts and lease PDF in storage, then
 // the row, which cascades to payments, photos, deductions, audit_log, agent_runs and tenant_links, and the property
-// when no other tenancy is on it. Refuses the original demo tenancy. PayPal sandbox records are left as they are.
+// when no other tenancy is on it. Refuses the original demo tenancy and every template a demo copy is made from (the
+// demo_templates table), and never removes a template's files, which demo copies point at. PayPal sandbox records are
+// left as they are. A whole demo copy goes with npm run demo:sweep -- --workspace <id> --apply.
 //
 //   npm run demo:reset -- <tenancyId>
-import { ORIGINAL_DEMO_TENANCY, UUID, dbClient, fail, loadEnv } from "./demo-common.mjs";
+import { ORIGINAL_DEMO_TENANCY, UUID, dbClient, fail, loadEnv, templateIds } from "./demo-common.mjs";
 
 // Postgres compares uuids without regard to case, but the guard below and the storage paths are plain strings, so the
 // id is lowercased once and the guard, the path filter and the folder listings all see the same value.
@@ -12,9 +14,13 @@ if (!id || !UUID.test(id)) fail("Usage: npm run demo:reset -- <tenancyId>   (the
 if (id === ORIGINAL_DEMO_TENANCY) fail("That is the original demo tenancy (482 N. Glassell St, Unit B, Orange). It stays.");
 
 const db = dbClient(loadEnv());
-const { data: t, error } = await db.from("tenancies").select("id, property_id, lease_pdf_path, properties(address)").eq("id", id).maybeSingle();
+const templates = await templateIds(db);
+if (templates.has(id)) fail("That tenancy is a template every demo copy is made from. It stays.");
+const { data: t, error } = await db.from("tenancies").select("id, property_id, workspace_id, lease_pdf_path, properties(address)").eq("id", id).maybeSingle();
 if (error) fail(`Couldn't read the tenancy: ${error.message}`);
 if (!t) fail(`No tenancy ${id}. Nothing removed.`);
+// Its uploads: under ws/<workspace>/<tenancy>/ since workspaces, under <tenancy>/ before them.
+const folders = [`ws/${t.workspace_id}/${id}`, id];
 console.log(`Removing tenancy ${id} (${t.properties?.address ?? "address not recorded"})`);
 
 // Storage paths from the rows, plus a listing of the tenancy's folders for anything the rows no longer point at.
@@ -28,19 +34,22 @@ for (const d of deductions ?? []) {
   for (const p of d.after_photo_paths ?? []) photoPaths.add(p);
   if (d.receipt_path) receiptPaths.add(d.receipt_path);
 }
-for (const phase of ["move_in", "move_out_before", "move_out_after"]) {
-  for (const name of await listFiles("photos", `${id}/${phase}`)) photoPaths.add(`${id}/${phase}/${name}`);
+for (const folder of folders) {
+  for (const phase of ["move_in", "move_out_before", "move_out_after"]) {
+    for (const name of await listFiles("photos", `${folder}/${phase}`)) photoPaths.add(`${folder}/${phase}/${name}`);
+  }
+  for (const name of await listFiles("receipts", folder)) receiptPaths.add(`${folder}/${name}`);
 }
-for (const name of await listFiles("receipts", id)) receiptPaths.add(`${id}/${name}`);
 
-// Only this tenancy's folders are touched; a path from a row that points elsewhere is left alone.
-const own = (paths) => [...paths].filter((p) => p.startsWith(`${id}/`));
+// Only this tenancy's own folders are touched; a path from a row that points elsewhere (a demo copy's rows point at
+// the template's files) is left alone.
+const own = (paths) => [...paths].filter((p) => folders.some((f) => p.startsWith(`${f}/`)) && !templates.has(p.split("/")[0]));
 const removed = {
   photos: await remove("photos", own(photoPaths)),
   receipts: await remove("receipts", own(receiptPaths)),
   leases: 0,
 };
-// The lease PDF, unless another tenancy was started from the same upload.
+// The lease PDF, unless another tenancy was started from the same upload (every demo copy shares its template's).
 if (t.lease_pdf_path) {
   const { count } = await db.from("tenancies").select("id", { count: "exact", head: true }).eq("lease_pdf_path", t.lease_pdf_path).neq("id", id);
   if (!count) removed.leases = await remove("leases", [t.lease_pdf_path]);

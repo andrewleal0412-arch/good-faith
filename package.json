@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "demo:seed": "node scripts/demo-seed.mjs",
-    "demo:reset": "node scripts/demo-reset.mjs"
+    "demo:reset": "node scripts/demo-reset.mjs",
+    "demo:pool": "node scripts/demo-pool.mjs",
+    "demo:sweep": "node scripts/demo-sweep.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.71",

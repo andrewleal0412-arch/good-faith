@@ -2,6 +2,7 @@ import { audit, db } from "@/lib/db";
 import { imageType, notAPhotoServer, photoTooLarge, readForm, TOO_LARGE, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
 import { PHOTOS_PER_REQUEST, UPLOAD_BUDGET } from "@/lib/uploads";
+import { routeTenancy, uploadPrefix } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,8 @@ const PHOTOS_PER_TENANCY = 120;
 // after repairs. Stored in the private photos bucket.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/photos">) {
   const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
   const form = await readForm(req);
   if (!form) return Response.json({ error: UNREADABLE }, { status: 400 });
   const phase = String(form.get("phase") ?? "move_in") as (typeof PHASES)[number];
@@ -29,8 +32,6 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const big = files.find((f) => f.size > UPLOAD_BUDGET);
   if (big) return Response.json({ error: photoTooLarge(big.name, big.size) }, { status: 400 });
   if (files.reduce((n, f) => n + f.size, 0) > UPLOAD_BUDGET) return Response.json({ error: TOO_LARGE }, { status: 413 });
-  const { data: t } = await db.from("tenancies").select("id").eq("id", id).maybeSingle();
-  if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const { count } = await db.from("photos").select("id", { count: "exact", head: true }).eq("tenancy_id", id);
   if ((count ?? 0) + files.length > PHOTOS_PER_TENANCY) {
     return Response.json({ error: `A property can hold ${PHOTOS_PER_TENANCY} photos in this demo, and this one has ${count ?? 0}.` }, { status: 400 });
@@ -51,7 +52,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const rows = [];
   for (const { file, bytes, type } of checked) {
     const ext = type.slice("image/".length);
-    const path = `${id}/${phase}/${crypto.randomUUID()}.${ext}`;
+    // Under the workspace's own prefix, so a demo copy's uploads are its own to sign and the sweep's to remove.
+    const path = `${uploadPrefix(ws)}${id}/${phase}/${crypto.randomUUID()}.${ext}`;
     const up = await db.storage.from("photos").upload(path, bytes, { contentType: type });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
     rows.push({ tenancy_id: id, phase, room, storage_path: path, caption: file.name });

@@ -2,6 +2,7 @@ import { audit, db } from "@/lib/db";
 import { buildStatement } from "@/lib/statement";
 import { buildStatementPdf } from "@/lib/statement-pdf";
 import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
+import { isTemplate } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,7 +23,7 @@ export async function GET(req: Request, ctx: RouteContext<"/api/t/[token]/statem
     // The tenants may open it many times; the landlord's log keeps one row a day.
     const { data: recent } = await db.from("audit_log").select("id").eq("tenancy_id", link.tenancyId).eq("action", "tenant_opened_statement")
       .gte("created_at", new Date(Date.now() - 86_400_000).toISOString()).limit(1);
-    if (!recent?.length) await audit(link.tenancyId, "tenant", "tenant_opened_statement", { link_id: link.linkId });
+    if (!recent?.length && !(await isTemplate(link.tenancyId))) await audit(link.tenancyId, "tenant", "tenant_opened_statement", { link_id: link.linkId });
     return new Response(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "application/pdf",

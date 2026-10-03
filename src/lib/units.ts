@@ -8,6 +8,7 @@ import { byUrgency, nextStep, type NextStep, type TenancySummary } from "./next-
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
 import { tenantMoveOutSentOn, type TenantMoveOut } from "./tenant";
+import { currentWorkspace, DEMO_ACCOUNT, signedUrlsFor } from "./workspace";
 
 // Every tenancy as the landlord's home base sees it, from the database alone: no PayPal round trip per row, so the
 // deposit's status is as last stored (the tenancy page refreshes it from PayPal whenever it is opened).
@@ -80,7 +81,8 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
   };
 }
 
-/** One tenancy's summary, for the calendar feed and the notice drafts. */
+/** One tenancy's summary, for the calendar feed and the notice drafts. Callers check the tenancy is in the session's
+ *  workspace first (pageTenancy, routeTenancy). */
 export async function loadUnit(id: string): Promise<TenancySummary | null> {
   const [{ data: t }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, city, owner_name)").eq("id", id).single(),
@@ -98,14 +100,18 @@ export type Upcoming = CalendarEvent & { tenancyId: string; daysAway: number };
 /** How far ahead the units page looks. */
 export const UPCOMING_DAYS = 120;
 
-/** Every unit, most urgent first. Cached per request, so the app shell's notifications and the page share one read. */
+/** Every unit in the session's workspace, most urgent first. Cached per request, so the app shell's notifications and
+ *  the page share one read. The rows under the tenancies are read through them (an inner join on the tenancy's
+ *  workspace), so another workspace's payments, photos and deductions never leave the database. */
 export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow[]; upcoming: Upcoming[]; owners: string[] }> => {
   const today = pacificToday();
+  const ws = await currentWorkspace();
+  if (!ws) return { today, units: [], upcoming: [], owners: [] };
   const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
-    db.from("tenancies").select("*, properties(address, city, owner_name)").order("created_at"),
-    db.from("payments").select("tenancy_id, kind, paypal_id, amount, status, raw").order("created_at"),
-    db.from("photos").select("tenancy_id, phase"),
-    db.from("deductions").select("tenancy_id, category, amount"),
+    db.from("tenancies").select("*, properties(address, city, owner_name)").eq("workspace_id", ws.id).order("created_at"),
+    db.from("payments").select("tenancy_id, kind, paypal_id, amount, status, raw, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).order("created_at"),
+    db.from("photos").select("tenancy_id, phase, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
+    db.from("deductions").select("tenancy_id, category, amount, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
   ]);
   const inOrder: UnitRow[] = ((rows ?? []) as TenancyRow[]).map((t) => {
     const summary = summarizeTenancy(t,
@@ -124,17 +130,22 @@ export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow
   return { today, units, upcoming, owners };
 });
 
-/** The account the app shell and the PayPal card show: GOOD_FAITH_ACCOUNT when it is set, otherwise the owner of the
- *  oldest tenancy on file. Fixed per deployment, so it can't change between page loads as units change status. */
-export function accountName(owners: string[]): string | null {
+/** The account the app shell and the PayPal card show. A demo copy is always the demo landlord's business; the owner's
+ *  workspace shows GOOD_FAITH_ACCOUNT when it is set, otherwise the owner of the oldest tenancy on file. Fixed per
+ *  workspace, so it can't change between page loads as units change status. */
+export async function accountName(owners: string[]): Promise<string | null> {
+  if ((await currentWorkspace())?.kind === "demo") return DEMO_ACCOUNT;
   return process.env.GOOD_FAITH_ACCOUNT?.trim() || owners[0] || null;
 }
 
-/** One move-in photo per tenancy for its thumbnail (the living room when there is one), as short-lived signed URLs. */
+/** One move-in photo per tenancy for its thumbnail (the living room when there is one), as short-lived signed URLs.
+ *  Only tenancies in the session's workspace. */
 export async function loadThumbnails(ids: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (!ids.length) return out;
-  const { data } = await db.from("photos").select("tenancy_id, room, storage_path").eq("phase", "move_in").in("tenancy_id", ids).order("created_at");
+  const ws = await currentWorkspace();
+  if (!ids.length || !ws) return out;
+  const { data } = await db.from("photos").select("tenancy_id, room, storage_path, tenancies!inner(workspace_id)").eq("phase", "move_in")
+    .in("tenancy_id", ids).eq("tenancies.workspace_id", ws.id).order("created_at");
   const pick = new Map<string, { room: string; path: string }>();
   for (const p of (data ?? []) as { tenancy_id: string; room: string; storage_path: string }[]) {
     const had = pick.get(p.tenancy_id);
@@ -142,8 +153,7 @@ export async function loadThumbnails(ids: string[]): Promise<Map<string, string>
   }
   const paths = ids.map((id) => pick.get(id)?.path).filter((x): x is string => !!x);
   if (!paths.length) return out;
-  const { data: signed } = await db.storage.from("photos").createSignedUrls(paths, 3600);
-  const byPath = new Map((signed ?? []).map((s) => [s.path, s.signedUrl]));
+  const byPath = await signedUrlsFor(ws, "photos", paths);
   for (const id of ids) {
     const path = pick.get(id)?.path;
     const url = path ? byPath.get(path) : null;
@@ -154,11 +164,14 @@ export async function loadThumbnails(ids: string[]): Promise<Map<string, string>
 
 export type ActivityRow = { id: string; tenancyId: string; actor: string; action: string; detail: Record<string, unknown> | null; createdAt: string };
 
-/** The latest audit entries across every tenancy, newest first, leaving out the actions in `quiet`. */
+/** The latest audit entries across every tenancy in the session's workspace, newest first, leaving out the actions in
+ *  `quiet`. */
 export async function loadRecentActivity(limit: number, quiet: string[]): Promise<ActivityRow[]> {
+  const ws = await currentWorkspace();
+  if (!ws) return [];
   // The quiet actions are left out here rather than in the query: a few extra rows are cheaper than a dynamic filter.
-  const { data } = await db.from("audit_log").select("id, tenancy_id, actor, action, detail, created_at").not("tenancy_id", "is", null)
-    .order("created_at", { ascending: false }).limit(limit * 3);
+  const { data } = await db.from("audit_log").select("id, tenancy_id, actor, action, detail, created_at, tenancies!inner(workspace_id)")
+    .eq("tenancies.workspace_id", ws.id).order("created_at", { ascending: false }).limit(limit * 3);
   return ((data ?? []) as { id: string; tenancy_id: string; actor: string; action: string; detail: Record<string, unknown> | null; created_at: string }[])
     .filter((r) => !quiet.includes(r.action)).slice(0, limit)
     .map((r) => ({ id: r.id, tenancyId: r.tenancy_id, actor: r.actor, action: r.action, detail: r.detail, createdAt: r.created_at }));

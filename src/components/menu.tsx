@@ -23,7 +23,9 @@ export function Menu({ items, label = "More", trigger, align = "end", side = "bo
   buttonClass?: string;
   width?: number;
   portal?: boolean; // render the popover on the body: for a menu inside a grid cell, whose row is transformed
-  children?: ReactNode; // free content under the items (the bell's list, the account card)
+  // Free content under the items (the bell's list, the account card). As a function it gets `close`, for an action in
+  // it that opens something of its own (the account card's Start over opens a dialog).
+  children?: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
@@ -85,7 +87,7 @@ export function Menu({ items, label = "More", trigger, align = "end", side = "bo
           ? <a key={i} role="menuitem" href={it.href} className={cls} target={it.newTab ? "_blank" : undefined} rel={it.newTab ? "noreferrer" : undefined} onClick={() => setOpen(false)}>{body}</a>
           : <Link key={i} role="menuitem" href={it.href} className={cls} onClick={() => setOpen(false)}>{body}</Link>;
       })}
-      {children}
+      {typeof children === "function" ? children(() => setOpen(false)) : children}
     </div>
   );
 

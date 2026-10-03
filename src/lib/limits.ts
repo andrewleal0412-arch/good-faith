@@ -48,6 +48,12 @@ export function dailyLimits() {
   };
 }
 
+/** New private copies of the demo a day: per caller address (entering the code, or Start over) and across everyone.
+ *  Counted in Postgres with the copy itself (create_demo_workspace), so a copy that fails counts nothing. */
+export function copyLimits() {
+  return { perAddress: envInt("GOOD_FAITH_DAILY_COPIES", 5), total: envInt("GOOD_FAITH_DAILY_COPIES_TOTAL", 60) };
+}
+
 /** The most rooms one inspection compares (one Claude call each), and the most photos per room and phase it sends. */
 export const inspectRoomLimit = () => envInt("GOOD_FAITH_INSPECT_ROOMS", 6);
 export const inspectPhotoLimit = () => Math.max(1, envInt("GOOD_FAITH_INSPECT_PHOTOS", 6));

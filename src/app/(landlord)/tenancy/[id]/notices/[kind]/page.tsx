@@ -6,6 +6,7 @@ import { wasPaid } from "@/lib/invoice-status";
 import { ABANDONED_PROPERTY_TEXT, INSPECTION_NOTICE_HOURS, inspectionWindowOpens, kindFromSlug, NOTICE_INFO } from "@/lib/notices";
 import { DISCLAIMERS } from "@/lib/statement";
 import { loadUnit } from "@/lib/units";
+import { pageTenancy } from "@/lib/workspace";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, StatusChip } from "@/components/ui";
@@ -25,6 +26,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
   const { id, kind: slug } = await params;
   const kind = kindFromSlug(slug);
   if (!kind) notFound();
+  await pageTenancy(id);
   const t = await loadUnit(id);
   if (!t) notFound();
 

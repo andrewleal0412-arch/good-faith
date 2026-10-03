@@ -2,6 +2,8 @@ import { z } from "zod";
 import { audit, db } from "@/lib/db";
 import { takeAllowance } from "@/lib/limits";
 import { evaluateLease, type LeaseTerms } from "@/lib/rules";
+import { ACCESS_MESSAGES } from "@/lib/session";
+import { currentWorkspace, uploadPrefix } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -36,17 +38,23 @@ const termsSchema = z.object({
 
 const bodySchema = z.object({
   terms: termsSchema,
-  // The name the lease check gave the stored PDF (src/app/api/lease/route.ts), or null when it wasn't stored.
-  leasePath: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/).nullable().optional(),
+  // The name the lease check gave the stored PDF (src/app/api/lease/route.ts): ws/<workspace>/<uuid>.pdf, or null when
+  // it wasn't stored. The workspace must be the session's own, checked below.
+  leasePath: z.string().regex(/^ws\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/).nullable().optional(),
 });
 
 // Start a tenancy from a checked lease: the property, the tenancy with its extracted terms and flags, and the
 // first audit entries. Flags are recomputed here rather than trusted from the browser.
 export async function POST(req: Request) {
+  // The tenancy goes into the session's workspace: the owner's, or this visitor's copy of the demo.
+  const ws = await currentWorkspace();
+  if (!ws) return Response.json({ error: ACCESS_MESSAGES.signedOut }, { status: 401 });
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Those lease terms couldn't be read. Check the lease again." }, { status: 400 });
   const terms = parsed.data.terms as LeaseTerms;
   const leasePath = parsed.data.leasePath ?? null;
+  // Only a lease this workspace uploaded: a path under another workspace's prefix would put that visitor's PDF here.
+  if (leasePath && !leasePath.startsWith(uploadPrefix(ws))) return Response.json({ error: "Those lease terms couldn't be read. Check the lease again." }, { status: 400 });
   if (!terms.propertyAddress?.trim()) return Response.json({ error: "The lease has no property address." }, { status: 400 });
   const flags = evaluateLease(terms);
   // Today's allowance of new tenancies (src/lib/limits.ts), so an open demo can't fill the database.
@@ -54,13 +62,13 @@ export async function POST(req: Request) {
   if (run.refused) return run.refused;
 
   const { data: property, error: pErr } = await db.from("properties").insert({
-    address: terms.propertyAddress, city: terms.city, owner_name: terms.landlordName, owner_type: terms.ownerType,
+    workspace_id: ws.id, address: terms.propertyAddress, city: terms.city, owner_name: terms.landlordName, owner_type: terms.ownerType,
     owner_property_count: terms.ownerPropertyCount, owner_unit_count: terms.ownerUnitCount,
   }).select("id").single();
   if (pErr) return Response.json({ error: pErr.message }, { status: 500 });
 
   const { data: tenancy, error: tErr } = await db.from("tenancies").insert({
-    property_id: property.id,
+    workspace_id: ws.id, property_id: property.id,
     tenants: terms.tenants.map((name) => ({ name, email: null })),
     monthly_rent: terms.monthlyRent, deposit_amount: terms.securityDeposit, other_charges: terms.otherMoveInCharges,
     start_date: terms.tenancyStartDate, end_date: terms.leaseEndDate ?? null, lease_pdf_path: leasePath, lease_terms: terms, lease_flags: flags,
