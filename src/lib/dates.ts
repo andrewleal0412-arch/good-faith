@@ -49,3 +49,27 @@ export const pacificTime = (ts: string) =>
 
 /** A timestamp as one phrase, e.g. "Oct 1, 2026 at 2:14 PM" (Pacific). */
 export const atText = (ts: string) => `${shortDate(pacificDate(ts))} at ${pacificTime(ts)}`;
+
+/** A Pacific wall-clock time ("2026-10-01T19:01:50") as a real UTC timestamp. */
+function pacificWallClock(wall: string): string | null {
+  const asUtc = new Date(`${wall.slice(0, 19)}Z`);
+  if (Number.isNaN(asUtc.getTime())) return null;
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles", hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(asUtc).map((x) => [x.type, Number(x.value)]));
+  const offset = asUtc.getTime() - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return new Date(asUtc.getTime() + offset).toISOString();
+}
+
+/** When a PayPal invoice payment happened, as a real UTC timestamp. PayPal writes payment_date_time as the
+ *  account's Pacific wall-clock time with a "Z" on it (a 1:46 PM payment comes back as "13:46:36Z"), so read
+ *  literally it puts payments made between midnight and about 8 AM on the day before. payment_date is PayPal's own
+ *  calendar date for the payment: when the wall clock agrees with it, the wall clock is Pacific; when it doesn't,
+ *  the timestamp is a true UTC one and is used as is. With only payment_date, noon Pacific on that day. */
+export function paypalPaidAt(txn: { payment_date_time?: string; payment_date?: string } | null | undefined): string | null {
+  const ts = txn?.payment_date_time, day = txn?.payment_date;
+  if (ts && day && ts.slice(0, 10) === day) return pacificWallClock(ts) ?? ts;
+  if (ts) return ts;
+  return day && realDate(day) ? pacificWallClock(`${day}T12:00:00`) : null;
+}

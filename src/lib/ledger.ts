@@ -1,5 +1,5 @@
 import { TAGS } from "./copy";
-import { pacificDate, shortDate } from "./dates";
+import { pacificDate, paypalPaidAt, shortDate } from "./dates";
 import { usd } from "./deductions";
 import { paidElectronically, returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 import { lawfulDeposit, type LeaseTerms } from "./rules";
@@ -157,7 +157,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
       // still counts as collected, as the statement counts it.
       if (wasPaid(p.status)) {
         const txn = p.raw?.transactions?.[0];
-        const paidAt = txn?.payment_date_time ?? (txn?.payment_date ? `${txn.payment_date}T12:00:00Z` : p.created_at);
+        const paidAt = paypalPaidAt(txn) ?? p.created_at;
         const paid = txn?.amount?.value ? Number(txn.amount.value) : amount;
         const electronic = paidElectronically(p.status, txn?.method);
         const method = methodWords(txn?.method) || "a method PayPal did not record";

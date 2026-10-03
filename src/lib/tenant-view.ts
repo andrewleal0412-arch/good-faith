@@ -1,6 +1,6 @@
 import "server-only";
 import { CATEGORY_ORDER } from "./copy";
-import { pacificToday } from "./dates";
+import { pacificToday, paypalPaidAt } from "./dates";
 import { db } from "./db";
 import { basisWords, chargeTitle, settle, statementDue, type Performer, type Proration, type Work } from "./deductions";
 import { refreshDepositInvoice, type DepositInvoiceRow } from "./deposit";
@@ -72,7 +72,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   const paid = !!inv && wasPaid(inv.status);
   const deposit: TenantView["deposit"] = inv ? {
     amount: Number(inv.amount), status: inv.status, paid, electronic: paidElectronically(inv.status, txn?.method ?? null),
-    paidAt: txn?.payment_date_time ?? null, method: txn?.method ?? null, invoiceId: inv.paypal_id,
+    paidAt: paypalPaidAt(txn), method: txn?.method ?? null, invoiceId: inv.paypal_id,
     payLink: paid ? null : inv.raw?.payLink ?? null,
   } : null;
 

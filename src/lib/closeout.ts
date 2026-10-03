@@ -1,5 +1,5 @@
 import "server-only";
-import { pacificDate } from "./dates";
+import { pacificDate, paypalPaidAt } from "./dates";
 import { db } from "./db";
 import { depositNotOurs, POOL_EMPTY } from "./demo-pool";
 import { missingDocs, settle, statementDue, usd, type StoredDeduction } from "./deductions";
@@ -86,7 +86,7 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
       blockers.push("PayPal couldn't be reached, so the deposit's status is as last recorded. Try again in a minute before returning any money.");
     }
     const txn = live.payments?.transactions?.[0];
-    const paidAt = txn?.payment_date_time ?? null;
+    const paidAt = paypalPaidAt(txn);
     deposit = {
       invoiceId: live.id, status: live.status, amount: Number(inv.amount), paidAt, method: txn?.method ?? null,
       captureId: txn?.payment_id ?? null,

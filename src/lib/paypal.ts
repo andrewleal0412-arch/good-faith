@@ -72,7 +72,7 @@ export type Invoice = {
   id: string;
   status: string;
   primary_recipients?: { billing_info?: { email_address?: string } }[];
-  payments?: { transactions?: { payment_id: string; payment_date_time?: string; method?: string; amount: { value: string } }[] };
+  payments?: { transactions?: { payment_id: string; payment_date_time?: string; payment_date?: string; method?: string; amount: { value: string } }[] };
 };
 
 export async function getInvoice(id: string) {
