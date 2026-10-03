@@ -51,19 +51,25 @@ function useFrameShape(start: number) {
   return { measure, shape };
 }
 
+/** The move-in photo's outline: the same spot before the tenancy, so it is drawn neutral (dashed white, gray number)
+ *  and labeled, never in the finding's damage or cleaning color. */
+const REFERENCE = { frame: "border-dashed border-white/95", badge: "bg-ink-2" };
+
 function Marks({ markers, which, shape, frame, focus, hot, onHot }: {
   markers: Marker[]; which: "box" | "moveInBox"; shape: number; frame: number; focus: number; hot: string | null; onHot?: (id: string | null) => void;
 }) {
+  const reference = which === "moveInBox";
   return (
     <>
       {markers.map((m) => {
         const b = m[which];
         if (!b) return null;
         const p = placeBox(b, shape, frame, focus);
-        const s = STYLE[m.kind];
+        const s = reference ? REFERENCE : STYLE[m.kind];
         const on = hot === m.id;
+        const labelAbove = p.top + p.height > 84;
         return (
-          <span key={m.id} aria-hidden title={`${m.n}. ${m.label}`}
+          <span key={m.id} aria-hidden title={reference ? `${m.n}. Same spot at move-in` : `${m.n}. ${m.label}`}
             onMouseEnter={onHot ? () => onHot(m.id) : undefined} onMouseLeave={onHot ? () => onHot(null) : undefined}
             className={`absolute rounded-[3px] border-[1.5px] transition-shadow ${s.frame} ${on ? "z-[2] shadow-[0_0_0_3px_rgba(255,255,255,.75)]" : "shadow-[0_0_0_1px_rgba(255,255,255,.55)]"}`}
             style={{ left: `${p.left}%`, top: `${p.top}%`, width: `${p.width}%`, height: `${p.height}%` }}>
@@ -71,6 +77,12 @@ function Marks({ markers, which, shape, frame, focus, hot, onHot }: {
               style={{ left: p.left < 2.5 ? 2 : -9, top: p.top < 4 ? 2 : -9 }}>
               {m.n}
             </span>
+            {reference && (
+              <span className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[4px] bg-white/95 px-1.5 py-px text-[11px] font-medium text-ink-2 shadow-sm"
+                style={labelAbove ? { bottom: "calc(100% + 13px)" } : { top: "calc(100% + 4px)" }}>
+                Same spot at move-in
+              </span>
+            )}
           </span>
         );
       })}
@@ -142,7 +154,8 @@ export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }:
     );
   }
 
-  // Side by side: the move-out photo carries every box; the move-in photo shows the same area for the finding in focus.
+  // Side by side: the move-out photo carries every box; the move-in photo outlines the same spot, neutral and labeled,
+  // for the finding in focus.
   // On a phone the two stack at full width, so a box stays big enough to see.
   const focus = focusFor(FRAME);
   return (
