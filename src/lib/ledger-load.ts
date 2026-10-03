@@ -1,5 +1,6 @@
 import "server-only";
 import { pacificToday } from "./dates";
+import { statementDue } from "./deductions";
 import { db } from "./db";
 import { ledgerRows, streetLine, type LedgerDeduction, type LedgerPayment, type LedgerRow, type LedgerTenancy } from "./ledger";
 
@@ -7,7 +8,9 @@ import { ledgerRows, streetLine, type LedgerDeduction, type LedgerPayment, type 
 // page refreshes the deposit invoice from PayPal whenever it opens). Read-only. Only names, amounts, PayPal ids and
 // statuses leave the server; tenant emails, lease text and the raw PayPal records stay here.
 
-export type LedgerUnit = { id: string; label: string };
+/** One tenancy, for the property filter and the "due back" tile: its street line, its tenants, when it began (to tell
+ *  two tenancies at one address apart), and the day its statement and refund are due (21 days after the move-out), if the tenants have moved out. */
+export type LedgerUnit = { id: string; label: string; street: string; tenants: string; start: string | null; due: string | null };
 export type Ledger = { today: string; rows: LedgerRow[]; units: LedgerUnit[] };
 
 /** The ledger, or the reason it could not be read. A query error is never shown as an empty ledger: to a landlord that
@@ -29,9 +32,13 @@ export async function loadLedger(): Promise<Ledger | { error: string }> {
   // A stable sort, so each tenancy's own order (invoice before its payment) survives the merge.
   const rows = ts.flatMap((t) => ledgerRows(t, ps.filter((p) => p.tenancy_id === t.id), ds.filter((d) => d.tenancy_id === t.id)))
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  const units = ts.map((t) => ({
-    id: t.id,
-    label: `${streetLine(t.properties?.address ?? t.lease_terms?.propertyAddress ?? "Address not recorded")} (${(t.tenants ?? []).map((x) => x.name).join(" and ") || "no tenants named"})`,
-  }));
+  const units = ts.map((t) => {
+    const street = streetLine(t.properties?.address ?? t.lease_terms?.propertyAddress ?? "Address not recorded");
+    const tenants = (t.tenants ?? []).map((x) => x.name).join(" and ") || "no tenants named";
+    return {
+      id: t.id, label: `${street} (${tenants})`, street, tenants, start: t.lease_terms?.tenancyStartDate ?? null,
+      due: t.move_out_date ? statementDue(t.move_out_date) : null,
+    };
+  });
   return { today: pacificToday(), rows, units };
 }

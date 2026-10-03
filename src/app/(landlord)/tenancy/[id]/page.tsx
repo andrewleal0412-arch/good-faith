@@ -8,8 +8,6 @@ import { Menu, type MenuItem } from "@/components/menu";
 import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBox, Table, Tabs, Td, Th, Thumb, trClass } from "@/components/ui";
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
-import { timeline } from "@/lib/agent-timeline";
-import { guardRefund } from "@/lib/closeout";
 import { wasPaid } from "@/lib/invoice-status";
 import { db, signedUrl } from "@/lib/db";
 import { settle, statementDue, type StoredDeduction } from "@/lib/deductions";
@@ -29,7 +27,7 @@ import { summarizeTenancy } from "@/lib/units";
 import { MoneyTimeline } from "./money";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView, type QuietRoom } from "./move-out";
-import { CloseOut, type PendingView } from "./close-out";
+import { CloseOut } from "./close-out";
 import { NoticeSection } from "./notice";
 import { Settlement } from "./settlement";
 import { TenantLinkPanel } from "./tenant-link";
@@ -111,22 +109,11 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const paid = wasPaid(invoiceStatus);
   const returned = (payments ?? []).find((x) => x.kind === "refund" || x.kind === "payout");
 
-  // The latest close-out run, with any pending money movement re-checked against the rules right now.
+  // The latest close-out run and the amount of any refund it is waiting on. The review page re-checks it against the
+  // rules; this page only says where it stands.
   const run = runs?.[0];
-  let pendingView: PendingView | null = null;
-  if (run?.status === "awaiting_approval" && run.pending) {
-    const pd = run.pending as Pending;
-    const refund = pd.toolName === "create_refund";
-    const amount = refund ? (pd.input.amount as { value?: string })?.value ?? "" : String(pd.input.amount ?? "");
-    pendingView = {
-      tool: pd.toolName, amount: Number(amount),
-      to: refund ? `The tenants' original PayPal payment (${pd.input.capture_id})` : `PayPal account ${pd.input.email}`,
-      note: (refund ? pd.input.note_to_payer : pd.input.note) as string | null ?? null,
-      check: await guardRefund(id, refund
-        ? { rail: "refund_original_payment", amount, captureId: pd.input.capture_id as string }
-        : { rail: "payout", amount, email: pd.input.email as string }),
-    };
-  }
+  const pd = run?.status === "awaiting_approval" ? (run.pending as Pending | null) : null;
+  const pendingAmount = pd ? Number(pd.toolName === "create_refund" ? (pd.input.amount as { value?: string })?.value : pd.input.amount) : null;
   const agreement = t.refund_agreement as { paypal_email: string; signed_by: string[]; signed_at: string } | null;
   const terms = t.lease_terms as LeaseTerms;
   const flags = (t.lease_flags ?? []) as Flag[];
@@ -157,12 +144,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     .map((e) => ({ id: e.id as string, tenancyId: id, actor: e.actor as string, action: e.action as string, detail: e.detail as Record<string, unknown> | null, createdAt: e.created_at as string })),
   () => summary.tenants, 40);
 
-  // The record header's one primary action: the refund review once the findings are in, otherwise the next step. It is
-  // the view's only indigo button, so the cards below show theirs as secondary; the exception is a refund waiting for
-  // approval, whose Send button on the Move-out tab is the primary and the header steps aside.
+  // The record header's one primary action: the refund review (its own focused page) once the findings are in,
+  // otherwise the next step. It is the view's only indigo button, so the cards below show theirs as secondary.
   const reviewRefund = inspected && !returned && !closed;
-  const awaitingApproval = run?.status === "awaiting_approval" && !!pendingView;
-  const primary = reviewRefund ? (tab === "move-out" && awaitingApproval ? null : { label: "Review refund", href: tabHref(id, "move-out", "refund") })
+  const primary = reviewRefund ? { label: "Review refund", href: `/tenancy/${id}/refund` }
     : !closed && step.label !== "View" && step.label !== "View statement" ? step : null;
   const quiet = !!primary;
   const hasStatement = inspected || !!t.move_out_date;
@@ -361,10 +346,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             <section id="refund" className="scroll-mt-24">
               <CloseOut
                 tenancyId={id}
-                refunded={!!returned}
-                quiet={quiet}
+                tenants={summary.tenants}
+                due={money.refund}
                 returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, on: pacificDate(returned.created_at) } : null}
-                run={run ? { id: run.id, status: run.status, error: run.error, at: run.created_at ? pacificDate(run.created_at) : null, items: timeline(run.messages), pending: pendingView } : null}
+                run={run ? { status: run.status, error: run.error, at: run.created_at ? pacificDate(run.created_at) : null, pendingAmount } : null}
               />
             </section>
           )}

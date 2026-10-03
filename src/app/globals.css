@@ -19,7 +19,7 @@
   /* Ink for text, lines for borders, surfaces for soft panels and hover. */
   --color-ink: #1b1d23;
   --color-ink-2: #464a58;
-  --color-ink-3: #6e7385;
+  --color-ink-3: #64697b; /* 4.5:1 or better on every surface and chip background, not only on white */
   --color-ink-4: #9a9ead;
   --color-line: #e6e8ee;
   --color-line-2: #eff0f4;

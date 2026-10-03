@@ -1,6 +1,6 @@
-# Deposit agent: PayPal AI Hackathon plan
+# Good Faith: PayPal AI Hackathon plan
 
-Working name only; pick the real name before the repo goes public.
+Named for the law it follows: California penalizes bad-faith deposit retention (Civ. Code 1950.5(h)(7), (m)), and Good Faith makes the landlord's close-out lawful and fair to the tenant.
 
 **Hackathon:** https://paypalaihackathon.devpost.com/
 - Due **Thu Nov 12, 2:00 PM PT**. We aim to submit **Sun Nov 8**.

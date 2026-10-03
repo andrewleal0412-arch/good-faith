@@ -7,6 +7,11 @@ import { Icon, type IconName } from "./icons";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
+/** The product's wordmark: the name in the app font, no logomark until a real one exists. */
+export function Wordmark() {
+  return <span className="text-lg font-semibold tracking-[-0.015em] text-ink">Good Faith</span>;
+}
+
 /* ---------- Status chip: one color per status ---------- */
 
 export type Tone = "green" | "amber" | "red" | "gray";
@@ -35,9 +40,10 @@ export function StatusChip({ tone, children, dot = true, size = "md", className 
 const fmt = (n: number) => Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** An amount in tabular figures. `cents="small"` raises the cents at 60%, as Mercury's balance does (and hides them on a
- *  phone): used for the one hero number of a view and the stat tiles. Outflows pass `sign="minus"` and get a true minus. */
-export function Money({ value, cents = "full", sign, className }: {
-  value: number; cents?: "small" | "full"; sign?: "minus" | "plus"; className?: string;
+ *  phone, where a facts strip cell has no room; `phoneCents` keeps them for a tile that spans the screen): used for the
+ *  one hero number of a view and the stat tiles. Outflows pass `sign="minus"` and get a true minus. */
+export function Money({ value, cents = "full", sign, phoneCents, className }: {
+  value: number; cents?: "small" | "full"; sign?: "minus" | "plus"; phoneCents?: boolean; className?: string;
 }) {
   const [whole, frac] = fmt(value).split(".");
   const pre = sign === "minus" || (value < 0 && sign !== "plus") ? "−" : sign === "plus" ? "+" : "";
@@ -45,7 +51,7 @@ export function Money({ value, cents = "full", sign, className }: {
     <span className={cx("whitespace-nowrap tabular-nums", className)}>
       {pre}${whole}
       {/* On a phone the raised cents drop away, as Mercury's balance does under 720px. */}
-      {cents === "small" ? <span className="relative top-[0.18em] align-top text-[0.6em] tracking-normal max-sm:hidden">.{frac}</span> : <>.{frac}</>}
+      {cents === "small" ? <span className={cx("relative top-[0.18em] align-top text-[0.6em] tracking-normal", !phoneCents && "max-sm:hidden")}>.{frac}</span> : <>.{frac}</>}
     </span>
   );
 }

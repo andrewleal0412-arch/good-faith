@@ -58,6 +58,7 @@ export type LedgerRow = {
   signed: number; // money in is positive, money claimed or returned is negative, zero when nothing has moved
   effect: LedgerEffect;
   paypalId: string | null;
+  method: string | null; // how the money moved, in words ("PayPal", "Credit card"); null for a deduction
   status: string; // plain words
   tag: string; // the Civ. Code 1950.5 subsection, e.g. (b)(2)
   tagShort: string; // a word or two beside the tag, e.g. "damage"
@@ -105,6 +106,7 @@ const METHOD_WORDS: Record<string, string> = {
   CASH: "cash", CHECK: "check", OTHER: "another method",
 };
 const methodWords = (m: string | null | undefined) => (m ? METHOD_WORDS[m] ?? words(m) : "");
+const methodLabel = (m: string | null | undefined) => { const w = methodWords(m) || "PayPal"; return w.charAt(0).toUpperCase() + w.slice(1); };
 
 /** PayPal's invoice statuses in plain words. After a refund PayPal says PARTIALLY_REFUNDED, which to a tenant sounds
  *  like a short refund; it was the lawful one after the itemized deductions, and the refund row carries the amount. */
@@ -144,7 +146,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         : lawful ? { tag: "(c)(1)", tagShort: "one-month cap", tagLabel: "Security capped at one month's rent" }
           : { tag: "(b)", tagShort: "security", tagLabel: "Every move-in charge but first month's rent is security" };
       row({
-        id: p.id, date, at: p.created_at, kind: "deposit_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id,
+        id: p.id, date, at: p.created_at, kind: "deposit_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
         detail: lawful && lawful.charged > lawful.amount
           ? `PayPal invoice for the lawful amount; the lease asked ${usd(lawful.charged)}`
           : "PayPal invoice for the security deposit",
@@ -163,7 +165,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         const onInvoice = p.paypal_id ? ` on invoice ${p.paypal_id}` : "";
         row({
           id: `${p.id}:paid`, date: pacificDate(paidAt), at: new Date(Math.max(ms(paidAt), ms(p.created_at))).toISOString(),
-          kind: "payment", amount: paid, signed: paid, effect: "collected", paypalId: txn?.payment_id ?? p.paypal_id,
+          kind: "payment", amount: paid, signed: paid, effect: "collected", paypalId: txn?.payment_id ?? p.paypal_id, method: methodLabel(txn?.method),
           detail: !txn ? `Deposit paid${onInvoice}; PayPal recorded no transaction detail`
             : electronic ? `Deposit paid by ${method}${onInvoice}` : `Deposit recorded as paid by ${method}${onInvoice}`,
           status: "received",
@@ -178,14 +180,14 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
     } else if (p.kind === "refund" || p.kind === "payout") {
       const effect: LedgerEffect = returnCompleted(p.status) ? "returned" : returnFailed(p.status) ? "failed" : "pending";
       row({
-        id: p.id, date, at: p.created_at, kind: p.kind, amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id,
+        id: p.id, date, at: p.created_at, kind: p.kind, amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
         detail: (p.kind === "refund" ? "Refund of the original PayPal payment" : "PayPal Payout to the account the tenants designated") + timing(t.move_out_date, date),
         status: effect === "returned" ? (p.kind === "refund" ? "completed" : "sent") : words(p.status),
         tag: "(h)(1)", tagShort: "21 days", tagLabel: "Statement and refund within 21 days of move-out",
       });
     } else if (p.kind === "damage_invoice") {
       row({
-        id: p.id, date, at: p.created_at, kind: "damage_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id,
+        id: p.id, date, at: p.created_at, kind: "damage_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
         // The claim-not-demand wording is the DRE guide's (LEGAL_RULES B.12), not the subsection's, so it stays in the detail.
         detail: "PayPal invoice for the balance the deductions exceed the deposit by; recorded as a claim, not a demand for payment (DRE guide)",
         status: invoiceWords(p.status),
@@ -205,7 +207,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
     const claimed = delivered != null || final;
     row({
       id: d.id, date: pacificDate(d.created_at), at: d.created_at, kind: "deduction", amount, signed: claimed ? -amount : 0,
-      effect: claimed ? "claimed" : "draft", paypalId: null,
+      effect: claimed ? "claimed" : "draft", paypalId: null, method: null,
       detail: `${d.item}${d.room ? ` (${d.room})` : ""}`,
       status: d.is_estimate ? "good-faith estimate" : onStatement ? "on the statement" : final ? "final" : delivered != null ? "added after the statement" : "draft",
       tag: TAGS[d.category].tag, tagShort: TAGS[d.category].short, tagLabel: TAGS[d.category].label,
@@ -239,4 +241,14 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
   for (const xs of byTenancy.values()) held += Math.max(0, cents(sum("collected", xs) - sum("claimed", xs) - sum("returned", xs) - sum("pending", xs)));
   const claimed = sum("claimed"), drafted = sum("draft");
   return { collected: sum("collected"), deducted: cents(claimed + drafted), drafted, returned: sum("returned"), pending: sum("pending"), held: cents(held), count: rows.length };
+}
+
+/** What a tenancy's rows say is still owed back to its tenants: the deposit collected less every deduction, drafts
+ *  included (the refund the close-out would send), while no refund or payout has gone out. Zero once one has, or when
+ *  the deductions use the whole deposit. */
+export function owedBack(rows: LedgerRow[]): number {
+  if (rows.some((r) => (r.kind === "refund" || r.kind === "payout") && r.effect !== "failed")) return 0;
+  const collected = rows.filter((r) => r.effect === "collected").reduce((s, r) => s + r.amount, 0);
+  const deducted = rows.filter((r) => r.kind === "deduction").reduce((s, r) => s + r.amount, 0);
+  return Math.max(0, cents(collected - deducted));
 }

@@ -42,3 +42,10 @@ export function whenText(daysLeft: number, deadline = true): string {
   if (deadline) return daysLeft < 0 ? `${days} late` : `${days} left`;
   return daysLeft < 0 ? `${days} ago` : `in ${days}`;
 }
+
+/** The Pacific clock time of a timestamp, e.g. "2:14 PM". */
+export const pacificTime = (ts: string) =>
+  new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
+
+/** A timestamp as one phrase, e.g. "Oct 1, 2026 at 2:14 PM" (Pacific). */
+export const atText = (ts: string) => `${shortDate(pacificDate(ts))} at ${pacificTime(ts)}`;

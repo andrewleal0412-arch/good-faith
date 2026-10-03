@@ -78,7 +78,7 @@ function step(s: TenancySummary, n: NextStep): Omit<StepLink, "title"> {
   const id = s.id;
   const L = n.label;
   if (L === "Done") return { label: "View statement", href: `/tenancy/${id}/statement`, icon: "doc" };
-  if (L === "Send the refund") return { label: "Send refund", href: tabHref(id, "move-out", "refund"), icon: "send" };
+  if (L === "Send the refund") return { label: "Send refund", href: `/tenancy/${id}/refund`, icon: "send" };
   if (L === "Take move-out photos") return { label: "Add move-out photos", href: tabHref(id, "move-out", "photos"), icon: "camera" };
   if (L === "Compare move-in and move-out photos") return { label: "Compare photos", href: tabHref(id, "move-out", "photos"), icon: "image" };
   if (L === "Record the statement delivery") return { label: "Record delivery", href: `/tenancy/${id}/statement#delivery`, icon: "mail" };

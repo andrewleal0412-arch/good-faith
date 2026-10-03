@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { Menu } from "./menu";
-import { Avatar } from "./ui";
+import { Avatar, Wordmark } from "./ui";
 
 // The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Documents, then the Workflows group),
 // PayPal's connection and the account at its foot; a 56px top bar with search, the Test mode switch (the only place
@@ -30,8 +30,6 @@ const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) =>
   { href: "/lease", icon: "file-check", label: "Lease check", match: (p) => p.startsWith("/lease") },
   { href: "/move-outs", icon: "key", label: "Move-outs", match: (p) => p.startsWith("/move-outs") },
 ];
-
-const Wordmark = () => <span className="text-lg font-semibold tracking-[-0.015em] text-ink">Good Faith</span>;
 
 export function AppShell({ data, children }: { data: ShellData; children: ReactNode }) {
   const path = usePathname();
@@ -188,14 +186,16 @@ function AccountCard({ data }: { data: ShellData }) {
   );
 }
 
-/** Search across properties and tenants: it filters the Properties table. Cmd+K or Ctrl+K focuses it. */
+/** Search across properties and tenants: it filters the Properties table, or on Payments the payments grid. Cmd+K or
+ *  Ctrl+K focuses it. */
 function Search() {
   const router = useRouter();
   const params = useSearchParams();
   const path = usePathname();
   const field = useRef<HTMLInputElement>(null);
   const [mobile, setMobile] = useState(false);
-  const current = path === "/units" ? params.get("q") ?? "" : "";
+  const onLedger = path === "/ledger";
+  const current = path === "/units" || onLedger ? params.get("q") ?? "" : "";
 
   useEffect(() => {
     const focus = () => { setMobile(true); setTimeout(() => field.current?.focus(), 0); };
@@ -210,7 +210,11 @@ function Search() {
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const q = String(new FormData(e.currentTarget).get("q") ?? "").trim();
-    router.push(q ? `/units?q=${encodeURIComponent(q)}` : "/units");
+    // On Payments the search stays there (with any property the grid was opened on); everywhere else it opens Properties.
+    const base = onLedger ? "/ledger" : "/units";
+    const keep = onLedger && params.get("tenancy") ? [`tenancy=${encodeURIComponent(params.get("tenancy")!)}`] : [];
+    const qs = [...keep, ...(q ? [`q=${encodeURIComponent(q)}`] : [])].join("&");
+    router.push(qs ? `${base}?${qs}` : base);
     setMobile(false);
   }
 
@@ -219,7 +223,8 @@ function Search() {
         className={`${mobile ? "absolute inset-x-0 top-0 z-10 flex h-14 bg-canvas px-4" : "hidden"} items-center md:static md:flex md:h-auto md:px-0`}>
         <label className="flex h-9 w-full items-center gap-2 rounded-md border border-line bg-surface pl-3 pr-2.5 text-ink-4 focus-within:border-brand focus-within:bg-canvas focus-within:ring-3 focus-within:ring-brand-50 md:w-[400px]">
           <Icon name="search" className="size-[15px]" />
-          <input ref={field} name="q" defaultValue={current} placeholder="Search properties, tenants" aria-label="Search properties and tenants"
+          <input ref={field} name="q" defaultValue={current} placeholder={onLedger ? "Search payments" : "Search properties, tenants"}
+            aria-label={onLedger ? "Search payments" : "Search properties and tenants"}
             onBlur={() => setMobile(false)}
             className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-4" />
           <kbd className="hidden rounded-xs border border-line bg-canvas px-[5px] font-sans text-xs text-ink-3 md:inline">&#8984;K</kbd>

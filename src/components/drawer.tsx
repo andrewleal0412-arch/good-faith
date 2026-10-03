@@ -16,6 +16,7 @@ export function Drawer({ open, onClose, title, sub, children, footer }: {
   footer?: ReactNode; // the actions, pinned to the drawer's foot
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   const titleId = useId();
 
@@ -24,7 +25,11 @@ export function Drawer({ open, onClose, title, sub, children, footer }: {
   useEffect(() => {
     if (!open) return;
     const back = document.activeElement as HTMLElement | null;
-    const first = panel.current?.querySelector<HTMLElement>("[data-autofocus], input:not([type=hidden]), select, textarea, button");
+    // Focus starts on the form, not the Close button above it: a marked control, else the first field. A drawer with
+    // no field (a confirmation) starts on Close, never on its action button, so Enter can't confirm by accident.
+    const first = panel.current?.querySelector<HTMLElement>("[data-autofocus]")
+      ?? body.current?.querySelector<HTMLElement>("input:not([type=hidden]), select, textarea")
+      ?? panel.current?.querySelector<HTMLElement>("button[aria-label=Close]");
     first?.focus();
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -60,7 +65,7 @@ export function Drawer({ open, onClose, title, sub, children, footer }: {
             <Icon name="x" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
+        <div ref={body} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
         {footer && <div className="flex items-center gap-2 border-t border-line-2 px-5 py-3.5">{footer}</div>}
       </div>
     </div>

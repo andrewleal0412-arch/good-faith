@@ -5,7 +5,7 @@ import { usd } from "./deductions";
 
 export type TimelineItem =
   | { kind: "say"; text: string }
-  | { kind: "step"; id: string; title: string; detail: string; state: "ok" | "error" | "waiting" | "declined" };
+  | { kind: "step"; id: string; tool: string; title: string; detail: string; state: "ok" | "error" | "waiting" | "declined" };
 
 type Part = { type: string; text?: string; toolCallId?: string; toolName?: string; input?: Record<string, unknown>;
   output?: { type: string; value?: unknown }; approvalId?: string; approved?: boolean };
@@ -76,7 +76,7 @@ function detail(tool: string, out: Record<string, unknown> | null): { text: stri
 
 export function timeline(messages: Message[]): TimelineItem[] {
   const items: TimelineItem[] = [];
-  const steps = new Map<string, Extract<TimelineItem, { kind: "step" }> & { tool: string }>();
+  const steps = new Map<string, Extract<TimelineItem, { kind: "step" }>>();
   const approvalToCall = new Map<string, string>();
   for (const m of messages) {
     if (m.role === "user" || typeof m.content === "string") continue;
@@ -103,5 +103,5 @@ export function timeline(messages: Message[]): TimelineItem[] {
       }
     }
   }
-  return items.map((i) => (i.kind === "step" ? { kind: "step", id: i.id, title: i.title, detail: i.detail, state: i.state } : i));
+  return items.map((i) => (i.kind === "step" ? { kind: "step", id: i.id, tool: i.tool, title: i.title, detail: i.detail, state: i.state } : i));
 }

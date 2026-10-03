@@ -70,7 +70,7 @@ export function InfoTip({ title, children, cite, label = "More information", tri
       </button>
       {open && (
         <span ref={tip} id={id} role="tooltip"
-          className="fixed left-0 top-0 z-40 block w-[300px] max-w-[calc(100vw-24px)] rounded-md bg-ink px-3.5 py-3 text-left text-sm font-normal normal-case tracking-normal text-white shadow-md">
+          className="fixed left-0 top-0 z-40 block w-[300px] max-w-[calc(100vw-24px)] whitespace-normal rounded-md bg-ink px-3.5 py-3 text-left text-sm font-normal normal-case tracking-normal text-white shadow-md">
           {title && <span className="mb-[3px] block font-medium text-white">{title}</span>}
           {children && <span className="block text-white/90">{children}</span>}
           {cite && <span className="mt-1.5 block text-xs text-white/70">{cite}</span>}
@@ -78,4 +78,10 @@ export function InfoTip({ title, children, cite, label = "More information", tri
       )}
     </span>
   );
+}
+
+/** A label that opens its own tip (pass it as `trigger`): a dotted underline in place of an info icon, for lists where
+ *  an icon on every row would stack into a column of chrome. */
+export function TipLabel({ children }: { children: ReactNode }) {
+  return <span className="text-left underline decoration-ink-4 decoration-dotted underline-offset-[3px] hover:decoration-ink-2">{children}</span>;
 }

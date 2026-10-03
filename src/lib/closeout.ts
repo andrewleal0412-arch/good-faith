@@ -48,6 +48,7 @@ export const RULES = {
 
 const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 
 export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   const today = pacificToday();
@@ -64,7 +65,7 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   const due = moveOut ? statementDue(moveOut) : null;
   const daysLeft = due ? daysBetween(today, due) : null;
   if (!moveOut) blockers.push("Set the move-out date first: it starts the 21-day clock.");
-  if (daysLeft != null && daysLeft < 0) warnings.push(`The 21-day deadline passed ${-daysLeft} day(s) ago. Refund now; a late statement risks the whole deposit if a court finds bad faith (1950.5(h)(7), (m)).`);
+  if (daysLeft != null && daysLeft < 0) warnings.push(`The 21-day deadline passed ${days(-daysLeft)} ago. Refund now; a late statement risks the whole deposit if a court finds bad faith (1950.5(h)(7), (m)).`);
 
   // The deposit as PayPal reports it right now, not as we stored it. If PayPal can't be reached, the statement still
   // renders from what the tenancy page last stored, but no money moves on stale facts: the outage is a blocker.
@@ -141,18 +142,26 @@ function plan(f: CloseOutFacts): CloseOutFacts["plan"] {
   const sameAccount = !!d.billedTo && d.billedTo.toLowerCase() === email.toLowerCase();
   if (d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS && sameAccount) {
     return { rail: "refund_original_payment", amount, captureId: d.captureId, email,
-      why: `Paid ${d.daysSincePaid} days ago through PayPal from the account the tenants designated, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment.` };
+      why: `Paid ${days(d.daysSincePaid)} ago through PayPal from the account the tenants designated, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment.` };
   }
   return { rail: "payout", amount, email,
     why: !d.captureId ? "There's no PayPal payment to refund against, so the money goes out as a Payout to the designated account."
       : !sameAccount ? `The deposit was billed to ${d.billedTo ?? "another address"}, not the account the tenants designated, so it goes out as a Payout to ${email}.`
-        : `The deposit was paid ${d.daysSincePaid} days ago, past PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so it goes out as a Payout to ${email}.` };
+        : d.daysSincePaid == null ? `PayPal has no payment date for the deposit, so it goes out as a Payout to ${email}.`
+          : `The deposit was paid ${days(d.daysSincePaid)} ago, past PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so it goes out as a Payout to ${email}.` };
 }
+
+export type RefundIntent = { rail: Rail; amount: string; captureId?: string; email?: string };
 
 /** The last word before money moves: recomputed from the database and PayPal at that moment, so a deduction edited
  *  after the agent proposed the refund, a second click, or a model mistake all stop here. Null means go. */
-export async function guardRefund(tenancyId: string, p: { rail: Rail; amount: string; captureId?: string; email?: string }) {
-  const f = await closeOutFacts(tenancyId);
+export async function guardRefund(tenancyId: string, p: RefundIntent) {
+  return guardWithFacts(await closeOutFacts(tenancyId), p);
+}
+
+/** guardRefund's check against facts already loaded: for a page that has just read them and shows the answer. The
+ *  money routes always call guardRefund, which reads the facts fresh. */
+export function guardWithFacts(f: CloseOutFacts, p: RefundIntent) {
   if (f.plan.rail === "blocked") return `Blocked: ${f.blockers.join(" ")}`;
   if (p.rail !== f.plan.rail) return `Blocked: the rules call for ${f.plan.rail.replace(/_/g, " ")}, not ${p.rail.replace(/_/g, " ")}. ${f.plan.why}`;
   if (p.amount !== f.plan.amount.toFixed(2)) return `Blocked: the refund owed is ${usd(f.plan.amount)} (deposit ${usd(f.totals.depositHeld)} minus ${usd(f.totals.deductions)} in deductions), not $${p.amount}.`;
