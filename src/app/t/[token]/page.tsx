@@ -1,33 +1,42 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { longDate, pacificDate } from "@/lib/dates";
-import { usd } from "@/lib/deductions";
+import type { ReactNode } from "react";
+import { buttonClass } from "@/components/button";
+import { CopyId } from "@/components/copy-id";
+import { Icon } from "@/components/icons";
+import { InfoTip, TipLabel } from "@/components/info-tip";
+import { Money } from "@/components/ui";
+import { displayName, maskEmail, TAGS } from "@/lib/copy";
+import { longDate, pacificDate, shortDate } from "@/lib/dates";
+import { returnCompleted, returnFailed } from "@/lib/invoice-status";
+import { streetLine } from "@/lib/ledger";
+import { keepUnit } from "@/lib/property-view";
 import { SANDBOX } from "@/lib/paypal";
 import { MOVE_IN_PHOTOS_FROM } from "@/lib/rules";
-import { describeDelivery, TAGS } from "@/lib/statement";
-import { tenantMoveOutSentOn } from "@/lib/tenant";
+import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { resolveTenantToken } from "@/lib/tenant-links";
-import { loadTenantView, type TenantView } from "@/lib/tenant-view";
-import { InfoTip } from "@/components/info-tip";
+import { loadTenantView, type TenantDeduction, type TenantView } from "@/lib/tenant-view";
 import { MovingOutForm } from "./moving-out-form";
-import { buttonClass } from "@/components/button";
 
 export const dynamic = "force-dynamic";
 
 // A private page, so not for search engines, and the token in its address is sent to no other site.
 export const metadata: Metadata = { title: "Your security deposit", robots: { index: false, follow: false }, referrer: "no-referrer" };
 
-// The tenants' own page, opened with the link their landlord gave them: what they paid, what they signed, the
-// move-in photos, where things stand, and the statement once it goes out. Every fact comes from loadTenantView,
-// which names its columns; nothing here reaches the landlord's lease flags, activity log or agent runs, and no
-// address on this page carries the tenancy id. Section F of the rules spec: the statute's terms and the facts on
-// file, never advice.
+// The tenants' own page, opened with the link their landlord gave them. Airbnb's refund status for the top (the amount,
+// one status line, a progress bar), then one-line Details rows, the deductions in the statement's numbering, the
+// timeline, the statement to download and where to take a question. Every fact comes from loadTenantView, which names
+// its columns; nothing here reaches the landlord's lease flags, activity log or agent runs, and no address on this page
+// carries the tenancy id. Section F of the rules spec: the statute's terms and the facts on file, never advice, and
+// every rule and citation sits behind an info tip.
 
 /** LEGAL_RULES source S7: where disputes go, by the courts' own guide. */
 const COURTS_GUIDE = "https://selfhelp.courts.ca.gov/guide-security-deposits-california";
 
 const words = (status: string) => status.toLowerCase().replace(/_/g, " ");
-const payMethod = (m: string | null) => (!m || m === "PAYPAL" ? "PayPal" : words(m));
+const payMethod = (m: string | null) => (!m || m === "PAYPAL" ? "PayPal" : words(m).replace(/^./, (c) => c.toUpperCase()));
+const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   const { token } = await params;
@@ -36,295 +45,451 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   const v = await loadTenantView(link.tenancyId);
   if (!v) notFound();
 
-  const stand = standing(v);
-  const rooms = [...new Set(v.photos.map((p) => p.room))];
-  const moveInPhotosRequired = !!v.startDate && v.startDate >= MOVE_IN_PHOTOS_FROM;
-  const a = v.agreement;
   const st = v.statement;
   const pdf = `/api/t/${token}/statement.pdf`;
-  const signed = a ? `on ${longDate(pacificDate(a.signedAt))}` : null;
-
-  // The rules in plain words, each with the exact subsection, and the facts on file for this tenancy where they fit.
-  const rights: { text: React.ReactNode; cite: string }[] = [
-    {
-      text: <>Within 21 calendar days after you move out, the landlord gives you an itemized statement of any deductions and returns the rest of the deposit.{v.moveOutDate && v.statementDue ? <> You moved out on {longDate(v.moveOutDate)}, so the deadline {st ? "was" : "is"} {longDate(v.statementDue)}.</> : null}</>,
-      cite: "Civ. Code 1950.5(h)(1)",
-    },
-    {
-      text: "Deductions can only be for unpaid rent, damage beyond ordinary wear and tear caused by you or your guests, cleaning that brings the unit back to how clean it was when you moved in, or, if your lease says so, restoring or replacing the landlord's furnishings.",
-      cite: "Civ. Code 1950.5(b)(1)-(4)",
-    },
-    {
-      text: "Nothing can be deducted for ordinary wear and tear, for conditions that were already there when you moved in, or for wear that built up over earlier tenancies. Only what is reasonably necessary to restore the unit to its move-in condition may be charged.",
-      cite: "Civ. Code 1950.5(e)(1), (e)(2)(A)-(B)",
-    },
-    {
-      // (h)(2)(D) sends the photos only with a repair or cleaning deduction, and (h)(4)(A) lifts that at $125 or less.
-      text: `The landlord photographs the unit ${moveInPhotosRequired ? "at the start of the tenancy, and again " : ""}at move-out before and after any repair or cleaning that is deducted. If any repair or cleaning is deducted, those photos come with the statement, subject to the $125 rule below.`,
-      cite: moveInPhotosRequired ? "Civ. Code 1950.5(g)(1)-(2), (h)(2)(D)" : "Civ. Code 1950.5(g)(2), (h)(2)(D)",
-    },
-    {
-      text: "If repair and cleaning deductions total more than $125, the invoices, receipts, labor records and photos come with the statement. If they total $125 or less, you may ask for them within 14 days of receiving the statement, and the landlord then has 14 days to provide them.",
-      cite: "Civ. Code 1950.5(h)(2), (h)(4)-(5)",
-    },
-    v.deposit?.electronic
-      ? {
-        text: <>Because the deposit was paid electronically, the rest of it comes back electronically{a ? <>. You agreed in writing {signed} that it comes back by PayPal to {a.paypalEmail}.</> : <>, to an account you designate in writing, or by another electronic method you agree to in writing.</>}</>,
-        cite: "Civ. Code 1950.5(h)(1)(A)",
-      }
-      : {
-        text: <>The refund comes by personal delivery or first-class mail check, electronically if you paid rent or the deposit electronically, or by a method you and the landlord agreed to in writing{a ? <>: you agreed {signed} that it comes back by PayPal to {a.paypalEmail}</> : null}.</>,
-        cite: "Civ. Code 1950.5(h)(1)(A)",
-      },
-    {
-      text: "Before you move out, you may ask for an initial inspection and be there for it. It can take place no earlier than two weeks before the tenancy ends, with at least 48 hours' written notice of the date and time. Afterwards the landlord gives you an itemized list of what would be deducted, so you can fix it before you leave.",
-      cite: "Civ. Code 1950.5(f)(1), (f)(2)",
-    },
-    { text: "The statement is mailed to the address you give the landlord. If you give none, it goes to the unit you left.", cite: "Civ. Code 1950.5(h)(6)" },
-    // (h)(1)(C)(i) is the default; the (C)(ii) agreement may send the refund to one adult or divide it, and says how
-    // each adult receives the statement. The agreement on file names the account, which is stated as a fact only.
-    ...(v.tenants.length > 1 ? [{
-      text: <>With more than one adult on the lease, the refund is a check payable to all of you and the statement goes to any one of you, unless every adult and the landlord signed a written agreement saying how it is returned, whether to one of you or divided among you, and how each of you receives the statement.{a ? <> The agreement above, signed by {a.signedBy.join(" and ")}, names the PayPal account the refund goes to.</> : null}</>,
-      cite: "Civ. Code 1950.5(h)(1)(C)",
-    }] : []),
-  ];
+  const stand = standing(v);
+  const steps = v.moveOutDate || st ? progress(v) : null;
+  const moveInPhotosRequired = !!v.startDate && v.startDate >= MOVE_IN_PHOTOS_FROM;
+  const rooms = [...new Set(v.photos.map((p) => p.room))];
+  const landlord = v.landlord ? displayName(v.landlord) : "Your landlord";
 
   return (
-    <>
-    <header className="border-b border-line bg-canvas print:hidden">
-      <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:px-5">
-        <span className="truncate text-base font-medium">{v.landlord ?? "Your landlord"}</span>
-        <span className="ml-auto text-sm text-ink-3">Tenant view</span>
-      </div>
-    </header>
-    <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-5">
-      <p className="text-sm text-ink-3">Your security deposit</p>
-      <h1 className="mt-1 text-xl font-medium">{v.address}</h1>
-      <p className="mt-1 text-base text-ink-2">
-        {v.tenants.join(" and ") || "Tenant"}{v.startDate && <>, since {longDate(v.startDate)}</>}
-      </p>
+    <div className="min-h-screen bg-canvas">
+      <header className="border-b border-line print:hidden">
+        <div className="mx-auto flex h-[52px] w-full max-w-[600px] items-center gap-3 px-5">
+          <span className="min-w-0 truncate text-base font-medium">{landlord}</span>
+          {/* The sandbox in plain text, not a chip: the landlord's Test mode switch is where it is shown in full. */}
+          {SANDBOX && <span title="PayPal sandbox: no real money moves" className="ml-auto shrink-0 text-xs text-ink-3">Sandbox</span>}
+        </div>
+      </header>
 
-      <div className="mt-6 rounded-lg border border-line bg-canvas p-5 shadow-sm">
-        <p className="text-xs font-medium text-ink-3">Where things stand</p>
-        <p className="mt-1 text-lg font-medium">{stand.title}</p>
-        <p className="mt-1 text-base text-ink-2">{stand.detail}</p>
-        {v.deposit?.payLink && (
-          <a href={v.deposit.payLink} target="_blank" rel="noreferrer" className={buttonClass("primary", "md", "mt-3")}>
-            Pay the deposit invoice in PayPal{SANDBOX ? " (sandbox)" : ""}
-          </a>
-        )}
-      </div>
+      <main className="mx-auto w-full max-w-[600px] px-5 pb-10 pt-6 sm:pt-10">
+        <h1 className="text-xl font-medium">{v.moveOutDate || st ? "Your deposit refund" : "Your security deposit"}</h1>
+        <p className="mt-0.5 text-sm text-ink-3">{keepUnit(streetLine(v.address))}</p>
 
-      <Section title="Your deposit" cite="Civ. Code 1950.5(c), (h)(1)">
-        {v.deposit ? (
-          <>
-            <p className="text-xl font-medium tabular-nums">{usd(v.deposit.amount)}</p>
-            <p className="mt-1 text-base text-ink-2">
-              {v.deposit.paid
-                ? <>Paid {v.deposit.paidAt ? `on ${longDate(pacificDate(v.deposit.paidAt))} ` : ""}by {payMethod(v.deposit.method)}, PayPal invoice <span className="text-xs">{v.deposit.invoiceId}</span>.</>
-                : <>PayPal invoice <span className="text-xs">{v.deposit.invoiceId}</span> is {words(v.deposit.status)}, not paid yet.</>}
-            </p>
-          </>
-        ) : (
-          <p className="text-base text-ink-2">No deposit invoice has been sent through PayPal yet.</p>
-        )}
-      </Section>
-
-      <Section title={a ? "The refund agreement you signed" : "How the refund comes back"} cite="Civ. Code 1950.5(h)(1)(A)">
-        {a ? (
-          <>
-            {a.text && <blockquote className="rounded-md bg-surface px-4 py-3 text-base">&ldquo;{a.text}&rdquo;</blockquote>}
-            <p className={`${a.text ? "mt-3 " : ""}text-base text-ink-2`}>
-              Agreed in writing by <b className="text-ink">{a.signedBy.join(" and ")}</b> {signed}. PayPal account: <span className="text-xs">{a.paypalEmail}</span>.
-            </p>
-          </>
-        ) : (
-          <p className="text-base text-ink-2">
-            No written agreement on the refund method is on file.{" "}
-            {v.deposit?.electronic
-              ? "Because the deposit was paid electronically, the refund comes back electronically: to an account you designate in writing, or by another electronic method you agree to in writing."
-              : "The refund comes by personal delivery or first-class mail check, electronically if you paid rent or the deposit electronically, or by a method you and the landlord agree to in writing."}
+        {/* Where things stand: the one hero number, one status line, one sentence. */}
+        <section aria-label="Where things stand" className="mt-6">
+          <p className="text-sm text-ink-3">{stand.label}</p>
+          {stand.amount != null && <Money value={stand.amount} className="mt-0.5 block text-2xl font-medium" />}
+          <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
+            <StatusMark tone={stand.tone} />
+            {stand.title}
           </p>
-        )}
-      </Section>
+          {stand.line && <p className="mt-1.5 text-ink-2">{stand.line}</p>}
+          {stand.pay && (
+            <a href={stand.pay} target="_blank" rel="noreferrer" className={buttonClass("primary", "lg", "mt-4 h-11 w-full")}>
+              Pay deposit with PayPal<Icon name="arrow-up-right" />
+            </a>
+          )}
+          {steps && <Progress steps={steps} />}
+        </section>
 
-      <Section title="Move-in photos" cite={moveInPhotosRequired ? "Civ. Code 1950.5(g)(1)" : undefined}>
-        <p className="text-base text-ink-2">
-          {v.photos.length
-            ? `${v.photos.length} photo${v.photos.length === 1 ? "" : "s"} of the unit at the start of the tenancy: the record of its condition on day one, which any move-out comparison is measured against.`
-            : "No move-in photos are on file."}
-        </p>
-        {v.photos.length > 0 && (
-          <>
-            <p className="mt-1 text-xs text-ink-3">Tap a photo to open it full size.</p>
-            {/* One grid, in room order, each tile opening the same photo at full size through the token route. */}
-            <ul className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-5">
+        <Section title="Details" info={<InfoTip align="end" title="Your deposit" cite="Civ. Code 1950.5(c), (h)(1)">
+          Everything charged at the start of the tenancy except first month&apos;s rent is security. It comes back, less any lawful deductions, with an itemized statement.
+          {v.deposit?.invoiceId && !st && <span className="mt-1.5 block text-white/70">PayPal invoice {v.deposit.invoiceId}</span>}
+        </InfoTip>}>
+          <Details rows={detailRows(v)} />
+        </Section>
+
+        {st && (
+          <Section title="Deductions" meta={st.deductions.length ? `${st.deductions.length}` : undefined}
+            info={st.deductions.some((d) => d.category !== "rent") ? (
+              <InfoTip align="end" title={st.documentsRequired ? "Receipts come with the statement" : "Receipts on request"}
+                cite={st.documentsRequired ? "Civ. Code 1950.5(h)(2)" : "Civ. Code 1950.5(h)(4)-(5)"}>
+                {st.documentsRequired
+                  ? "Repair and cleaning deductions total more than $125, so the invoices, receipts, labor records and photos come with the statement. The PDF lists exactly what it holds."
+                  : "Repair and cleaning deductions total $125 or less, so those documents are not required with the statement. You may request them within 14 days of receiving it, and the landlord then has 14 days to provide them."}
+              </InfoTip>
+            ) : undefined}>
+            {st.deductions.length
+              ? <ol>{st.deductions.map((d) => <DeductionRow key={d.n} d={d} />)}</ol>
+              : <p className="text-ink-3">None. The whole deposit comes back.</p>}
+          </Section>
+        )}
+
+        {!st && (
+          <Section title={v.moveOutDate ? "Where to mail your statement" : "Moving out"}
+            info={<InfoTip align="end" title="Where the statement goes" cite="Civ. Code 1950.5(h)(6)">
+              The itemized statement is mailed to the address you give your landlord. If you give none, it goes to the unit you {v.moveOutDate ? "left" : "are leaving"}.
+            </InfoTip>}>
+            <MovingOutForm token={token} tenants={v.tenants} today={v.today} moveOutDate={v.moveOutDate} existing={v.moveOut} quiet={!!stand.pay} />
+          </Section>
+        )}
+
+        {steps && (
+          <Section title="Timeline">
+            <Timeline steps={steps} due={st ? null : v.statementDue} delivery={st?.delivery ?? null} />
+          </Section>
+        )}
+
+        {/* No tip here: the rule for these photos, (g)(1), is the "Photos of the unit" right below. */}
+        <Section title="Move-in photos" meta={v.photos.length ? `${v.photos.length}` : undefined}>
+          {v.photos.length ? (
+            // One grid, in room order, each tile opening the same photo at full size through the token route.
+            <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5">
               {rooms.flatMap((r) => v.photos.filter((p) => p.room === r)).map((p) => (
                 <li key={p.id} className="min-w-0">
-                  <a href={`/api/t/${token}/photos/${p.id}`} target="_blank" rel="noreferrer" className="block rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                  <a href={`/api/t/${token}/photos/${p.id}`} target="_blank" rel="noreferrer" aria-label={`${p.room}, move-in photo`}
+                    className="block rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand-100">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`/api/t/${token}/photos/${p.id}`} alt={`${p.room}, move-in`} loading="lazy" className="aspect-square w-full rounded-md bg-surface object-cover" />
+                    <img src={`/api/t/${token}/photos/${p.id}`} alt="" loading="lazy" className="aspect-square w-full rounded-md border border-line bg-surface object-cover" />
                   </a>
                   <p className="mt-1 truncate text-xs text-ink-3" title={p.room}>{p.room}</p>
                 </li>
               ))}
             </ul>
-          </>
-        )}
-      </Section>
-
-      <Section title="Moving out" cite="Civ. Code 1950.5(h)(6)">
-        {v.moveOutDate ? (
-          <p className="text-base text-ink-2">
-            Your landlord recorded the move-out on <b className="text-ink">{longDate(v.moveOutDate)}</b>.
-            {v.statementDue && (st
-              ? <> The itemized statement was due by {longDate(v.statementDue)}, 21 calendar days later (Civ. Code 1950.5(h)(1)), and went out on {longDate(st.delivery.date)}.</>
-              : <> The itemized statement and the rest of the deposit are due by {longDate(v.statementDue)}, 21 calendar days later (Civ. Code 1950.5(h)(1)).</>)}
-          </p>
-        ) : v.noticeGivenOn ? (
-          <p className="text-base text-ink-2">
-            Your landlord recorded notice given on <b className="text-ink">{longDate(v.noticeGivenOn)}</b>{v.plannedMoveOut && <>, with a planned move-out of <b className="text-ink">{longDate(v.plannedMoveOut)}</b></>}.
-          </p>
-        ) : null}
-        {st ? (
-          <p className={`${v.moveOutDate || v.noticeGivenOn ? "mt-2 " : ""}text-base text-ink-2`}>
-            {v.moveOut && <>You sent on {longDate(tenantMoveOutSentOn(v.moveOut))}: {v.moveOutDate ? "" : `moving out ${longDate(v.moveOut.planned_move_out)}, with `}{v.moveOut.forwarding_address} as the forwarding address. </>}
-            The itemized statement {v.moveOutDate ? "has gone out" : <>went out on {longDate(st.delivery.date)}</>}, so these details can&apos;t be changed here. If something is wrong, contact your landlord directly.
-          </p>
-        ) : (
-          <>
-            <p className={`${v.moveOutDate || v.noticeGivenOn ? "mt-2 " : ""}text-base text-ink-2`}>
-              {v.moveOutDate
-                ? <>Where should the itemized statement be mailed? It goes to the address you give; with none, to the unit you left (Civ. Code 1950.5(h)(6)).</>
-                : <>Tell your landlord when you are leaving and where to mail the itemized statement. It is mailed to the address you give; with none, it goes to the unit you are leaving (Civ. Code 1950.5(h)(6)).</>}
-            </p>
-            <MovingOutForm token={token} tenants={v.tenants} today={v.today} moveOutDate={v.moveOutDate} existing={v.moveOut} />
-          </>
-        )}
-      </Section>
-
-      {st && (
-        <Section title="Itemized statement" cite="Civ. Code 1950.5(h)">
-          <p className="text-base text-ink-2">Delivered by {describeDelivery(st.delivery)}.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <a href={pdf} target="_blank" rel="noreferrer" className={buttonClass("primary", "md")}>Open the statement (PDF)</a>
-            <a href={`${pdf}?download=1`} className={buttonClass("secondary", "md")}>Download</a>
-          </div>
-          {/* Built fresh from the landlord's records on each request (no copy of the mailed PDF is kept), so the copy says so. */}
-          <p className="mt-2 text-xs text-ink-3">The PDF is built from your landlord&apos;s records as they stand, dated the day the statement went out, with the photo exhibits and copies of any invoices. The paper or email you received is the statement itself.</p>
-
-          {st.deductions.length ? (
-            <ol className="mt-4 divide-y divide-line border-t border-line">
-              {st.deductions.map((d, i) => (
-                <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-base font-medium">{d.item}{d.room && <span className="font-normal text-ink-3">, {d.room}</span>}</p>
-                    <p className="text-xs text-ink-3">{TAGS[d.category].tag} {TAGS[d.category].label}</p>
-                  </div>
-                  <p className="text-base font-medium tabular-nums">{usd(d.amount)}</p>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-4 border-t border-line pt-3 text-base text-ink-2">No deductions.</p>
-          )}
-          <dl className="mt-2 space-y-1.5 border-t border-line pt-4 text-base">
-            <Row label="Security held">{usd(st.depositHeld)}</Row>
-            <Row label="Total deductions">{st.total ? `-${usd(st.total)}` : usd(0)}</Row>
-            {st.balanceClaimed > 0
-              ? <Row label="Balance claimed" strong>{usd(st.balanceClaimed)}</Row>
-              : <Row label={v.returned ? "Returned" : "Refund"} strong>{usd(v.returned?.amount ?? st.refund)}</Row>}
-          </dl>
-          <p className="mt-3 text-base text-ink-2">
-            {v.returned
-              ? <>{usd(v.returned.amount)} was returned by PayPal {v.returned.kind === "payout" ? "Payout" : "refund"} on {longDate(pacificDate(v.returned.at))}{v.returned.paypalId && <> (id <span className="text-xs">{v.returned.paypalId}</span>)</>}; PayPal reports it as {words(v.returned.status)}.</>
-              : st.refund > 0
-                ? <>{usd(st.refund)} is to be returned{a ? <> by PayPal to {a.paypalEmail}</> : null}{v.statementDue ? `, due by ${longDate(v.statementDue)}` : ""}.</>
-                : st.balanceClaimed > 0
-                  ? <>The deductions exceed the deposit by {usd(st.balanceClaimed)}. The statement records that amount as a claim; it is not a demand for immediate payment.</>
-                  : <>The deductions used the whole deposit, so nothing is left to return.</>}
-          </p>
-          {st.deductions.some((d) => d.category !== "rent") && (
-            <p className="mt-2 text-sm text-ink-3">
-              {st.documentsRequired
-                ? "Repair and cleaning deductions total more than $125, so the law requires the invoices, receipts, labor records and photos with the statement (Civ. Code 1950.5(h)(2)). The PDF lists exactly what it holds."
-                : "Repair and cleaning deductions total $125 or less, so those documents are not required with the statement. You may request them within 14 days of receiving it, and the landlord then has 14 days to provide them (Civ. Code 1950.5(h)(4)-(5))."}
-            </p>
-          )}
+          ) : <p className="text-ink-3">None on file.</p>}
         </Section>
-      )}
 
-      <Section title="Your rights, as the statute states them">
-        <p className="text-sm text-ink-3">
-          California Civil Code section 1950.5 in plain words, with the facts on file for this tenancy where they fit. Nothing here is advice about your situation.
-        </p>
-        <ul className="mt-4 space-y-4">
-          {rights.map((r, i) => (
-            <li key={i} className="flex items-start gap-2">
-              <p className="min-w-0 flex-1 text-base">{r.text}</p>
-              <InfoTip align="end" title="Where the law says it" cite={r.cite} />
+        {st && (
+          <div className="mt-6 border-t border-line pt-6">
+            <a href={`${pdf}?download=1`} className={buttonClass("primary", "lg", "h-11 w-full")}>
+              <Icon name="download" />Download itemized statement (PDF)
+            </a>
+            <p className="mt-2.5 flex items-center justify-center gap-1.5 text-sm text-ink-3">
+              <a href={pdf} target="_blank" rel="noreferrer" className="text-brand hover:underline">Open in browser</a>
+              {/* Built fresh from the landlord's records on each request (no copy of the mailed PDF is kept), so the tip says so. */}
+              <InfoTip align="end" title="About this PDF">
+                Built from your landlord&apos;s records as they stand, dated the day the statement went out, with the photo exhibits and copies of any invoices. The paper or email you received is the statement itself.
+              </InfoTip>
+            </p>
+
+            <div className="mt-4 rounded-lg border border-line-2 bg-surface px-4 py-3.5">
+              <p className="font-medium">Questions about a deduction?</p>
+              <p className="mt-0.5 text-sm text-ink-3">Ask {landlord} first. The courts&apos; guide explains how disputes are handled.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a href="#rights" className={buttonClass("secondary", "sm")}>Your rights</a>
+                <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className={buttonClass("secondary", "sm")}>Courts&apos; guide<Icon name="arrow-up-right" /></a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* One tip for the section (what this page is and isn't); each right opens its own from its title, so the list
+            ends without a column of icons. */}
+        <Section id="rights" title="Your rights" info={<InfoTip align="end" title="About this page">
+          The rules as California Civil Code 1950.5 states them, with the facts your landlord keeps with Good Faith where they fit. It is not legal advice and does not evaluate your situation.
+        </InfoTip>}>
+          <ul>
+            {rights(v, moveInPhotosRequired).map((r) => (
+              <li key={r.title} className="border-t border-line-2 py-2.5 first:border-t-0 first:pt-0">
+                <InfoTip trigger={<TipLabel>{r.title}</TipLabel>} title={r.title} cite={r.cite}>{r.text}</InfoTip>
+              </li>
+            ))}
+            <li className="border-t border-line-2 pt-2.5">
+              <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand hover:underline">
+                Courts&apos; guide to security deposits<Icon name="arrow-up-right" className="size-3.5" />
+              </a>
             </li>
-          ))}
-        </ul>
-      </Section>
+          </ul>
+        </Section>
 
-      <footer className="mt-10 space-y-2 border-t border-line pt-5 text-xs text-ink-3">
-        <p>Prepared with Good Faith. This page shows the records your landlord keeps with Good Faith and the rules as California Civil Code 1950.5 states them. It is not legal advice and does not evaluate your situation.</p>
-        <p>
-          If you and your landlord disagree about a deduction, the California courts&apos;{" "}
-          <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">self-help guide to security deposits</a>{" "}
-          explains how such disputes are handled.
-        </p>
-      </footer>
-    </main>
+        <footer className="mt-8 text-center text-xs text-ink-3">
+          Prepared with <span className="font-medium text-ink-2">Good Faith</span>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
+/* ---------- Where things stand ---------- */
+
+type Tone = "green" | "amber" | "red" | "gray";
+
+/** The status block, from the latest fact on file: a label, the hero amount, one status line and one sentence. */
+function standing(v: TenantView): { label: string; amount: number | null; tone: Tone; title: string; line?: ReactNode; pay?: string | null } {
+  const st = v.statement;
+  const due = (text: string) => withTip(text, <InfoTip align="end" title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">Within 21 calendar days after you move out, the landlord gives you an itemized statement of any deductions and returns the rest of the deposit.</InfoTip>);
+  if (v.returned) {
+    const r = v.returned, how = r.kind === "payout" ? "PayPal Payout" : "PayPal refund";
+    if (returnFailed(r.status)) return { label: "Refund amount", amount: r.amount, tone: "red", title: `Refund ${words(r.status)}`, line: `PayPal reports the ${how} as ${words(r.status)}. Ask your landlord to send it again.` };
+    const done = returnCompleted(r.status);
+    return {
+      label: "Refund amount", amount: r.amount, tone: done ? "green" : "amber", title: `Refund sent ${shortDate(pacificDate(r.at))}`,
+      line: `PayPal shows the ${how.replace("PayPal ", "")} as ${done ? "completed" : words(r.status)}.`,
+    };
+  }
+  if (st) {
+    const sent = `Statement sent ${shortDate(st.delivery.date)}`;
+    if (st.refund > 0) return { label: "Refund due", amount: st.refund, tone: "amber", title: sent, line: v.statementDue ? due(`The refund is due by ${shortDate(v.statementDue)}.`) : undefined };
+    if (st.balanceClaimed > 0) return { label: "Balance claimed", amount: st.balanceClaimed, tone: "gray", title: sent, line: "The statement records it as a claim, not a demand for immediate payment." };
+    return { label: "Refund", amount: 0, tone: "gray", title: sent, line: "The deductions used the whole deposit." };
+  }
+  const held = v.deposit?.paid ? v.deposit.amount : null;
+  if (v.moveOutDate && v.statementDue) {
+    return { label: "Deposit held", amount: held, tone: "amber", title: `Moved out ${shortDate(v.moveOutDate)}`, line: due(`Your statement and refund are due by ${shortDate(v.statementDue)}.`) };
+  }
+  if (v.noticeGivenOn) {
+    return { label: "Deposit held", amount: held, tone: "gray", title: v.plannedMoveOut ? `Moving out ${shortDate(v.plannedMoveOut)}` : "Notice given", line: `Your landlord recorded your notice on ${shortDate(v.noticeGivenOn)}.` };
+  }
+  if (v.moveOut) {
+    return { label: "Deposit held", amount: held, tone: "gray", title: `Moving out ${shortDate(v.moveOut.planned_move_out)}`, line: "Your landlord has your forwarding address." };
+  }
+  if (v.deposit?.paid) {
+    return {
+      label: "Deposit held", amount: v.deposit.amount, tone: "green", title: v.deposit.paidAt ? `Paid ${shortDate(pacificDate(v.deposit.paidAt))}` : "Paid",
+      line: due("It comes back, less any lawful deductions, within 21 days after you move out."),
+    };
+  }
+  if (v.deposit) {
+    return { label: "Deposit requested", amount: v.deposit.amount, tone: "amber", title: `Invoice ${words(v.deposit.status)}, not paid yet`, pay: v.deposit.payLink };
+  }
+  return { label: "Security deposit", amount: null, tone: "gray", title: "No deposit request yet", line: "Your landlord has not sent a deposit invoice through PayPal." };
+}
+
+function StatusMark({ tone }: { tone: Tone }) {
+  const t = { green: "bg-green-bg text-green", amber: "bg-amber-bg text-amber", red: "bg-red-bg text-red", gray: "bg-surface-2 text-ink-3" }[tone];
+  return (
+    <span aria-hidden className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full ${t}`}>
+      <Icon name={tone === "green" ? "check" : tone === "red" ? "alert" : "clock"} className="size-3" />
+    </span>
+  );
+}
+
+/** Text with a tip tied to its last word, so on a phone the icon wraps with that word instead of sitting alone. */
+function withTip(text: string, tip: ReactNode) {
+  const cut = text.lastIndexOf(" ");
+  return (
+    <>
+      {text.slice(0, cut + 1)}
+      <span className="whitespace-nowrap">{text.slice(cut + 1)}<span className="ml-1.5 inline-flex align-[-2px]">{tip}</span></span>
     </>
   );
 }
 
-/** One line on where the deposit stands, from the latest fact on file. */
-function standing(v: TenantView): { title: string; detail: string } {
+/* ---------- Progress and timeline ---------- */
+
+type Step = { key: string; label: string; title: string; done: boolean; date: string | null };
+
+/** Move-out to statement in four steps, as the tenants see them. Each is done on its own date; a refund can go out
+ *  before or after the statement. */
+function progress(v: TenantView): Step[] {
   const st = v.statement;
-  if (st) {
-    const sent = `The itemized statement went out by ${describeDelivery(st.delivery)}.`;
-    if (v.returned) return { title: `${usd(v.returned.amount)} returned to you`, detail: `By PayPal ${v.returned.kind === "payout" ? "Payout" : "refund"} on ${longDate(pacificDate(v.returned.at))}. ${sent}` };
-    if (st.refund > 0) return { title: `${usd(st.refund)} to come back to you`, detail: `${sent}${v.statementDue ? ` The refund is due by ${longDate(v.statementDue)}, 21 days after move-out (Civ. Code 1950.5(h)(1)).` : ""}` };
-    if (st.balanceClaimed > 0) return { title: "Statement sent; the deductions exceed the deposit", detail: `${sent} It records ${usd(st.balanceClaimed)} as a claim, not a demand for immediate payment.` };
-    return { title: "Statement sent; nothing left to return", detail: `${sent} The deductions used the whole deposit.` };
-  }
-  if (v.moveOutDate && v.statementDue) {
-    return { title: `Moved out ${longDate(v.moveOutDate)}`, detail: `The itemized statement and the rest of the deposit are due by ${longDate(v.statementDue)}, 21 calendar days after move-out (Civ. Code 1950.5(h)(1)).` };
-  }
-  if (v.noticeGivenOn) {
-    return { title: v.plannedMoveOut ? `Moving out ${longDate(v.plannedMoveOut)}` : "Notice given", detail: `Your landlord recorded the notice given on ${longDate(v.noticeGivenOn)}.${v.moveOut ? " Your forwarding address for the statement is on file." : ""}` };
-  }
-  if (v.moveOut) {
-    return { title: `Moving out ${longDate(v.moveOut.planned_move_out)}`, detail: `You sent this on ${longDate(tenantMoveOutSentOn(v.moveOut))}, with the forwarding address for the statement (Civ. Code 1950.5(h)(6)). Your landlord sees it on their side.` };
-  }
-  if (v.deposit?.paid) {
-    // The date and invoice id sit in the Your deposit card just below, so this line says only what happens to it.
-    return { title: `${usd(v.deposit.amount)} deposit held`, detail: "It comes back, less any lawful deductions, with an itemized statement within 21 calendar days after you move out (Civ. Code 1950.5(h)(1))." };
-  }
-  if (v.deposit) return { title: `Deposit invoice ${words(v.deposit.status)}`, detail: `PayPal invoice ${v.deposit.invoiceId} for ${usd(v.deposit.amount)} has not been paid yet.` };
-  return { title: "No deposit invoice yet", detail: "Your landlord has not sent a deposit invoice through PayPal." };
+  const noRefund = !!st && !v.returned && st.refund <= 0;
+  const sent = st ? deliveredWord(st.delivery) : null;
+  return [
+    { key: "out", label: "Moved out", title: "Moved out", done: !!v.moveOutDate, date: v.moveOutDate },
+    { key: "inspect", label: "Inspected", title: v.inspectedAt ? "Inspection completed" : "Inspection", done: !!v.inspectedAt, date: v.inspectedAt ? pacificDate(v.inspectedAt) : null },
+    v.returned
+      ? { key: "refund", label: "Refund sent", title: "Refund sent", done: true, date: pacificDate(v.returned.at) }
+      : noRefund
+        ? { key: "refund", label: "No refund", title: "No refund due", done: true, date: st!.delivery.date }
+        : { key: "refund", label: "Refund sent", title: "Refund", done: false, date: null },
+    { key: "statement", label: "Statement", title: sent ? `Itemized statement ${sent}` : "Itemized statement", done: !!st, date: st?.delivery.date ?? null },
+  ];
 }
 
-function Section({ title, cite, children }: { title: string; cite?: string; children: React.ReactNode }) {
+const deliveredWord = (d: DeliveryRecord) => (d.method === "mail" ? "mailed" : d.method === "email" ? "emailed" : "delivered");
+
+/** Apple's order progress: a green bar with tick marks and a label under each of the four steps. */
+function Progress({ steps }: { steps: Step[] }) {
+  const last = steps.reduce((n, s, i) => (s.done ? i : n), -1);
+  const at = (i: number) => `${(i / (steps.length - 1)) * 100}%`;
   return (
-    <section className="mt-8">
-      <div className="flex items-center gap-1.5">
-        <h2 className="text-lg font-medium">{title}</h2>
-        {cite && <InfoTip title={title} cite={cite} />}
+    <div className="mt-5" role="img" aria-label={`Progress: ${steps.filter((s) => s.done).map((s) => s.label).join(", ") || "not started"}`}>
+      <div className="relative mx-[5px] h-1 rounded-full bg-line">
+        {last > 0 && <div className="absolute inset-y-0 left-0 rounded-full bg-green-dot" style={{ width: at(last) }} />}
+        {steps.map((s, i) => (
+          <span key={s.key} style={{ left: at(i) }}
+            className={`absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white ${s.done ? "bg-green-dot" : "bg-line"}`} />
+        ))}
       </div>
-      <div className="mt-3 rounded-lg border border-line bg-canvas p-5 shadow-sm">{children}</div>
-    </section>
+      <div className="relative mt-2.5 h-4 text-xs text-ink-3">
+        {steps.map((s, i) => (
+          <span key={s.key} style={{ left: at(i) }}
+            className={`absolute top-0 whitespace-nowrap ${i === 0 ? "" : i === steps.length - 1 ? "-translate-x-full" : "-translate-x-1/2"} ${i === last ? "font-medium text-ink" : ""}`}>
+            {s.label}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
-function Row({ label, strong, children }: { label: string; strong?: boolean; children: React.ReactNode }) {
+/** The same four steps with their dates: green checks for what happened, the brand dot for what comes next. */
+function Timeline({ steps, due, delivery }: { steps: Step[]; due: string | null; delivery: DeliveryRecord | null }) {
+  const next = steps.findIndex((s) => !s.done);
   return (
-    <div className={`flex justify-between gap-4 ${strong ? "text-lg font-medium" : "text-ink-2"}`}>
-      <dt>{label}</dt>
-      <dd className="tabular-nums">{children}</dd>
-    </div>
+    <ol>
+      {steps.map((s, i) => {
+        const state = s.done ? "done" : i === next ? "now" : "todo";
+        const sub = s.date ? shortDate(s.date) : due && (s.key === "refund" || s.key === "statement") ? `Due by ${shortDate(due)}` : "Not yet";
+        return (
+          <li key={s.key} className="relative grid grid-cols-[20px_minmax(0,1fr)] gap-x-2.5 pb-[18px] last:pb-0">
+            {i < steps.length - 1 && <span aria-hidden className="absolute bottom-[-2px] left-[9.5px] top-5 w-px bg-line" />}
+            <span aria-hidden className={`relative z-[1] inline-flex size-5 items-center justify-center rounded-full ${state === "done" ? "bg-green-bg text-green" : state === "now" ? "bg-brand-50" : "border border-line bg-canvas"}`}>
+              {state === "done" ? <Icon name="check" className="size-3" /> : state === "now" ? <span className="size-2 rounded-full bg-brand" /> : null}
+            </span>
+            <div>
+              <p className={`flex items-center gap-1.5 font-medium ${state === "todo" ? "text-ink-3" : ""}`}>
+                {s.title}
+                {s.key === "statement" && delivery && (
+                  <InfoTip align="end" title="How it was delivered" cite="Civ. Code 1950.5(h)(1)(B), (h)(6)">{capFirst(describeDelivery(delivery))}.</InfoTip>
+                )}
+              </p>
+              <p className="text-xs text-ink-3">{sub}<span className="sr-only">{s.done ? ", done" : ""}</span></p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/* ---------- Details ---------- */
+
+type DetailRow = { k: ReactNode; v: ReactNode; total?: boolean };
+
+function detailRows(v: TenantView): DetailRow[] {
+  const st = v.statement, d = v.deposit, a = v.agreement;
+  const masked = maskEmail(a?.paypalEmail);
+  const rows: DetailRow[] = [];
+  const signed = a ? `Signed by ${a.signedBy.join(" and ")} on ${longDate(pacificDate(a.signedAt))}.` : "";
+  const agreementTip = (label: string) => (
+    <InfoTip trigger={<TipLabel>{label}</TipLabel>} title={a ? "Your refund agreement" : "How the refund comes back"} cite="Civ. Code 1950.5(h)(1)(A)">
+      {a
+        ? <>{a.text ? <>&ldquo;{a.text}&rdquo; </> : null}{signed}</>
+        : d?.electronic
+          ? "Because the deposit was paid electronically, it comes back electronically: to an account you designate in writing, or by another electronic method you agree to in writing."
+          : "The refund comes by personal delivery or first-class mail check, electronically if you paid rent or the deposit electronically, or by a method you and the landlord agree to in writing."}
+    </InfoTip>
+  );
+
+  if (d) rows.push({ k: d.paid ? "Deposit paid" : "Deposit requested", v: <Money value={d.amount} /> });
+  else rows.push({ k: "Deposit", v: <span className="text-ink-3">Not requested yet</span> });
+
+  if (st) {
+    rows.push({ k: "Deductions", v: st.total ? <Money value={st.total} sign="minus" /> : <Money value={0} /> });
+    if (st.balanceClaimed > 0) rows.push({ k: "Balance claimed", v: <Money value={st.balanceClaimed} />, total: true });
+    else rows.push({ k: v.returned ? "Refund" : "Refund due", v: <Money value={v.returned?.amount ?? st.refund} />, total: true });
+  }
+
+  if (v.returned) {
+    const payout = v.returned.kind === "payout";
+    rows.push({ k: "Method", v: payout ? "PayPal Payout" : "PayPal refund" });
+    rows.push({ k: agreementTip("Sent to"), v: payout ? (masked ? `PayPal, ${masked}` : "PayPal") : "Your original PayPal payment" });
+    if (v.returned.paypalId) rows.push({ k: `PayPal ${payout ? "payout" : "refund"} ID`, v: <CopyId text={v.returned.paypalId} label={`Copy the PayPal ${payout ? "payout" : "refund"} ID`} /> });
+    return rows;
+  }
+
+  if (d?.paid && !st) {
+    if (d.paidAt) rows.push({ k: "Paid on", v: shortDate(pacificDate(d.paidAt)) });
+    rows.push({ k: "Paid with", v: payMethod(d.method) });
+  }
+  if (d && !d.paid) rows.push({ k: "Status", v: capFirst(words(d.status)) });
+  if (!st || st.refund > 0) rows.push({ k: agreementTip("Refund to"), v: masked ? `PayPal, ${masked}` : <span className="text-ink-3">Not agreed yet</span> });
+  return rows;
+}
+
+/** One row per fact, the value on the right; the total's rule is drawn once, across the whole row. */
+function Details({ rows }: { rows: DetailRow[] }) {
+  return (
+    <dl className="flex flex-col gap-2.5">
+      {rows.map((r, i) => (
+        <div key={i} className={`flex items-baseline gap-4 ${r.total ? "mt-0.5 border-t border-line-2 pt-2.5 font-medium" : ""}`}>
+          <dt className={`shrink-0 ${r.total ? "" : "text-ink-3"}`}>{r.k}</dt>
+          <dd className="min-w-0 flex-1 text-right tabular-nums">{r.v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/* ---------- Deductions ---------- */
+
+function DeductionRow({ d }: { d: TenantDeduction }) {
+  const tone = d.category === "damage" ? "bg-red-bg text-red" : d.category === "cleaning" ? "bg-amber-bg text-amber" : "bg-surface-2 text-ink-3";
+  const tag = TAGS[d.category];
+  return (
+    <li className="flex gap-3 border-t border-line-2 py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <span className={`mt-px flex size-6 shrink-0 items-center justify-center rounded-sm text-xs font-semibold tabular-nums ${tone}`}>{d.n}</span>
+      <div className="min-w-0 flex-1">
+        {/* The thing and what was done to it; where it was and the basis under it. The item as the statement prints it
+            heads the Why? tip, with the math. */}
+        <p className="font-medium">{d.title}</p>
+        <p className="mt-0.5 text-sm text-ink-3">
+          {capFirst([d.room, d.where ? lowerFirst(d.where) : null].filter(Boolean).join(", "))}{d.room || d.where ? ". " : ""}{d.basis}.{" "}
+          <InfoTip trigger="why" align="end" title={tag.label} cite={`Civ. Code 1950.5${tag.tag}`}>
+            {capFirst(d.item)}{d.room ? ` (${d.room})` : ""}: {d.math}.{d.note ? ` ${d.note}` : ""}{d.proration !== "none" ? " Proration by useful life and paint schedules is published guidance, not statute." : ""}
+          </InfoTip>
+        </p>
+      </div>
+      <Money value={d.amount} className="font-medium" />
+    </li>
+  );
+}
+
+/* ---------- Your rights ---------- */
+
+/** The rules in one line each, with the exact subsection and, where they fit, the facts on file in the tip. */
+function rights(v: TenantView, moveInPhotosRequired: boolean): { title: string; text: ReactNode; cite: string }[] {
+  const a = v.agreement, st = v.statement;
+  const signed = a ? `on ${longDate(pacificDate(a.signedAt))}` : "";
+  return [
+    {
+      title: "Statement and refund within 21 days",
+      text: <>Within 21 calendar days after you move out, the landlord gives you an itemized statement of any deductions and returns the rest of the deposit.{v.moveOutDate && v.statementDue ? <> You moved out on {longDate(v.moveOutDate)}, so the deadline {st ? "was" : "is"} {longDate(v.statementDue)}.</> : null}</>,
+      cite: "Civ. Code 1950.5(h)(1)",
+    },
+    {
+      title: "What can be deducted",
+      text: "Only unpaid rent, damage beyond ordinary wear and tear caused by you or your guests, cleaning that brings the unit back to how clean it was when you moved in, or, if your lease says so, restoring or replacing the landlord's furnishings.",
+      cite: "Civ. Code 1950.5(b)(1)-(4)",
+    },
+    {
+      title: "No charge for wear and tear",
+      text: "Nothing can be deducted for ordinary wear and tear, for conditions that were already there when you moved in, or for wear that built up over earlier tenancies. Only what is reasonably necessary to restore the unit to its move-in condition may be charged.",
+      cite: "Civ. Code 1950.5(e)(1), (e)(2)(A)-(B)",
+    },
+    {
+      // (h)(2)(D) sends the photos only with a repair or cleaning deduction, and (h)(4)(A) lifts that at $125 or less.
+      title: "Photos of the unit",
+      text: `The landlord photographs the unit ${moveInPhotosRequired ? "at the start of the tenancy, and again " : ""}at move-out before and after any repair or cleaning that is deducted. If any repair or cleaning is deducted, those photos come with the statement, subject to the $125 rule.`,
+      cite: moveInPhotosRequired ? "Civ. Code 1950.5(g)(1)-(2), (h)(2)(D)" : "Civ. Code 1950.5(g)(2), (h)(2)(D)",
+    },
+    {
+      title: "Receipts for deductions over $125",
+      text: "If repair and cleaning deductions total more than $125, the invoices, receipts, labor records and photos come with the statement. If they total $125 or less, you may ask for them within 14 days of receiving the statement, and the landlord then has 14 days to provide them.",
+      cite: "Civ. Code 1950.5(h)(2), (h)(4)-(5)",
+    },
+    v.deposit?.electronic
+      ? {
+        title: "How the refund comes back",
+        text: <>Because the deposit was paid electronically, the rest of it comes back electronically{a ? <>. You agreed in writing {signed} that it comes back by PayPal to {a.paypalEmail}.</> : <>, to an account you designate in writing, or by another electronic method you agree to in writing.</>}</>,
+        cite: "Civ. Code 1950.5(h)(1)(A)",
+      }
+      : {
+        title: "How the refund comes back",
+        text: <>The refund comes by personal delivery or first-class mail check, electronically if you paid rent or the deposit electronically, or by a method you and the landlord agreed to in writing{a ? <>: you agreed {signed} that it comes back by PayPal to {a.paypalEmail}</> : null}.</>,
+        cite: "Civ. Code 1950.5(h)(1)(A)",
+      },
+    {
+      title: "An inspection before you move out",
+      text: "Before you move out, you may ask for an initial inspection and be there for it. It can take place no earlier than two weeks before the tenancy ends, with at least 48 hours' written notice of the date and time. Afterwards the landlord gives you an itemized list of what would be deducted, so you can fix it before you leave.",
+      cite: "Civ. Code 1950.5(f)(1), (f)(2)",
+    },
+    { title: "Where the statement is mailed", text: "The statement is mailed to the address you give the landlord. If you give none, it goes to the unit you left.", cite: "Civ. Code 1950.5(h)(6)" },
+    // (h)(1)(C)(i) is the default; the (C)(ii) agreement may send the refund to one adult or divide it, and says how
+    // each adult receives the statement. The agreement on file names the account, which is stated as a fact only.
+    ...(v.tenants.length > 1 ? [{
+      title: "More than one adult on the lease",
+      text: <>With more than one adult on the lease, the refund is a check payable to all of you and the statement goes to any one of you, unless every adult and the landlord signed a written agreement saying how it is returned, whether to one of you or divided among you, and how each of you receives the statement.{a ? <> The agreement signed by {a.signedBy.join(" and ")} names the PayPal account the refund goes to.</> : null}</>,
+      cite: "Civ. Code 1950.5(h)(1)(C)",
+    }] : []),
+  ];
+}
+
+/* ---------- Layout ---------- */
+
+function Section({ id, title, meta, info, children }: { id?: string; title: string; meta?: string; info?: ReactNode; children: ReactNode }) {
+  return (
+    <section id={id} className="mt-6 scroll-mt-6 border-t border-line pt-5">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-lg font-medium">{title}</h2>
+        {meta && <span className="text-xs text-ink-3">{meta}</span>}
+        {info && <span className="ml-auto inline-flex">{info}</span>}
+      </div>
+      {children}
+    </section>
   );
 }

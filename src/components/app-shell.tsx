@@ -13,7 +13,7 @@ import { Avatar, Wordmark } from "./ui";
 
 export type ShellAlert = { title: string; sub: string; href: string; tone: "red" | "amber" };
 export type ShellData = {
-  account: string; // the landlord, as the leases name them
+  account: string; // GOOD_FAITH_ACCOUNT, or the owner of the oldest tenancy (accountName in units.ts)
   initials: string;
   owners: string[]; // every owner on file, for the account card
   sandbox: boolean;
@@ -226,9 +226,17 @@ function Search() {
           <input ref={field} name="q" defaultValue={current} placeholder={onLedger ? "Search payments" : "Search properties, tenants"}
             aria-label={onLedger ? "Search payments" : "Search properties and tenants"}
             onBlur={() => setMobile(false)}
+            onKeyDown={(e) => { if (e.key === "Escape") { setMobile(false); e.currentTarget.blur(); } }}
             className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-4" />
           <kbd className="hidden rounded-xs border border-line bg-canvas px-[5px] font-sans text-xs text-ink-3 md:inline">&#8984;K</kbd>
         </label>
+        {/* On a phone the search covers the top bar, so it carries its own way out (Escape works too). */}
+        {mobile && (
+          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setMobile(false)}
+            className="ml-3 shrink-0 rounded-sm text-sm font-medium text-brand outline-none focus-visible:ring-3 focus-visible:ring-brand-100 md:hidden">
+            Cancel
+          </button>
+        )}
     </form>
   );
 }

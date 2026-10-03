@@ -82,8 +82,8 @@ export function NoticeSection(p: {
         <CardHead title="Notice and dates" />
         <div className="flex flex-col divide-y divide-line-2">
           <KV className="px-5 py-3.5" rows={[
-            ["Lease ends", p.endDate ? longDate(p.endDate) : "Month to month"],
-            ["Notice", p.noticeGivenOn ? `Given ${longDate(p.noticeGivenOn)}${p.plannedMoveOut ? `, move-out planned ${longDate(p.plannedMoveOut)}` : ""}`
+            ["Lease ends", p.endDate ? shortDate(p.endDate) : "Month to month"],
+            ["Notice", p.noticeGivenOn ? `Given ${shortDate(p.noticeGivenOn)}${p.plannedMoveOut ? `, move-out planned ${shortDate(p.plannedMoveOut)}` : ""}`
               : <span key="n" className="inline-flex items-center gap-1.5">Not recorded{why}</span>],
             ["Moved out", <MoveOutDate key="m" tenancyId={p.tenancyId} value={p.moveOutDate} locked={p.moveOutLocked || p.closed} />],
           ]} />
@@ -165,7 +165,7 @@ export function NoticeSection(p: {
           ) : (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
               <span className="w-[120px] text-ink-3">Notice given</span>
-              <span>{longDate(p.noticeGivenOn!)}<span className="text-ink-3">, move-out {longDate(p.plannedMoveOut!)}</span></span>
+              <span>{shortDate(p.noticeGivenOn!)}<span className="text-ink-3">, move-out {shortDate(p.plannedMoveOut!)}</span></span>
               {(windowOpens || p.plannedMoveOut) && (
                 <InfoTip title="What follows from the notice" cite="Civ. Code 1950.5(f)(1), (h)(1)">
                   {windowOpens && <>The inspection window opens {longDate(windowOpens)}, two weeks before the move-out. </>}

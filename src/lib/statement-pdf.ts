@@ -314,7 +314,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   w.pairs([
     ["From", s.landlord], ["To", s.tenants.join(" and ")],
     ["Moved out", s.moveOutDate ? longDate(s.moveOutDate) : "Not set"], ["Statement date", longDate(s.statementDate)],
-    ["Due by", `${s.statementDue ? longDate(s.statementDue) : "--"}${dueLine}`], ["Deadline", "21 days after move-out, Civ. Code 1950.5(h)(1)"],
+    ["Due by", `${s.statementDue ? longDate(s.statementDue) : "Not set"}${dueLine}`], ["Deadline", "21 days after move-out, Civ. Code 1950.5(h)(1)"],
   ]);
 
   // 1. Security received.

@@ -190,6 +190,3 @@ export function byUrgency(a: { next: NextStep }, b: { next: NextStep }): number 
   return da - dbb;
 }
 
-export const STATUS_LABEL: Record<string, string> = {
-  move_in: "Move-in", active: "Active", moving_out: "Moving out", statement_sent: "Statement sent", closed: "Closed",
-};

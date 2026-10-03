@@ -1,7 +1,8 @@
 import "server-only";
+import { CATEGORY_ORDER } from "./copy";
 import { pacificToday } from "./dates";
 import { db } from "./db";
-import { settle, statementDue } from "./deductions";
+import { basisWords, chargeTitle, settle, statementDue, type Performer, type Proration, type Work } from "./deductions";
 import { refreshDepositInvoice, type DepositInvoiceRow } from "./deposit";
 import { paidElectronically, wasPaid } from "./invoice-status";
 import type { Category, DeliveryRecord } from "./statement";
@@ -27,18 +28,32 @@ export type TenantView = {
   noticeGivenOn: string | null; // the notice as the landlord recorded it
   plannedMoveOut: string | null;
   moveOutDate: string | null; // the actual move-out, which starts the 21-day clock
+  inspectedAt: string | null; // when the move-out photos were compared (the date only reaches the page, never the findings)
   statementDue: string | null;
   moveOut: TenantMoveOut | null; // what the tenants sent through the link
   // The itemized statement, only once the landlord delivered it: until then the deductions are the landlord's draft.
+  // Each line carries what the statement prints for it (the cost explanation, (h)(2)(D)), numbered as the PDF is.
   statement: {
     delivery: DeliveryRecord; deliveredAt: string; depositHeld: number;
-    deductions: { item: string; room: string | null; category: Category; amount: number }[];
+    deductions: TenantDeduction[];
     total: number; refund: number; balanceClaimed: number; documentsRequired: boolean;
   } | null;
   returned: { amount: number; kind: string; status: string; paypalId: string | null; at: string } | null;
 };
 
-const TENANCY_COLUMNS = "tenants, start_date, end_date, notice_given_on, planned_move_out, move_out_date, statement_delivered_at, statement_delivery, refund_agreement, tenant_move_out, properties(address, owner_name)";
+export type TenantDeduction = {
+  n: number; item: string; room: string | null; category: Category; amount: number;
+  work: Work; performer: Performer; proration: Proration; math: string; note: string | null;
+  title: string; where: string | null; basis: string; // the page's title, where it was and its basis in a few words
+};
+
+const TENANCY_COLUMNS = "tenants, start_date, end_date, notice_given_on, planned_move_out, move_out_date, move_out_inspected_at, statement_delivered_at, statement_delivery, refund_agreement, tenant_move_out, properties(address, owner_name)";
+const DEDUCTION_COLUMNS = "item, room, category, amount, work, performer, proration, math, note, hours, hourly_rate, item_age_years, useful_life_years";
+type DeductionRow = {
+  item: string; room: string | null; category: Category; amount: number | string; work: Work; performer: Performer; proration: Proration; math: string; note: string | null;
+  hours: number | string | null; hourly_rate: number | string | null; item_age_years: number | string | null; useful_life_years: number | string | null;
+};
+const num = (v: number | string | null) => (v == null ? null : Number(v));
 
 export async function loadTenantView(tenancyId: string): Promise<TenantView | null> {
   const { data: t } = await db.from("tenancies").select(TENANCY_COLUMNS).eq("id", tenancyId).single();
@@ -47,7 +62,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   const [{ data: payments }, { data: photos }, { data: deductionRows }] = await Promise.all([
     db.from("payments").select("id, kind, paypal_id, amount, status, raw, created_at").eq("tenancy_id", tenancyId).order("created_at"),
     db.from("photos").select("id, room").eq("tenancy_id", tenancyId).eq("phase", "move_in").order("created_at"),
-    delivered ? db.from("deductions").select("item, room, category, amount").eq("tenancy_id", tenancyId).order("created_at") : Promise.resolve({ data: [] as { item: string; room: string | null; category: Category; amount: number | string }[] }),
+    delivered ? db.from("deductions").select(DEDUCTION_COLUMNS).eq("tenancy_id", tenancyId).order("created_at") : Promise.resolve({ data: [] }),
   ]);
 
   const stored = (payments ?? []).find((p) => p.kind === "deposit_invoice") as DepositInvoiceRow | undefined;
@@ -66,7 +81,15 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
 
   let statement: TenantView["statement"] = null;
   if (delivered) {
-    const rows = (deductionRows ?? []).map((d) => ({ item: d.item as string, room: d.room as string | null, category: d.category as Category, amount: Number(d.amount) }));
+    // The statement's order and numbers: rent, then damage, then cleaning, each in the order entered.
+    const rows: TenantDeduction[] = ((deductionRows ?? []) as DeductionRow[])
+      .map((d) => ({
+        item: d.item, room: d.room, category: d.category, amount: Number(d.amount), work: d.work, performer: d.performer, proration: d.proration, math: d.math, note: d.note ?? null,
+        ...(d.category === "rent" ? { title: d.item, where: null } : chargeTitle(d.item, d.work)),
+        basis: basisWords({ category: d.category, performer: d.performer, proration: d.proration, hours: num(d.hours), hourlyRate: num(d.hourly_rate), itemAgeYears: num(d.item_age_years), usefulLifeYears: num(d.useful_life_years) }),
+      }))
+      .sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category])
+      .map((d, i) => ({ n: i + 1, ...d }));
     const depositHeld = deposit?.paid ? deposit.amount : 0;
     const s = settle(depositHeld, rows);
     statement = {
@@ -84,7 +107,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     deposit,
     agreement: a ? { text: a.text ?? null, paypalEmail: a.paypal_email, signedBy: a.signed_by, signedAt: a.signed_at } : null,
     photos: (photos ?? []).map((p) => ({ id: p.id as string, room: p.room as string })),
-    noticeGivenOn: t.notice_given_on, plannedMoveOut: t.planned_move_out, moveOutDate: t.move_out_date,
+    noticeGivenOn: t.notice_given_on, plannedMoveOut: t.planned_move_out, moveOutDate: t.move_out_date, inspectedAt: t.move_out_inspected_at,
     statementDue: t.move_out_date ? statementDue(t.move_out_date) : null,
     moveOut: (t.tenant_move_out ?? null) as TenantMoveOut | null,
     statement,

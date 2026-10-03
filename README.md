@@ -111,6 +111,7 @@ All of them live in `.env.local`, which is gitignored. The setup scripts below w
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | The PayPal app's credentials | `scripts/setup-sandbox.sh` |
 | `ANTHROPIC_API_KEY` | The app's own Claude calls | `scripts/setup-anthropic.sh` |
 | `ANTHROPIC_MODEL` | Optional. Overrides `claude-opus-5-5` for all three Claude jobs | by hand |
+| `GOOD_FAITH_ACCOUNT` | Optional. The account name in the app's sidebar and PayPal card; without it, the owner of the oldest tenancy | by hand |
 | `PAYPAL_SANDBOX_BUYER_EMAIL`, `PAYPAL_SANDBOX_BUYER_PASSWORD` | Optional. The sandbox personal account that pays the demo invoice | `scripts/setup-sandbox-tenant.sh` |
 | `PLAYWRIGHT_PYTHON` | Optional. The Python with Playwright the demo seed uses | by hand |
 | `DEMO_BASE_URL` | Optional. Where the demo seed sends its requests (default `http://localhost:3210`) | by hand |

@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, buttonClass } from "@/components/button";
-import { Drawer } from "@/components/drawer";
+import { ConfirmDialog } from "@/components/confirm";
+import { Drawer, drawerFooter } from "@/components/drawer";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu } from "@/components/menu";
@@ -84,7 +85,7 @@ export function MoveOut(p: {
     router.refresh();
   }
 
-  // Comparing again replaces the suggested findings; once a deduction exists, a small drawer asks first.
+  // Comparing again replaces the suggested findings; once a deduction exists, a dialog asks first.
   async function inspect(confirmed = false) {
     if (!confirmed && p.findings.some((f) => f.deduction)) return setDrawer({ kind: "compare" });
     setDrawer(null);
@@ -153,7 +154,7 @@ export function MoveOut(p: {
             <FilePick label="Choose photos" icon="camera" accept="image/*" multiple ariaLabel="Move-out photos" files={files} onChange={setFiles} />
           </div>
           {error && <Notice>{error}</Notice>}
-          <div className="sticky -bottom-5 -mx-5 -mb-5 mt-6 flex gap-2 border-t border-line-2 bg-canvas px-5 py-3.5">
+          <div className={drawerFooter}>
             <Button variant="primary" disabled={!files.length || busy === "photos"}
               onClick={() => upload(files, () => { setFiles([]); setDrawer(null); })}>
               {busy === "photos" ? "Uploading..." : "Upload"}
@@ -162,13 +163,8 @@ export function MoveOut(p: {
           </div>
         </div>
       </Drawer>
-      <Drawer open={drawer?.kind === "compare"} onClose={() => setDrawer(null)} title="Compare again?">
-        <p className="text-sm text-ink-2">Suggested findings are replaced. Your deductions stay.</p>
-        <div className="sticky -bottom-5 -mx-5 -mb-5 mt-6 flex gap-2 border-t border-line-2 bg-canvas px-5 py-3.5">
-          <Button variant="primary" onClick={() => inspect(true)}>Compare again</Button>
-          <Button onClick={() => setDrawer(null)}>Cancel</Button>
-        </div>
-      </Drawer>
+      <ConfirmDialog open={drawer?.kind === "compare"} title="Compare again?" body="Suggested findings are replaced. Your deductions stay."
+        action="Compare again" onConfirm={() => inspect(true)} onCancel={() => setDrawer(null)} />
     </>
   );
 

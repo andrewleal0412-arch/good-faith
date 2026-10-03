@@ -142,7 +142,7 @@ export function Settlement(p: {
 
       <div className="flex justify-end border-t border-line px-5 pb-[18px] pt-3.5">
         <dl className="grid grid-cols-[auto_120px] gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[auto_140px]">
-          <dt className="text-right text-ink-3">Deposit held</dt><dd className="text-right">{p.depositHeld == null ? "--" : <Money value={p.depositHeld} />}</dd>
+          <dt className="text-right text-ink-3">Deposit held</dt><dd className="text-right">{p.depositHeld == null ? <span className="text-ink-3">Not paid</span> : <Money value={p.depositHeld} />}</dd>
           <dt className="text-right text-ink-3">Deductions</dt><dd className="text-right"><Money value={s.total} sign={s.total ? "minus" : undefined} /></dd>
           <dt className="mt-0.5 border-t border-line pt-2 text-right font-medium leading-6 text-ink">
             {s.balanceClaimed > 0 ? "Balance claimed" : p.returned ? "Refunded" : "Refund due"}

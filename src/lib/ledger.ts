@@ -20,17 +20,6 @@ export const KIND_LABEL: Record<LedgerKind, string> = {
   damage_invoice: "Balance invoice",
 };
 
-/** The chip for each kind, in the app's tokens: money in is green, what is kept is amber, money back and invoices
- *  are neutral (status colors only, one indigo for actions). */
-export const KIND_TONE: Record<LedgerKind, string> = {
-  deposit_invoice: "bg-surface-2 text-ink-2",
-  payment: "bg-green-bg text-green",
-  deduction: "bg-amber-bg text-amber",
-  refund: "bg-surface-2 text-ink-2",
-  payout: "bg-surface-2 text-ink-2",
-  damage_invoice: "bg-red-bg text-red",
-};
-
 /** What a row does to the money held for the tenants, which is what the totals add up. The security stays the
  *  tenants' until the statement claims part of it (1950.5(e)(1), (h)(1)), so a draft deduction takes nothing out
  *  yet, and a refund PayPal refused moved nothing. */
@@ -53,7 +42,8 @@ export type LedgerRow = {
   tenants: string;
   kind: LedgerKind;
   type: string; // KIND_LABEL[kind]: the word the grid shows and filters on
-  detail: string;
+  detail: string; // the full sentence, for the tooltip, the search and the CSV
+  summary: string; // the same in a few words, for a table cell (the tenancy's Payments tab)
   amount: number; // always positive; `signed` says which way it went
   signed: number; // money in is positive, money claimed or returned is negative, zero when nothing has moved
   effect: LedgerEffect;
@@ -118,6 +108,14 @@ const invoiceWords = (status: string) => INVOICE_WORDS[status] ?? words(status);
 
 const dayDiff = (from: string, to: string) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
 
+/** The same in a few words: "1 day after move-out", "23 days after move-out, late". */
+function timingShort(moveOut: string | null, date: string): string {
+  if (!moveOut) return "";
+  const n = dayDiff(moveOut, date);
+  if (n < 0) return "before move-out";
+  return `${n} day${n === 1 ? "" : "s"} after move-out${n > 21 ? ", late" : ""}`;
+}
+
 /** How long after the move-out the money went back, against the 21 days (h)(1) allows. */
 function timing(moveOut: string | null, date: string): string {
   if (!moveOut) return "";
@@ -150,6 +148,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         detail: lawful && lawful.charged > lawful.amount
           ? `PayPal invoice for the lawful amount; the lease asked ${usd(lawful.charged)}`
           : "PayPal invoice for the security deposit",
+        summary: lawful && lawful.charged > lawful.amount ? "Capped at the lawful amount" : "Security deposit",
         status: invoiceWords(p.status), ...cap,
       });
       // The tenants' payment, from the invoice's transaction record: PayPal's own id, date and method. It is dated as
@@ -168,6 +167,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
           kind: "payment", amount: paid, signed: paid, effect: "collected", paypalId: txn?.payment_id ?? p.paypal_id, method: methodLabel(txn?.method),
           detail: !txn ? `Deposit paid${onInvoice}; PayPal recorded no transaction detail`
             : electronic ? `Deposit paid by ${method}${onInvoice}` : `Deposit recorded as paid by ${method}${onInvoice}`,
+          summary: txn ? `Paid by ${method}` : "Paid",
           status: "received",
           tag: "(h)(1)(A)",
           // The rule, not a conclusion: (h)(1)(A)(ii)(I) turns on the security or the rent arriving electronically, and
@@ -182,6 +182,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
       row({
         id: p.id, date, at: p.created_at, kind: p.kind, amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
         detail: (p.kind === "refund" ? "Refund of the original PayPal payment" : "PayPal Payout to the account the tenants designated") + timing(t.move_out_date, date),
+        summary: [p.kind === "refund" ? "To the original payment" : "To the tenants' account", timingShort(t.move_out_date, date)].filter(Boolean).join(", "),
         status: effect === "returned" ? (p.kind === "refund" ? "completed" : "sent") : words(p.status),
         tag: "(h)(1)", tagShort: "21 days", tagLabel: "Statement and refund within 21 days of move-out",
       });
@@ -190,6 +191,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         id: p.id, date, at: p.created_at, kind: "damage_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
         // The claim-not-demand wording is the DRE guide's (LEGAL_RULES B.12), not the subsection's, so it stays in the detail.
         detail: "PayPal invoice for the balance the deductions exceed the deposit by; recorded as a claim, not a demand for payment (DRE guide)",
+        summary: "Balance over the deposit, a claim",
         status: invoiceWords(p.status),
         tag: "(e)(1)", tagShort: "balance claimed", tagLabel: "Only amounts reasonably necessary for the (b) purposes may be claimed of the security",
       });
@@ -209,6 +211,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
       id: d.id, date: pacificDate(d.created_at), at: d.created_at, kind: "deduction", amount, signed: claimed ? -amount : 0,
       effect: claimed ? "claimed" : "draft", paypalId: null, method: null,
       detail: `${d.item}${d.room ? ` (${d.room})` : ""}`,
+      summary: `${d.item}${d.room ? ` (${d.room})` : ""}`,
       status: d.is_estimate ? "good-faith estimate" : onStatement ? "on the statement" : final ? "final" : delivered != null ? "added after the statement" : "draft",
       tag: TAGS[d.category].tag, tagShort: TAGS[d.category].short, tagLabel: TAGS[d.category].label,
     });

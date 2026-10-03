@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, buttonClass } from "@/components/button";
 import { Icon } from "@/components/icons";
+import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
 import { Money, Notice, StatusChip, inputClass, inlineInputClass } from "@/components/ui";
 import { wasPaid } from "@/lib/invoice-status";
@@ -17,6 +18,8 @@ type Props = {
   lawful: { amount: number; cap: number; charged: number } | null;
   invoice: { id: string; amount: number; status: string; payLink: string | null } | null;
   photos: { id: string; phase: string; room: string; url: string | null }[];
+  quiet?: boolean; // the record header holds the view's primary button, so the steps' buttons are secondary
+  locked?: boolean; // the tenants have moved out: the move-in record is what it was, so no more photos are added
 };
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -35,10 +38,10 @@ export function MoveInSteps(p: Props) {
   async function act(name: string, url: string, init: RequestInit) {
     setBusy(name);
     setError("");
-    const r = await fetch(url, init);
-    const j = await r.json().catch(() => ({}));
+    const r = await fetch(url, init).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
     setBusy(null);
-    if (!r.ok) return setError(j.error ?? "Something went wrong.");
+    if (!r?.ok) return setError(j.error ?? "Something went wrong. Try again.");
     router.refresh();
   }
 
@@ -80,7 +83,9 @@ export function MoveInSteps(p: Props) {
             <p className="text-sm text-ink-3">{p.agreement.signed_by.join(" and ")}, PayPal to <span className="text-ink">{p.agreement.paypal_email}</span></p>
           ) : (
             <div className="mt-1 flex max-w-md flex-col gap-3">
-              <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Tenant's PayPal email" aria-label="Tenant's PayPal email" className={inputClass} />
+              <FormField label="Tenant's PayPal email">
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="off" className={inputClass} />
+              </FormField>
               <div className="flex flex-wrap gap-x-4 gap-y-2">
                 {p.tenants.map((t) => (
                   <label key={t} className="flex items-center gap-2 text-sm">
@@ -91,7 +96,7 @@ export function MoveInSteps(p: Props) {
                 ))}
               </div>
               <div>
-                <Button variant="primary" disabled={busy === "agree"} onClick={() => act("agree", `/api/tenancies/${p.tenancyId}/agreement`, {
+                <Button variant={p.quiet ? "secondary" : "primary"} disabled={busy === "agree"} onClick={() => act("agree", `/api/tenancies/${p.tenancyId}/agreement`, {
                   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paypalEmail: email, signers: signed }),
                 })}>{busy === "agree" ? "Saving..." : "Record agreement"}</Button>
               </div>
@@ -108,7 +113,7 @@ export function MoveInSteps(p: Props) {
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Money value={p.invoice.amount} className="font-medium" />
                 <StatusChip tone={paid ? "green" : "gray"}>{paid ? "Paid" : p.invoice.status.charAt(0) + p.invoice.status.slice(1).toLowerCase().replace(/_/g, " ")}</StatusChip>
-                <span className="text-xs text-ink-3">Invoice {p.invoice.id}</span>
+                {p.invoice.id && <span className="text-xs text-ink-3">Invoice {p.invoice.id}</span>}
               </div>
               {!paid && p.invoice.payLink && (
                 <a className="inline-flex items-center gap-1 text-sm text-brand hover:underline" href={p.invoice.payLink} target="_blank" rel="noreferrer">
@@ -119,14 +124,14 @@ export function MoveInSteps(p: Props) {
           ) : p.lawful ? (
             <div className="flex flex-col gap-2.5">
               {p.lawful.amount < p.lawful.charged ? (
-                <p className="flex flex-wrap items-center gap-1.5 text-sm text-ink-3">
+                <p className="text-sm text-ink-3">
                   Lease asks <s>{usd(p.lawful.charged)}</s>, cap is <span className="text-ink">{usd(p.lawful.cap)}</span>
                 </p>
               ) : (
                 <p className="text-sm text-ink-3">{usd(p.lawful.amount)}, within the cap</p>
               )}
               <div className="flex flex-wrap items-center gap-3">
-                <Button variant="primary" disabled={!p.agreement || busy === "invoice"}
+                <Button variant={p.quiet ? "secondary" : "primary"} disabled={!p.agreement || busy === "invoice"}
                   onClick={() => act("invoice", `/api/tenancies/${p.tenancyId}/deposit-invoice`, { method: "POST" })}>
                   <Icon name="receive" />{busy === "invoice" ? "Sending..." : `Request ${usd(p.lawful.amount)}`}
                 </Button>
@@ -142,18 +147,19 @@ export function MoveInSteps(p: Props) {
           info={<InfoTip title="Every room, before move-in" cite="Civ. Code 1950.5(g)(1), AB 2801">
             Required for tenancies that began on or after July 1, 2025. They are the evidence for anything charged at move-out.
           </InfoTip>}>
-          <div className="flex flex-wrap items-center gap-2">
+          {!p.locked && <div className="flex flex-wrap items-center gap-2">
             <select value={room} onChange={(e) => setRoom(e.target.value)} aria-label="Room" className={`${inlineInputClass} pr-8`}>
               {ROOMS.map((r) => <option key={r}>{r}</option>)}
             </select>
-            <label className={buttonClass("secondary", "md", "cursor-pointer")}>
+            <label className={buttonClass("secondary", "md", "cursor-pointer focus-within:ring-3 focus-within:ring-brand-100")}>
               <Icon name="camera" />{busy === "photos" ? "Uploading..." : "Add photos"}
               <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => addPhotos(e.currentTarget)} />
             </label>
             {moveIn.length > 0 && <span className="text-xs text-ink-3">{moveIn.length} photo{moveIn.length === 1 ? "" : "s"}</span>}
-          </div>
+          </div>}
+          {p.locked && <p className="text-sm text-ink-3">{moveIn.length ? `${moveIn.length} photo${moveIn.length === 1 ? "" : "s"}` : "None taken"}</p>}
           {moveIn.length > 0 && (
-            <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+            <div className={`${p.locked ? "mt-2" : "mt-3"} grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2`}>
               {moveIn.map((x) => x.url && (
                 <figure key={x.id} className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}

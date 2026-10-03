@@ -1,6 +1,6 @@
 import "server-only";
 import { closeOutFacts, type CloseOutFacts } from "./closeout";
-import { TAGS } from "./copy";
+import { CATEGORY_ORDER, TAGS } from "./copy";
 import { db } from "./db";
 import { missingDocs, RECEIPT_THRESHOLD, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
 import { paidElectronically, wasPaid } from "./invoice-status";
@@ -111,6 +111,14 @@ export function describeDelivery(d: DeliveryRecord): string {
   return `${DELIVERY_LABEL[d.method]}${where} on ${longDate(d.date)}`;
 }
 
+/** The same in a few words for a list row ("Mailed Oct 1, 2026 to the vacated unit"); describeDelivery is its tip. */
+export function deliveryLine(d: DeliveryRecord): string {
+  const when = new Date(`${d.date.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  if (d.method === "mail") return `Mailed ${when}${d.address_kind === "unit" ? " to the vacated unit" : d.address_kind === "forwarding" ? " to the forwarding address" : ""}`;
+  if (d.method === "email") return `Emailed ${when}`;
+  return `Handed over ${when}`;
+}
+
 // D28: the only local deposit-interest rules on record here (LEGAL_RULES sources S10-S13). The statement says whether
 // the city is one of these and nothing more; the rates change every year and are not computed.
 const INTEREST_CITIES: { match: RegExp; note: string }[] = [
@@ -137,7 +145,7 @@ function localInterest(city: string | null): Statement["interest"] {
 
 type Row = StoredDeduction & { hours: number | null; hourly_rate: number | null };
 
-const ORDER: Record<Category, number> = { rent: 0, damage: 1, cleaning: 2 };
+const ORDER: Record<Category, number> = CATEGORY_ORDER;
 
 export async function buildStatement(tenancyId: string): Promise<Statement | null> {
   const [{ data: t }, { data: rows }] = await Promise.all([

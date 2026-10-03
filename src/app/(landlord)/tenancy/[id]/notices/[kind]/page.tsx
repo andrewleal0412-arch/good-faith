@@ -7,6 +7,9 @@ import { ABANDONED_PROPERTY_TEXT, INSPECTION_NOTICE_HOURS, inspectionWindowOpens
 import { DISCLAIMERS } from "@/lib/statement";
 import { loadUnit } from "@/lib/units";
 import { Icon } from "@/components/icons";
+import { InfoTip } from "@/components/info-tip";
+import { Card, CardHead, StatusChip } from "@/components/ui";
+import { streetLine } from "@/lib/ledger";
 import { NoticeGivenForm } from "../../notice-given-form";
 import { PrintButton } from "./print-button";
 
@@ -46,16 +49,19 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
 
   return (
     <div className="w-full print:max-w-none">
-      <nav className="flex flex-wrap items-center gap-3 print:hidden">
+      <nav className="flex items-center gap-3 print:hidden">
         <Link href={`/tenancy/${id}?tab=move-out#notice`} aria-label="Back to the property"
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-surface">
           <Icon name="arrow-left" className="size-[15px]" />
         </Link>
-        <h1 className="text-xl font-medium">{info.short.charAt(0).toUpperCase() + info.short.slice(1)}</h1>
-        <div className="ml-auto"><PrintButton /></div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-medium">{info.short.charAt(0).toUpperCase() + info.short.slice(1)}</h1>
+          <p className="truncate text-sm text-ink-3">{streetLine(t.address)}</p>
+        </div>
+        <PrintButton />
       </nav>
 
-      <div className="mt-4 gap-8 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] print:mt-0 print:block">
+      <div className="mt-4 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8 print:mt-0 print:block">
         <article className="rounded-lg border border-line bg-canvas p-6 shadow-sm sm:p-10 print:rounded-none print:border-0 print:p-0 print:shadow-none">
           <header className="print-block">
             <p className="text-xs font-medium text-ink-3">Notice to tenant</p>
@@ -169,29 +175,33 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
           </footer>
         </article>
 
-        <aside className="mt-8 lg:mt-0 print:hidden">
-          <div className="rounded-lg border border-line bg-canvas p-5 shadow-sm lg:sticky lg:top-20">
-            <p className="text-xs font-medium text-ink-3">Status</p>
-            <p className="mt-2 text-base text-ink-2">
-              {given ? "Given. The record is below; the page prints as the copy that went out." : "Draft. Print it, complete the blanks, and record below how and when it went out."}
-            </p>
-            {kind === "electronic_refund" && (
-              <p className={`mt-3 rounded-md px-3 py-2.5 text-sm ${t.refundNotice.needed === false ? "bg-green-bg text-ink-2" : t.refundNotice.needed ? "bg-amber-bg text-ink-2" : "bg-surface text-ink-2"}`}>
-                <b className="text-ink">{t.refundNotice.needed === false ? "Already covered. " : t.refundNotice.needed ? "Required. " : "Check whether it applies. "}</b>
-                {t.refundNotice.reason}
+        <aside className="max-lg:order-first print:hidden">
+          <Card className="lg:sticky lg:top-20">
+            <CardHead title="Status" right={given ? <StatusChip tone="green">Given</StatusChip> : <StatusChip tone="amber">Draft</StatusChip>} />
+            <div className="flex flex-col gap-3 px-5 py-4">
+              <p className="flex items-center gap-1.5 text-sm text-ink-2">
+                {given ? "Prints as the copy that went out" : "Print it, fill the blanks, then mark it given"}
+                <InfoTip align="end" title="You decide">{DISCLAIMERS[2]}</InfoTip>
               </p>
-            )}
-            {kind === "inspection" && !t.noticeGivenOn && (
-              <p className="mt-3 rounded-md bg-surface px-3 py-2.5 text-sm text-ink-2">
-                No notice to end the tenancy is recorded yet. (f)(1) calls for this notice within a reasonable time after either party gives
-                notice, or before the end of the lease term.
-              </p>
-            )}
-            <div className="mt-4">
+              {kind === "electronic_refund" && (
+                <p className="flex items-center gap-1.5 text-sm">
+                  <span className={`size-2 shrink-0 rounded-full ${t.refundNotice.needed === false ? "bg-green-dot" : t.refundNotice.needed ? "bg-amber-dot" : "bg-ink-4"}`} />
+                  {t.refundNotice.needed === false ? "Already covered" : t.refundNotice.needed ? "Required" : "Check whether it applies"}
+                  <InfoTip align="end" title={info.title} cite={info.cite}>{t.refundNotice.reason}</InfoTip>
+                </p>
+              )}
+              {kind === "inspection" && !t.noticeGivenOn && (
+                <p className="flex items-center gap-1.5 text-sm">
+                  <span className="size-2 shrink-0 rounded-full bg-ink-4" />
+                  No notice to end the tenancy yet
+                  <InfoTip align="end" title="When this notice is due" cite="Civ. Code 1950.5(f)(1)">
+                    Within a reasonable time after either party gives notice to end the tenancy, or before the end of the lease term.
+                  </InfoTip>
+                </p>
+              )}
               <NoticeGivenForm tenancyId={id} kind={kind} tenants={t.tenants} today={today} given={given} />
             </div>
-            <p className="mt-5 text-xs text-ink-3">{DISCLAIMERS[2]}</p>
-          </div>
+          </Card>
         </aside>
       </div>
     </div>

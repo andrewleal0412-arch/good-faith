@@ -1,34 +1,28 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { Icon } from "./icons";
 
 // A side drawer for a form that belongs to one thing on the page (a deduction for a finding, a finding for a room):
 // 480px from the right on a computer, the full screen on a phone. It is a modal: focus moves in and stays in, Escape
-// or the close button shuts it, the page behind doesn't scroll, and focus goes back to what opened it.
+// or the close button shuts it, the page behind doesn't scroll, and focus goes back to what opened it. Every drawer
+// form ends in the same footer, `drawerFooter`: under the form, held to the drawer's foot when the form is longer
+// than the screen. Yes-or-no questions use the smaller centered dialog in confirm.tsx instead.
 
-export function Drawer({ open, onClose, title, sub, children, footer }: {
-  open: boolean;
-  onClose: () => void;
-  title: ReactNode;
-  sub?: ReactNode;
-  children: ReactNode;
-  footer?: ReactNode; // the actions, pinned to the drawer's foot
-}) {
-  const panel = useRef<HTMLDivElement>(null);
-  const body = useRef<HTMLDivElement>(null);
+export const drawerFooter = "sticky -bottom-5 -mx-5 -mb-5 mt-6 flex gap-2 border-t border-line-2 bg-canvas px-5 py-3.5";
+
+/** The modal behavior the drawer and the confirm dialog share. Focus starts on a marked control, else the first field,
+ *  else Close (never on an action button, so Enter can't confirm by accident); Tab stays inside; Escape closes; the
+ *  page behind doesn't scroll; focus returns to what opened it. */
+export function useModal(open: boolean, panel: RefObject<HTMLElement | null>, onClose: () => void, body?: RefObject<HTMLElement | null>) {
   const close = useRef(onClose);
-  const titleId = useId();
-
   useEffect(() => { close.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     const back = document.activeElement as HTMLElement | null;
-    // Focus starts on the form, not the Close button above it: a marked control, else the first field. A drawer with
-    // no field (a confirmation) starts on Close, never on its action button, so Enter can't confirm by accident.
     const first = panel.current?.querySelector<HTMLElement>("[data-autofocus]")
-      ?? body.current?.querySelector<HTMLElement>("input:not([type=hidden]), select, textarea")
+      ?? (body ?? panel).current?.querySelector<HTMLElement>("input:not([type=hidden]), select, textarea")
       ?? panel.current?.querySelector<HTMLElement>("button[aria-label=Close]");
     first?.focus();
     const overflow = document.body.style.overflow;
@@ -48,7 +42,20 @@ export function Drawer({ open, onClose, title, sub, children, footer }: {
       document.body.style.overflow = overflow;
       back?.focus?.();
     };
-  }, [open]);
+  }, [open, panel, body]);
+}
+
+export function Drawer({ open, onClose, title, sub, children }: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  sub?: ReactNode;
+  children: ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useModal(open, panel, onClose, body);
 
   if (!open) return null;
   return (
@@ -66,7 +73,6 @@ export function Drawer({ open, onClose, title, sub, children, footer }: {
           </button>
         </div>
         <div ref={body} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
-        {footer && <div className="flex items-center gap-2 border-t border-line-2 px-5 py-3.5">{footer}</div>}
       </div>
     </div>
   );

@@ -24,7 +24,7 @@ function json(output: Part["output"]): Record<string, unknown> | null {
 }
 
 const longDate = (iso?: string | null) =>
-  iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "--";
+  iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "no date";
 
 function title(tool: string, input: Record<string, unknown>): string {
   switch (tool) {

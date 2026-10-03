@@ -54,8 +54,6 @@ export const KIND: Record<Classification, { label: string; tone: "red" | "amber"
   },
 };
 
-export const chargeableKind = (c: Classification) => c !== "wear_and_tear";
-
 /** The room and the two photos a finding was read from: findings that share them share one card on the page. */
 export const pairKey = (f: Pick<StoredFinding, "room" | "moveInPath" | "moveOutPath">) => `${f.room}|${f.moveInPath}|${f.moveOutPath}`;
 

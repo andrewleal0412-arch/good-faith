@@ -99,7 +99,7 @@ export type Upcoming = CalendarEvent & { tenancyId: string; daysAway: number };
 export const UPCOMING_DAYS = 120;
 
 /** Every unit, most urgent first. Cached per request, so the app shell's notifications and the page share one read. */
-export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow[]; upcoming: Upcoming[] }> => {
+export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow[]; upcoming: Upcoming[]; owners: string[] }> => {
   const today = pacificToday();
   const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, city, owner_name)").order("created_at"),
@@ -107,18 +107,28 @@ export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow
     db.from("photos").select("tenancy_id, phase"),
     db.from("deductions").select("tenancy_id, category, amount"),
   ]);
-  const units: UnitRow[] = ((rows ?? []) as TenancyRow[]).map((t) => {
+  const inOrder: UnitRow[] = ((rows ?? []) as TenancyRow[]).map((t) => {
     const summary = summarizeTenancy(t,
       ((payments ?? []) as (PaymentRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
       ((photos ?? []) as (PhotoRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
       ((deductions ?? []) as (DeductionRow & { tenancy_id: string })[]).filter((d) => d.tenancy_id === t.id));
     return { summary, next: nextStep(summary, today), events: tenancyEvents(summary) };
-  }).sort(byUrgency);
+  });
+  // The owners the leases name, oldest tenancy first: a fixed order, so the account the shell shows never depends on
+  // which unit is most urgent today.
+  const owners = [...new Set(inOrder.map((u) => u.summary.landlord).filter((x): x is string => !!x))];
+  const units = [...inOrder].sort(byUrgency);
   const upcoming: Upcoming[] = units.flatMap((u) => u.events.map((e) => ({ ...e, tenancyId: u.summary.id, daysAway: daysBetween(today, e.date) })))
     .filter((e) => e.daysAway >= 0 && e.daysAway <= UPCOMING_DAYS)
     .sort((a, b) => a.daysAway - b.daysAway);
-  return { today, units, upcoming };
+  return { today, units, upcoming, owners };
 });
+
+/** The account the app shell and the PayPal card show: GOOD_FAITH_ACCOUNT when it is set, otherwise the owner of the
+ *  oldest tenancy on file. Fixed per deployment, so it can't change between page loads as units change status. */
+export function accountName(owners: string[]): string | null {
+  return process.env.GOOD_FAITH_ACCOUNT?.trim() || owners[0] || null;
+}
 
 /** One move-in photo per tenancy for its thumbnail (the living room when there is one), as short-lived signed URLs. */
 export async function loadThumbnails(ids: string[]): Promise<Map<string, string>> {

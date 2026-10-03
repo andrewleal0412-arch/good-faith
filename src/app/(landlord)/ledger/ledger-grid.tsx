@@ -135,7 +135,7 @@ function PropertyCell(p: CustomCellRendererProps<LedgerRow, string>) {
 }
 
 function MethodCell(p: CustomCellRendererProps<LedgerRow, string | null>) {
-  if (!p.value) return <span className="text-ink-4">--</span>;
+  if (!p.value) return <span className="text-ink-3">None</span>;
   return <span className="inline-flex items-center gap-[7px]"><PayPalMark size={14} />{p.value === "PayPal" ? "PayPal" : `${p.value}, PayPal`}</span>;
 }
 
@@ -502,7 +502,7 @@ function Tile({ label, value, sub }: { label: React.ReactNode; value: number; su
   return (
     <div className="rounded-lg border border-line bg-canvas px-5 py-4">
       <div className="flex items-center gap-1.5 text-sm text-ink-3">{label}</div>
-      <Money value={value} cents="small" phoneCents className="mt-1 block text-xl font-medium" />
+      <Money value={value} cents="small" phoneCents="raised" className="mt-1 block text-xl font-medium" />
       <div className="mt-0.5 truncate text-xs text-ink-3">{sub}</div>
     </div>
   );

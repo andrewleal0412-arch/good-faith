@@ -13,14 +13,14 @@ import { db, signedUrl } from "@/lib/db";
 import { settle, statementDue, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
-import { dayLabel, daysBetween, longDate, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
+import { dayLabel, daysBetween, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
 import { closedOut, nextStep } from "@/lib/next-step";
 import { NOTICE_INFO, NOTICE_SLUG, describeNoticeGiven, type NoticeKind, type Notices } from "@/lib/notices";
-import { propertyStatus, splitAddress, stepLink, tabHref, TABS, type TabKey } from "@/lib/property-view";
+import { keepUnit, propertyStatus, splitAddress, stepLink, tabHref, TABS, type TabKey } from "@/lib/property-view";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
-import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
+import { deliveryLine, describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { describeTenantMoveOut, type TenantMoveOut } from "@/lib/tenant";
 import { activeTenantLink } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
@@ -189,20 +189,21 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        {/* On a phone the back button and the menu sit level with the address's first line, not centered on the block. */}
         <Link href="/units" aria-label="Back to Properties"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-surface">
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-surface max-sm:self-start">
           <Icon name="arrow-left" className="size-[15px]" />
         </Link>
         <Thumb src={thumb} size={64} className="rounded-md max-sm:hidden" />
         {/* A 16rem basis, so on a narrow window the buttons wrap below the address instead of squeezing it word by word. */}
         <div className="min-w-0 flex-[1_1_16rem]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="text-xl font-medium">{addr.street}</h1>
+            <h1 className="text-balance text-xl font-medium">{keepUnit(addr.street)}</h1>
             <StatusChip tone={status.tone} size="lg">{status.label}</StatusChip>
           </div>
           <div className="mt-0.5 text-base text-ink-3">{addr.cityLine}</div>
         </div>
-        <div className={`flex items-center gap-2 ${primary ? "max-sm:w-full" : ""}`}>
+        <div className={`flex items-center gap-2 ${primary ? "max-sm:w-full" : "max-sm:self-start"}`}>
           {hasStatement && (
             <ButtonLink href={`/tenancy/${id}/statement`} className="max-sm:hidden"><Icon name="doc" />{statementLabel}</ButtonLink>
           )}
@@ -216,10 +217,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       {tab === "overview" && (
         <>
           <FactStrip cols={4} className="mb-6">
-              <Fact label={returned || closed ? "Deposit" : "Deposit held"} big value={held != null ? <Money value={held} cents="small" /> : "--"}
+              <Fact label={returned || closed ? "Deposit" : "Deposit held"} big={held != null} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
                 sub={held != null ? (returned ? `Refunded ${shortDate(pacificDate(returned.created_at))}` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested"} />
-              <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : "--"} sub="Per month" />
-              <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date) : "--"} sub={t.end_date ? "Fixed term" : undefined} />
+              <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
+              <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date) : <span className="text-ink-3">Not stated</span>} sub={t.end_date ? "Fixed term" : undefined} />
               <Fact label="Lease end" value={t.end_date ? shortDate(t.end_date) : "Month to month"} sub={t.move_out_date ? `Moved out ${shortDate(t.move_out_date)}` : t.planned_move_out ? `Moving out ${shortDate(t.planned_move_out)}` : "No notice"} />
           </FactStrip>
 
@@ -239,6 +240,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                 invoice={invoice ? { id: invoice.paypal_id, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
                   payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null } : null}
                 photos={photoViews}
+                quiet={quiet}
+                locked={!!t.move_out_date || closed}
               />
             </Card>
 
@@ -269,7 +272,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                   <p className="flex items-center gap-2 text-sm text-green"><Icon name="check" className="size-3.5" />Closed out</p>
                 ) : (
                   <StepBox icon={step.icon} title={step.label === "View" ? next.label : step.title}
-                    sub={next.due && next.daysLeft != null ? `${next.dueLabel ? `${next.dueLabel} ` : ""}${shortDate(next.due)}, ${whenText(next.daysLeft, next.deadline)}` : step.label}
+                    sub={next.due && next.daysLeft != null ? `${next.dueLabel ? `${next.dueLabel} ` : ""}${shortDate(next.due)}, ${whenText(next.daysLeft, next.deadline)}` : undefined}
                     href={step.href} />
                 )}
                 {next.also.length > 0 && (
@@ -299,15 +302,15 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       {tab === "move-out" && (
         <div className="flex flex-col gap-7">
           <FactStrip cols={4}>
-            <Fact label="Deposit held" value={held != null ? <Money value={held} /> : "--"}
+            <Fact label="Deposit held" value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
               sub={held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid"} />
             <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}`} />
             <Fact label={returned ? "Refunded" : money.balanceClaimed > 0 ? "Balance claimed" : "Refund due"} big
-              value={<Money value={returned ? Number(returned.amount) : money.balanceClaimed > 0 ? money.balanceClaimed : money.refund} cents="small" />}
+              value={<Money value={returned ? Number(returned.amount) : money.balanceClaimed > 0 ? money.balanceClaimed : money.refund} cents="small" phoneCents="full" />}
               sub={returned ? `By PayPal, ${shortDate(pacificDate(returned.created_at))}` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
             <Fact label="Statement and refund due"
               info={<InfoTip align="end" title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">The itemized statement and the refund are due within 21 calendar days after the tenants leave.</InfoTip>}
-              value={due ? shortDate(due) : "--"}
+              value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
               sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(pacificDate(t.statement_delivered_at))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out)}` : "No move-out yet"} />
           </FactStrip>
 
@@ -372,6 +375,26 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <div className="flex flex-col gap-6">
           <Card>
             <CardHead title="Tenants" meta={`${contacts.length}`} />
+            {/* Below 1024px: each tenant as a list row, and the one refund account under them. */}
+            <ul className="lg:hidden">
+              {contacts.map((c) => {
+                const signed = agreement?.signed_by.includes(c.name);
+                return (
+                  <li key={c.name} className="flex items-center gap-3 border-b border-line-2 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{c.name}</div>
+                      <div className="truncate text-xs text-ink-3">{c.email ?? "No email on file"}</div>
+                    </div>
+                    {signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}
+                  </li>
+                );
+              })}
+              <li className="flex items-center gap-3 px-4 py-3 text-sm">
+                <span className="text-ink-3">Refund to</span>
+                <span className="ml-auto min-w-0 truncate">{agreement ? `PayPal, ${agreement.paypal_email}` : <span className="text-ink-3">Not agreed</span>}</span>
+              </li>
+            </ul>
+            <div className="max-lg:hidden">
             <Table minWidth={560}>
               <thead><tr><Th first>Name</Th><Th>Email</Th><Th>Refund agreement</Th><Th last>Refund to</Th></tr></thead>
               <tbody>
@@ -382,12 +405,13 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                       <Td first className="font-medium">{c.name}</Td>
                       <Td>{c.email ?? <span className="text-ink-3">Not on file</span>}</Td>
                       <Td>{signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}</Td>
-                      <Td last>{agreement ? <span className="inline-flex items-center gap-1.5">PayPal, {agreement.paypal_email}</span> : <span className="text-ink-3">--</span>}</Td>
+                      <Td last>{agreement ? <span className="inline-flex items-center gap-1.5">PayPal, {agreement.paypal_email}</span> : <span className="text-ink-3">Not agreed</span>}</Td>
                     </tr>
                   );
                 })}
               </tbody>
             </Table>
+            </div>
           </Card>
 
           {tenantMoveOut && (
@@ -397,14 +421,14 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                 <InfoTip title="What the tenants sent">{describeTenantMoveOut(tenantMoveOut)}.</InfoTip>
               </div>
               <KV className="mt-3" rows={[
-                ["Moving out", longDate(tenantMoveOut.planned_move_out)],
+                ["Moving out", shortDate(tenantMoveOut.planned_move_out)],
                 ["Forwarding address", tenantMoveOut.forwarding_address],
               ]} />
             </Card>
           )}
 
           <section id="tenant-link" className="scroll-mt-24">
-            <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} />
+            <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} />
           </section>
         </div>
       )}
@@ -436,7 +460,7 @@ async function Documents(p: {
     if (kind === "electronic_refund" && p.refundNoticeNeeded === false) return { text: "Not needed", tone: "gray" as const, title: null };
     return { text: p.noticeGiven ? "Draft" : "Not due yet", tone: p.noticeGiven ? "amber" as const : "gray" as const, title: null };
   };
-  const rows: { name: string; sub: string; status: React.ReactNode; open: React.ReactNode; info?: React.ReactNode }[] = [
+  const rows: { name: string; sub: string; subTitle?: string; status: React.ReactNode; open: React.ReactNode; info?: React.ReactNode }[] = [
     {
       name: "Lease", sub: v ? `${v} violation${v === 1 ? "" : "s"} flagged` : "Checked",
       status: <StatusChip tone="green">Checked</StatusChip>,
@@ -464,14 +488,15 @@ async function Documents(p: {
       };
     }),
     {
-      name: "Itemized statement", sub: p.delivery ? describeDelivery(p.delivery) : p.inspected ? "With photos and invoices" : "After the move-out comparison",
+      name: "Itemized statement", sub: p.delivery ? deliveryLine(p.delivery) : p.inspected ? "With photos and invoices" : "After the move-out comparison",
+      subTitle: p.delivery ? describeDelivery(p.delivery).replace(/^./, (c) => c.toUpperCase()) : undefined,
       status: p.delivery ? <StatusChip tone="green">Delivered</StatusChip> : p.inspected ? <StatusChip tone="amber">Draft</StatusChip> : <StatusChip tone="gray">Not started</StatusChip>,
       open: p.inspected ? (
         <span className="inline-flex gap-3">
           <Link href={`/tenancy/${p.id}/statement`} className="font-medium text-brand hover:underline">Open</Link>
           <a href={`/api/tenancies/${p.id}/statement/pdf`} className="font-medium text-brand hover:underline">PDF</a>
         </span>
-      ) : <span className="text-ink-3">--</span>,
+      ) : <span className="text-ink-3">Not ready</span>,
       info: <InfoTip title="The itemized statement" cite="Civ. Code 1950.5(h)(1)-(2)">Due with the refund within 21 days after move-out, with the photos, invoices and receipts the deductions rely on.</InfoTip>,
     },
     ...(p.hasEvents ? [{
@@ -481,6 +506,22 @@ async function Documents(p: {
   ];
   return (
     <Card>
+      {/* Below 1024px: the document and its state, with where it opens under it. */}
+      <ul className="lg:hidden">
+        {rows.map((r) => (
+          <li key={r.name} className="border-b border-line-2 px-4 py-3 last:border-b-0">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-sm font-medium">{r.name}{r.info}</div>
+                <div className="truncate text-xs text-ink-3" title={r.subTitle}>{r.sub}</div>
+              </div>
+              <span className="shrink-0">{r.status}</span>
+            </div>
+            <div className="mt-1.5 text-sm">{r.open}</div>
+          </li>
+        ))}
+      </ul>
+      <div className="max-lg:hidden">
       <Table minWidth={620}>
         <thead><tr><Th first>Document</Th><Th>Status</Th><Th last align="right" /></tr></thead>
         <tbody>
@@ -491,7 +532,7 @@ async function Documents(p: {
                   <span className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-surface text-ink-3"><Icon name="doc" className="size-[15px]" /></span>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 font-medium">{r.name}{r.info}</div>
-                    <div className="truncate text-xs text-ink-3">{r.sub}</div>
+                    <div className="truncate text-xs text-ink-3" title={r.subTitle}>{r.sub}</div>
                   </div>
                 </div>
               </Td>
@@ -501,6 +542,7 @@ async function Documents(p: {
           ))}
         </tbody>
       </Table>
+      </div>
     </Card>
   );
 }

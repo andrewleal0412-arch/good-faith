@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { InfoTip } from "@/components/info-tip";
+import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Card, PageHead } from "@/components/ui";
 import { LeaseCheck } from "./lease-check";
 
@@ -62,8 +62,10 @@ export default function LeasePage() {
         {STEPS.map((s, i) => (
           <li key={s.title} className="flex items-center gap-2.5 rounded-md border border-line px-3 py-2.5">
             <span className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-medium ${i === 0 ? "bg-brand text-white" : "bg-surface-2 text-ink-3"}`}>{i + 1}</span>
-            <span className="min-w-0 flex-1 text-sm font-medium">{s.title}</span>
-            <InfoTip align={i % 2 ? "end" : "start"} title={s.title} cite={s.cite}>{s.text}</InfoTip>
+            {/* The step's name opens its tip: seven info icons on an empty page read as chrome. */}
+            <span className="min-w-0 flex-1 text-sm font-medium">
+              <InfoTip trigger={<TipLabel>{s.title}</TipLabel>} align={i % 2 ? "end" : "start"} title={s.title} cite={s.cite}>{s.text}</InfoTip>
+            </span>
           </li>
         ))}
       </ol>
@@ -73,9 +75,8 @@ export default function LeasePage() {
       <Card soft className="mt-6 grid divide-y divide-line-2 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         {LAW.map((l, i) => (
           <div key={l.label} className="px-4 py-3">
-            <div className="flex items-center gap-1.5 text-sm font-medium">
-              {l.label}
-              <InfoTip align={i === 2 ? "end" : "start"} title={l.label} cite={l.cite}>{l.fact}</InfoTip>
+            <div className="text-sm font-medium">
+              <InfoTip trigger={<TipLabel>{l.label}</TipLabel>} align={i === 2 ? "end" : "start"} title={l.label} cite={l.cite}>{l.fact}</InfoTip>
             </div>
             <div className="mt-0.5 text-xs text-ink-3">{l.line}</div>
           </div>

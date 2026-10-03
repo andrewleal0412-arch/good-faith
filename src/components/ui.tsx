@@ -39,19 +39,21 @@ export function StatusChip({ tone, children, dot = true, size = "md", className 
 
 const fmt = (n: number) => Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** An amount in tabular figures. `cents="small"` raises the cents at 60%, as Mercury's balance does (and hides them on a
- *  phone, where a facts strip cell has no room; `phoneCents` keeps them for a tile that spans the screen): used for the
- *  one hero number of a view and the stat tiles. Outflows pass `sign="minus"` and get a true minus. */
-export function Money({ value, cents = "full", sign, phoneCents, className }: {
-  value: number; cents?: "small" | "full"; sign?: "minus" | "plus"; phoneCents?: boolean; className?: string;
+/** An amount in tabular figures. `cents="small"` raises the cents at 60%, as Mercury's balance does: used for the one
+ *  hero number of a view and the stat tiles. On a phone, where a strip's hero is no bigger than its neighbours,
+ *  `phoneCents` says what the cents do, so one strip never mixes precisions: "hide" (the default) when every cell in
+ *  the strip is a small-cents figure, "full" when its neighbours print full cents, "raised" for a tile that spans the
+ *  screen. Outflows pass `sign="minus"` and get a true minus. */
+export function Money({ value, cents = "full", sign, phoneCents = "hide", className }: {
+  value: number; cents?: "small" | "full"; sign?: "minus" | "plus"; phoneCents?: "hide" | "full" | "raised"; className?: string;
 }) {
   const [whole, frac] = fmt(value).split(".");
   const pre = sign === "minus" || (value < 0 && sign !== "plus") ? "−" : sign === "plus" ? "+" : "";
+  const phone = phoneCents === "hide" ? "max-sm:hidden" : phoneCents === "full" ? "max-sm:static max-sm:align-baseline max-sm:text-[1em]" : "";
   return (
     <span className={cx("whitespace-nowrap tabular-nums", className)}>
       {pre}${whole}
-      {/* On a phone the raised cents drop away, as Mercury's balance does under 720px. */}
-      {cents === "small" ? <span className={cx("relative top-[0.18em] align-top text-[0.6em] tracking-normal", !phoneCents && "max-sm:hidden")}>.{frac}</span> : <>.{frac}</>}
+      {cents === "small" ? <span className={cx("relative top-[0.18em] align-top text-[0.6em] tracking-normal", phone)}>.{frac}</span> : <>.{frac}</>}
     </span>
   );
 }
@@ -69,17 +71,6 @@ export function Card({ className, soft, children, ...rest }: { soft?: boolean } 
 export function CardHead({ title, meta, right, className }: { title: ReactNode; meta?: ReactNode; right?: ReactNode; className?: string }) {
   return (
     <div className={cx("flex min-h-[52px] items-center gap-2.5 border-b border-line-2 px-5 py-3", className)}>
-      <h2 className="text-lg font-medium">{title}</h2>
-      {meta && <span className="text-xs text-ink-3">{meta}</span>}
-      {right && <div className="ml-auto flex items-center gap-2">{right}</div>}
-    </div>
-  );
-}
-
-/** A section title outside a card, with an optional right side. */
-export function SectionHead({ title, meta, right, id }: { title: ReactNode; meta?: ReactNode; right?: ReactNode; id?: string }) {
-  return (
-    <div id={id} className="mb-3 flex scroll-mt-24 flex-wrap items-center gap-x-3 gap-y-1">
       <h2 className="text-lg font-medium">{title}</h2>
       {meta && <span className="text-xs text-ink-3">{meta}</span>}
       {right && <div className="ml-auto flex items-center gap-2">{right}</div>}
@@ -244,11 +235,17 @@ export const trClass = "hover:bg-surface [&:last-child>td]:border-b-0";
 
 /* ---------- Empty state ---------- */
 
-export function EmptyState({ icon = "building", title, sub, action }: { icon?: IconName; title: ReactNode; sub?: ReactNode; action?: ReactNode }) {
+/** An empty list, a missing page or a failed load: one icon, one line, one short sub line and at most one action.
+ *  Brand for "nothing here yet", gray for "not found", red only for an error. `heading` makes the title the page's h1. */
+export function EmptyState({ icon = "building", title, sub, action, tone = "brand", heading }: {
+  icon?: IconName; title: ReactNode; sub?: ReactNode; action?: ReactNode; tone?: "brand" | "gray" | "red"; heading?: boolean;
+}) {
+  const t = tone === "red" ? "bg-red-bg text-red" : tone === "gray" ? "bg-surface-2 text-ink-3" : "bg-brand-50 text-brand";
+  const Title = heading ? "h1" : "p";
   return (
     <div className="flex flex-col items-center px-6 py-12 text-center">
-      <span className="flex size-10 items-center justify-center rounded-full bg-brand-50 text-brand"><Icon name={icon} className="size-[18px]" /></span>
-      <p className="mt-3 text-base font-medium">{title}</p>
+      <span className={cx("flex size-10 items-center justify-center rounded-full", t)}><Icon name={icon} className="size-[18px]" /></span>
+      <Title className="mt-3 text-base font-medium">{title}</Title>
       {sub && <p className="mt-1 max-w-sm text-sm text-ink-3">{sub}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
@@ -269,15 +266,6 @@ export function Notice({ tone = "red", children, className }: { tone?: "red" | "
 export const inlineInputClass = "h-9 rounded-md border border-line bg-canvas px-3 text-base text-ink outline-none placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50 disabled:bg-surface";
 export const inputClass = `${inlineInputClass} w-full`;
 export const textareaClass = "w-full rounded-md border border-line bg-canvas px-3 py-2 text-base text-ink outline-none placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50";
-
-export function Field({ label, hint, children, className }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <label className={cx("block", className)}>
-      <span className="mb-1.5 flex items-center gap-1 text-sm font-medium text-ink">{label}{hint}</span>
-      {children}
-    </label>
-  );
-}
 
 /** Round thumbnail-free avatar with initials. */
 export function Avatar({ initials, className }: { initials: string; className?: string }) {

@@ -106,6 +106,13 @@
   input[type="radio"] {
     accent-color: var(--color-brand);
   }
+  /* One keyboard focus style for anything without its own ring (links, summaries, checkboxes): a 2px brand outline.
+     Buttons, inputs and tabs draw a brand-100 ring instead and opt out with outline-none. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
   ::selection {
     background: var(--color-brand-100);
   }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/button";
+import { drawerFooter } from "@/components/drawer";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
 import { Notice, inputClass, textareaClass } from "@/components/ui";
@@ -53,7 +54,7 @@ export function FindingForm({ tenancyId, room, like, onDone, onCancel }: {
           value={observation} onChange={(e) => setObservation(e.target.value)} />
       </FormField>
       {error && <Notice>{error}</Notice>}
-      <div className="sticky -bottom-5 -mx-5 -mb-5 mt-6 flex gap-2 border-t border-line-2 bg-canvas px-5 py-3.5">
+      <div className={drawerFooter}>
         <Button type="submit" variant="primary" disabled={busy || !item.trim()}>{busy ? "Saving..." : "Add finding"}</Button>
         <Button onClick={onCancel}>Cancel</Button>
       </div>

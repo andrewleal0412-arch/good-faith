@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { inlineInputClass } from "@/components/ui";
-import { longDate } from "@/lib/dates";
+import { shortDate } from "@/lib/dates";
 
 // The day the tenants returned possession: it starts the 21-day clock (Civ. Code 1950.5(h)(1)). Set from the move-out
 // photos before the comparison, and changed from the Notice and dates card after it, until the deposit goes back.
@@ -33,7 +33,7 @@ export function MoveOutDate({ tenancyId, value, locked, className = "" }: {
   if (locked || (value && !editing)) {
     return (
       <span className={`inline-flex flex-wrap items-center gap-x-2 ${className}`}>
-        {value ? longDate(value) : "Not recorded"}
+        {value ? shortDate(value) : "Not recorded"}
         {!locked && <Button variant="link" onClick={() => setEditing(true)}>Change</Button>}
       </span>
     );

@@ -11,16 +11,38 @@ export function MoneyTimeline({ tenancyId, rows }: { tenancyId: string; rows: Le
     return <Card><EmptyState icon="card" title="No payments yet" sub="The deposit invoice starts the record." /></Card>;
   }
   const t = ledgerTotals(rows);
+  // One hero: what is still held while the deposit is held, what went back once a refund or payout has gone out.
+  const back = t.returned + t.pending > 0;
+  const hero = (n: number) => <Money value={n} cents="small" phoneCents="full" />;
   return (
     <div className="flex flex-col gap-6">
       <FactStrip cols={4}>
         <Fact label="Collected" value={<Money value={t.collected} />} />
         <Fact label="Deductions" value={<Money value={t.deducted} />} sub={t.drafted > 0 ? (t.drafted === t.deducted ? "Drafts" : `${shortMoney(t.drafted)} drafted`) : undefined} />
-        <Fact label="Returned" value={<Money value={t.returned} />} sub={t.pending > 0 ? `${shortMoney(t.pending)} pending` : undefined} />
-        <Fact label="Still held" big value={<Money value={t.held} cents="small" />} />
+        {/* The hero is always the last cell. */}
+        {back ? <Fact label="Still held" value={<Money value={t.held} />} />
+          : <Fact label="Returned" value={<Money value={t.returned} />} />}
+        {back ? <Fact label="Returned" big value={hero(t.returned + t.pending)} sub={t.pending > 0 ? `${shortMoney(t.pending)} pending` : undefined} />
+          : <Fact label="Still held" big value={hero(t.held)} />}
       </FactStrip>
       <Card>
         <CardHead title="Payments" meta={`${rows.length}`} right={<Link href={`/ledger?tenancy=${tenancyId}`} className="text-sm text-brand hover:underline">Open in Payments</Link>} />
+        {/* Below 1024px, Mercury's transaction list: the type, the date and status under it, the amount on the right. */}
+        <ul className="lg:hidden">
+          {rows.map((r) => (
+            <li key={r.id} title={r.detail} className="flex items-center gap-3 border-b border-line-2 px-4 py-3 last:border-b-0">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{r.type}</div>
+                <div className="flex items-center gap-1.5 text-xs text-ink-3">
+                  {shortDate(r.date)}, {r.effect === "failed" ? <StatusChip tone="red" size="sm">Failed</StatusChip> : r.status}
+                </div>
+              </div>
+              <Money value={r.amount} sign={r.signed < 0 ? "minus" : r.signed > 0 ? "plus" : undefined}
+                className={`text-sm ${r.signed > 0 ? "text-green" : r.signed === 0 ? "text-ink-3" : ""}`} />
+            </li>
+          ))}
+        </ul>
+        <div className="max-lg:hidden">
         <Table minWidth={640}>
           <thead>
             <tr>
@@ -41,8 +63,8 @@ export function MoneyTimeline({ tenancyId, rows }: { tenancyId: string; rows: Le
               <tr key={r.id} className={trClass}>
                 <Td first className="whitespace-nowrap tabular-nums text-ink-2">{shortDate(r.date)}</Td>
                 <Td className="whitespace-nowrap font-medium" title={r.tag ? `Civ. Code 1950.5${r.tag}: ${r.tagLabel}` : undefined}>{r.type}</Td>
-                <Td>
-                  {r.detail}
+                <Td title={r.detail}>
+                  {r.summary}
                   {r.paypalId && <span className="block text-xs text-ink-3">{r.paypalId}</span>}
                 </Td>
                 <Td className="whitespace-nowrap">
@@ -55,6 +77,7 @@ export function MoneyTimeline({ tenancyId, rows }: { tenancyId: string; rows: Le
             ))}
           </tbody>
         </Table>
+        </div>
       </Card>
     </div>
   );

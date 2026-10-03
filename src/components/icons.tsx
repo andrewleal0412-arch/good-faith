@@ -39,6 +39,7 @@ const P: Record<string, React.ReactNode> = {
   link: <path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" />,
   pen: <path d="M10.5 3.5l2 2L6 12l-2.5.5L4 10l6.5-6.5z" />,
   clock: <><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 1.5" /></>,
+  printer: <><path d="M4.5 6V2.5h7V6M4.5 11.5h-2v-5h11v5h-2" /><path d="M4.5 9.5h7v4h-7z" /></>,
   alert: <><path d="M8 2.5 14 13H2L8 2.5z" /><path d="M8 6.5v3M8 11.2h.01" /></>,
 };
 

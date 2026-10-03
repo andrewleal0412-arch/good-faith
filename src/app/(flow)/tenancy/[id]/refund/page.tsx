@@ -12,7 +12,8 @@ import { db } from "@/lib/db";
 import { usd } from "@/lib/deductions";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { loadRefundView, maskEmail, type Check, type RefundView, type RunView } from "@/lib/refund-view";
-import { CopyId, RefundActions } from "./actions";
+import { CopyId } from "@/components/copy-id";
+import { RefundActions } from "./actions";
 
 export const dynamic = "force-dynamic";
 

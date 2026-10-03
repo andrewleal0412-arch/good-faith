@@ -8,6 +8,7 @@ import {
   Card, CardHead, EmptyState, Fact, FactStrip, KV, ListRow, Money, PageHead, Segmented, StatusChip, StepBox, Table, Td, Th, Thumb, trClass,
 } from "@/components/ui";
 import { foldActivity, QUIET_ACTIONS } from "@/lib/activity";
+import { displayName } from "@/lib/copy";
 import { dayLabel, daysBetween, pacificDate, shortDate } from "@/lib/dates";
 import { statementDue } from "@/lib/deductions";
 import { wasPaid } from "@/lib/invoice-status";
@@ -15,7 +16,7 @@ import { loadLedger } from "@/lib/ledger-load";
 import { ledgerTotals } from "@/lib/ledger";
 import { closedOut, refundLeft, type TenancySummary } from "@/lib/next-step";
 import { GROUP_LABEL, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup } from "@/lib/property-view";
-import { loadRecentActivity, loadThumbnails, loadUnits, UPCOMING_DAYS } from "@/lib/units";
+import { accountName, loadRecentActivity, loadThumbnails, loadUnits, UPCOMING_DAYS } from "@/lib/units";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Properties" };
@@ -38,7 +39,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   const filter = (typeof sp.filter === "string" ? sp.filter : "all") as StatusGroup | "all";
   const q = typeof sp.q === "string" ? sp.q.trim().toLowerCase() : "";
 
-  const { today, units, upcoming } = await loadUnits();
+  const { today, units, upcoming, owners } = await loadUnits();
   const [ledger, thumbs, log] = await Promise.all([
     loadLedger(),
     loadThumbnails(units.map((u) => u.summary.id)),
@@ -69,9 +70,8 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   // Coming up: every dated event across the units in the next few months, nearest first, less the deadline the card
   // above already shows.
   const coming = upcoming.filter((e) => !(clock && e.tenancyId === clock.summary.id && e.kind === "statement_due")).slice(0, 5);
-  const owners = new Map<string, number>();
-  for (const u of units) if (u.summary.landlord) owners.set(u.summary.landlord, (owners.get(u.summary.landlord) ?? 0) + 1);
-  const account = [...owners.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Connected";
+  const named = accountName(owners);
+  const account = named ? displayName(named) : "Connected";
 
   // Recent activity, with a run of deductions or photos on one unit folded into one line.
   const street = new Map(rows.map((r) => [r.summary.id, r.addr.street]));
@@ -106,7 +106,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
             action={<ButtonLink variant="primary" href="/lease"><Icon name="file-check" />Check a lease</ButtonLink>} />
         </Card>
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_288px]">
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_288px]">
           <div className="min-w-0">
             <div className="mb-3.5 flex flex-wrap items-center gap-2">
               <Segmented active={filter} items={[
@@ -120,13 +120,14 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
               )}
             </div>
 
-            {/* The table at desktop width; cards on a phone. */}
-            <Card className="hidden md:block">
+            {/* The table from 1024px, with Tenants and Rent from 1400px (below that the tenants take the city's line); cards
+                below 1024px. The rail sits beside the table from 1280px, under it before. */}
+            <Card className="hidden lg:block">
               {shown.length ? (
                 <Table>
                   <thead>
                     <tr>
-                      <Th first>Property</Th><Th>Tenants</Th><Th align="right">Rent</Th><Th align="right">Deposit</Th><Th>Status</Th><Th>Next step</Th><Th last />
+                      <Th first>Property</Th><Th className="max-[1399px]:hidden">Tenants</Th><Th align="right" className="max-[1399px]:hidden">Rent</Th><Th align="right">Deposit</Th><Th>Status</Th><Th>Next step</Th><Th last />
                     </tr>
                   </thead>
                   <tbody>
@@ -139,13 +140,14 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                               <Thumb src={thumbs.get(s.id) ?? null} />
                               <span className="min-w-0">
                                 <span className="block font-medium text-ink">{r.addr.street}</span>
-                                <span className="block text-xs text-ink-3">{r.addr.cityLine}</span>
+                                <span className="block text-xs text-ink-3 max-[1399px]:hidden">{r.addr.cityLine}</span>
+                                <span className="block text-xs text-ink-3 min-[1400px]:hidden">{s.tenants.join(", ") || r.addr.cityLine}</span>
                               </span>
                             </Link>
                           </Td>
-                          <Td className="whitespace-nowrap">{s.tenants.length ? s.tenants.map((t) => <div key={t}>{t}</div>) : <span className="text-ink-3">None named</span>}</Td>
-                          <Td align="right">{s.monthlyRent != null ? <Money value={s.monthlyRent} /> : "--"}</Td>
-                          <Td align="right">{s.deposit ? <Money value={s.deposit.amount} /> : <span className="text-ink-3">--</span>}</Td>
+                          <Td className="whitespace-nowrap max-[1399px]:hidden">{s.tenants.length ? s.tenants.map((t) => <div key={t}>{t}</div>) : <span className="text-ink-3">None named</span>}</Td>
+                          <Td align="right" className="max-[1399px]:hidden">{s.monthlyRent != null ? <Money value={s.monthlyRent} /> : <span className="text-ink-3">Not set</span>}</Td>
+                          <Td align="right">{s.deposit ? <Money value={s.deposit.amount} /> : <span className="text-ink-3">None</span>}</Td>
                           <Td><StatusChip tone={r.status.tone}>{r.status.label}</StatusChip></Td>
                           <Td className="whitespace-nowrap"><Link href={r.step.href} className="font-medium text-brand hover:underline">{r.step.label}</Link></Td>
                           <Td last className="w-11">
@@ -165,7 +167,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
               ) : <EmptyState icon="search" title="No properties match" sub="Try another filter or search." />}
             </Card>
 
-            <div className="flex flex-col gap-2.5 md:hidden">
+            <div className="flex flex-col gap-2.5 lg:hidden">
               {shown.map((r) => {
                 const s = r.summary;
                 return (
@@ -175,8 +177,8 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                       <Link href={`/tenancy/${s.id}`} className="block font-medium">{r.addr.street}</Link>
                       <div className="truncate text-xs text-ink-3">{s.tenants.join(", ") || "No tenants named"}</div>
                       <div className="mt-2 flex gap-4 text-xs text-ink-3">
-                        <span>Rent<b className="block text-sm font-medium text-ink">{s.monthlyRent != null ? <Money value={s.monthlyRent} /> : "--"}</b></span>
-                        <span>Deposit<b className="block text-sm font-medium text-ink">{s.deposit ? <Money value={s.deposit.amount} /> : "--"}</b></span>
+                        <span>Rent<b className="block text-sm font-medium text-ink">{s.monthlyRent != null ? <Money value={s.monthlyRent} /> : "Not set"}</b></span>
+                        <span>Deposit<b className="block text-sm font-medium text-ink">{s.deposit ? <Money value={s.deposit.amount} /> : "None"}</b></span>
                       </div>
                       <div className="mt-2.5 flex items-center justify-between gap-2">
                         <StatusChip tone={r.status.tone}>{r.status.label}</StatusChip>
@@ -198,7 +200,8 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
             </Card>
           </div>
 
-          <div className="flex flex-col gap-4 max-lg:order-first">
+          {/* Beside the table from 1280px; above it before, two cards to a row on a tablet. */}
+          <div className="flex flex-col gap-4 max-xl:order-first md:max-xl:grid md:max-xl:grid-cols-2 md:max-xl:items-start">
             <Card>
               <CardHead title="Next steps" />
               <div className="flex flex-col gap-2 p-4">
@@ -226,7 +229,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                   <div className="my-3.5 h-px bg-line" />
                   <KV align="right" rows={[
                     ["Moved out", shortDate(s.moveOutDate!)],
-                    ["Deposit held", s.deposit ? <Money key="d" value={heldNow(s) || s.deposit.amount} /> : "--"],
+                    ["Deposit held", s.deposit ? <Money key="d" value={heldNow(s) || s.deposit.amount} /> : "None"],
                     ["Statement", <span key="s" className={state === "Not started" ? "text-ink-3" : ""}>{state}</span>],
                   ]} />
                 </Card>
@@ -245,7 +248,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
               </Card>
             )}
 
-            <Card soft className="p-5 max-md:hidden">
+            <Card soft className="p-5 max-xl:hidden">
               <div className="flex items-center gap-2 text-sm font-medium"><PayPalMark size={16} />PayPal</div>
               <KV align="right" className="mt-2.5" rows={[
                 ["Account", account],

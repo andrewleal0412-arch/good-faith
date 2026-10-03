@@ -7,10 +7,10 @@ import { describeDelivery, type DeliveryRecord } from "./statement";
 // page's Recent activity shows (Mercury's list: one title, the address under it, the date on the right).
 
 const usd = (n: number | null | undefined) =>
-  n == null ? "--" : `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  n == null ? "an amount not recorded" : `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** A YYYY-MM-DD from the log spelled out, the way every other surface shows dates; anything else as it is. */
-const day = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? longDate(v) : String(v ?? "--"));
+const day = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? longDate(v) : String(v ?? "a date not recorded"));
 
 export function describe(action: string, d: Record<string, unknown> | null): string {
   switch (action) {
@@ -61,24 +61,28 @@ export function describe(action: string, d: Record<string, unknown> | null): str
   }
 }
 
-/** Actions too small for the Properties page's Recent activity (each PDF build, each lease check before a tenancy). */
-export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved", "finding_reviewed"];
+/** Actions too small for the Properties page's Recent activity (each PDF build, each lease check before a tenancy,
+ *  the tenant link's bookkeeping). */
+export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved", "finding_reviewed", "tenant_link_created", "tenant_link_revoked"];
 
-/** The same for one tenancy's own Activity, which keeps the lease check and the tenants opening their statement. */
-export const QUIET_ON_RECORD = QUIET_ACTIONS.filter((a) => a !== "lease_checked" && a !== "tenant_opened_statement");
+/** The same for one tenancy's own Activity, which keeps the lease check, the tenant link and the tenants opening
+ *  their statement. */
+const ON_RECORD = ["lease_checked", "tenant_opened_statement", "tenant_link_created", "tenant_link_revoked"];
+export const QUIET_ON_RECORD = QUIET_ACTIONS.filter((a) => !ON_RECORD.includes(a));
 
 type Entry = { tenancyId: string; action: string; detail: Record<string, unknown> | null };
-const FOLDS = ["deduction_added", "photos_added"];
+const FOLDS = ["deduction_added", "photos_added", "tenant_link_created"];
 
 /** Activity rows with a run of the same action on one unit folded into one line (three deductions in a row, photos for
- *  several rooms), each with its short title. */
+ *  several rooms, a link made twice), each with its short title. */
 export function foldActivity<T extends Entry>(log: T[], tenantsOf: (tenancyId: string) => string[], max: number): { entry: T; title: string; count: number }[] {
   const out: { entry: T; title: string; count: number }[] = [];
   for (let i = 0; i < log.length && out.length < max; i++) {
     const e = log[i];
     let n = 1;
     if (FOLDS.includes(e.action)) while (log[i + n] && log[i + n].action === e.action && log[i + n].tenancyId === e.tenancyId) n++;
-    const title = n > 1 && e.action === "deduction_added" ? `${n} deductions added`
+    const title = n > 1 && e.action === "tenant_link_created" ? "Tenant link remade"
+      : n > 1 && e.action === "deduction_added" ? `${n} deductions added`
       : n > 1 && e.action === "photos_added" ? `${String(e.detail?.phase).startsWith("move_out") ? "Move-out" : String(e.detail?.phase) === "after_repair" ? "After-repair" : "Move-in"} photos added for ${n} rooms`
         : activityTitle(e.action, e.detail, tenantsOf(e.tenancyId));
     out.push({ entry: e, title, count: n });

@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { InfoTip } from "@/components/info-tip";
 import { Card, EmptyState, PageHead, Segmented, StatusChip, Table, Td, Th, Thumb, trClass } from "@/components/ui";
-import { daysBetween, shortDate, whenText } from "@/lib/dates";
+import { dayLabel, daysBetween, shortDate, whenText } from "@/lib/dates";
 import { statementDue } from "@/lib/deductions";
 import { closedOut } from "@/lib/next-step";
 import { propertyStatus, splitAddress, stepLink, tabHref } from "@/lib/property-view";
@@ -33,6 +33,31 @@ export default async function MoveOutsPage({ searchParams }: PageProps<"/move-ou
       </div>
       <Card>
         {shown.length ? (
+          <>
+          {/* Below 1024px: the property, its deadline and its status, one row each. */}
+          <ul className="lg:hidden">
+            {shown.map((u) => {
+              const s = u.summary;
+              const status = propertyStatus(s, u.next);
+              const due = s.moveOutDate ? statementDue(s.moveOutDate) : null;
+              return (
+                <li key={s.id} className="border-b border-line-2 last:border-b-0">
+                  <Link href={tabHref(s.id, "move-out")} className="flex items-center gap-3 px-4 py-3 hover:bg-surface">
+                    <Thumb src={thumbs.get(s.id) ?? null} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{splitAddress(s.address, s.city).street}</div>
+                      <div className="truncate text-xs text-ink-3">
+                        {due ? (s.statementDeliveredAt ? `Statement delivered, due ${shortDate(due)}` : `Due ${dayLabel(due, today)}, ${whenText(daysBetween(today, due))}`)
+                          : s.plannedMoveOut ? `Moving out ${shortDate(s.plannedMoveOut)}` : "Move-out not set"}
+                      </div>
+                    </div>
+                    <StatusChip tone={status.tone}>{status.label}</StatusChip>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="max-lg:hidden">
           <Table minWidth={820}>
             <thead>
               <tr>
@@ -58,7 +83,7 @@ export default async function MoveOutsPage({ searchParams }: PageProps<"/move-ou
                       </Link>
                     </Td>
                     <Td className="whitespace-nowrap">
-                      {s.moveOutDate ? shortDate(s.moveOutDate) : s.plannedMoveOut ? <span className="text-ink-3">Planned {shortDate(s.plannedMoveOut)}</span> : "--"}
+                      {s.moveOutDate ? shortDate(s.moveOutDate) : s.plannedMoveOut ? <span className="text-ink-3">Planned {shortDate(s.plannedMoveOut)}</span> : <span className="text-ink-3">Not set</span>}
                     </Td>
                     <Td className="whitespace-nowrap">
                       {due ? <>{shortDate(due)}<span className="block text-xs text-ink-3">{s.statementDeliveredAt ? "Statement delivered" : whenText(daysBetween(today, due))}</span></> : <span className="text-ink-3">After move-out</span>}
@@ -70,6 +95,8 @@ export default async function MoveOutsPage({ searchParams }: PageProps<"/move-ou
               })}
             </tbody>
           </Table>
+          </div>
+          </>
         ) : (
           <EmptyState icon="key" title={view === "closed" ? "No closed move-outs" : "No move-outs in progress"}
             sub={view === "closed" ? "Closed move-outs show here once the statement and refund are out." : "A move-out starts when either side gives notice."} />

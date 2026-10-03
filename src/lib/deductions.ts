@@ -120,6 +120,40 @@ export function basisOf(d: Pick<StoredDeduction, "category" | "math" | "proratio
   return { main: "Actual cost", sub, title: d.work === "clean" ? "Actual cost of the cleaning" : "Actual cost, no depreciation" };
 }
 
+/** A deduction's basis in a few words, built from its stored inputs rather than read back out of its math string:
+ *  "Prorated, 4 of 10 years left", "3 hours at $50.00 an hour", "Vendor invoice". The tenant page's reason line. */
+export function basisWords(d: {
+  category: string; performer: Performer; proration: Proration;
+  hours: number | null; hourlyRate: number | null; itemAgeYears: number | null; usefulLifeYears: number | null;
+}): string {
+  if (d.category === "rent") return "Unpaid rent";
+  if (d.proration === "useful_life" && d.itemAgeYears != null && d.usefulLifeYears) {
+    return `Prorated, ${cents(Math.max(0, d.usefulLifeYears - d.itemAgeYears))} of ${d.usefulLifeYears} years left`;
+  }
+  if (d.proration === "paint_schedule" && d.itemAgeYears != null) {
+    const share = paintShare(d.itemAgeYears);
+    return `Paint schedule, ${share === 1 ? "full cost" : share === 0 ? "nothing" : share > 0.5 ? "two thirds" : "one third"}`;
+  }
+  if (d.performer === "own_labor" && d.hours != null && d.hourlyRate != null) return `${d.hours} hour${d.hours === 1 ? "" : "s"} at ${usd(d.hourlyRate)} an hour`;
+  return d.performer === "vendor" ? "Vendor invoice" : "Actual cost";
+}
+
+const DONE: Record<Work, string> = { replace: "replaced", repair: "repaired", clean: "cleaned", other: "" };
+// Where a finding's item stops naming the thing and starts placing it: "Right wall, below and right of the window".
+const PLACE = /\s*[,(;:]\s*|\s+(?=(?:near|below|above|beneath|under|beside|behind|next to|left of|right of|around|between|along|across|over)\s)/i;
+
+/** A charge's title as the tenant reads it, the thing and what was done to it ("Bedroom carpet, replaced"), and where
+ *  it was ("near center of room"), split from the item the inspection or the landlord wrote. The statement keeps the
+ *  item as written. */
+export function chargeTitle(item: string, work: Work): { title: string; where: string | null } {
+  const text = item.trim();
+  const head = text.split(PLACE)[0]?.trim() ?? "";
+  const name = head.length >= 3 ? head : text;
+  const where = name === text ? null : text.slice(name.length).replace(/^[\s,(;:]+|[\s)]+$/g, "") || null;
+  const title = name.charAt(0).toUpperCase() + name.slice(1);
+  return { title: DONE[work] ? `${title}, ${DONE[work]}` : title, where };
+}
+
 /** What the statement still needs for each deduction under (h)(2) and (g)(2). Empty when it's complete.
  *  A good-faith estimate (h)(3) stands in for the finished repair and its invoice, so it needs neither the after
  *  photo nor the receipt yet; the vendor's name, address and phone take the invoice's place. */

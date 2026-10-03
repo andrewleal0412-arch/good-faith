@@ -83,11 +83,11 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
           sub={s.security?.paid ? (s.security.paidAt ? `Paid ${shortDate(pacificDate(s.security.paidAt))}` : "Paid") : "Not paid"} />
         <Fact label="Deductions" value={<Money value={s.totals.deductions} />} sub={`${s.deductions.length} item${s.deductions.length === 1 ? "" : "s"}`} />
         <Fact big label={s.balanceClaimed ? "Balance claimed" : sent ? "Refunded" : "Refund due"}
-          value={<Money value={s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount} cents="small" />}
+          value={<Money value={s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount} cents="small" phoneCents="full" />}
           sub={sent && s.refund.sentAt ? `By PayPal, ${shortDate(pacificDate(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
         <Fact label="Due by"
           info={<InfoTip align="end" title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">The itemized statement and the refund are due within 21 calendar days after the tenants leave.</InfoTip>}
-          value={s.statementDue ? shortDate(s.statementDue) : "--"}
+          value={s.statementDue ? shortDate(s.statementDue) : "Not set"}
           sub={s.delivery ? `Delivered ${shortDate(s.delivery.date)}` : s.daysLeft != null ? whenText(s.daysLeft) : "No move-out yet"} />
       </FactStrip>
 
@@ -113,7 +113,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
               <Field label="Moved out">{s.moveOutDate ? longDate(s.moveOutDate) : "Not set"}</Field>
               <Field label="Statement date">{longDate(s.statementDate)}</Field>
               <Field label={<>Due by<Cite cite="Civ. Code 1950.5(h)(1)" title="21 days after move-out">The statement and the refund are due within 21 calendar days after the tenants leave.</Cite></>}>
-                {s.statementDue ? longDate(s.statementDue) : "--"}
+                {s.statementDue ? longDate(s.statementDue) : "Not set"}
                 <span className="hidden text-xs text-ink-3 print:block">21 days after move-out</span>
               </Field>
             </dl>

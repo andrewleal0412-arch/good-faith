@@ -1,11 +1,11 @@
 import { AppShell, type ShellAlert, type ShellData } from "@/components/app-shell";
 import { initialsOf } from "@/components/ui";
-import { DISCLAIMERS } from "@/lib/copy";
+import { DISCLAIMERS, displayName } from "@/lib/copy";
 import { longDate } from "@/lib/dates";
 import { SANDBOX } from "@/lib/paypal";
 import { stepLink } from "@/lib/property-view";
 import { streetLine } from "@/lib/ledger";
-import { loadUnits, type UnitRow } from "@/lib/units";
+import { accountName, loadUnits, type UnitRow } from "@/lib/units";
 
 // The shell reads the database (the account, the bell), so no landlord page may be prerendered at build time with
 // whatever the data was then: every page under this layout renders per request.
@@ -16,17 +16,16 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
   // The chrome must render even when the database can't be read, so a failed read leaves an empty bell and a generic
   // account rather than taking every page down with it (the page itself reports its own error).
   let units: UnitRow[] = [];
+  let owners: string[] = [];
   try {
-    units = (await loadUnits()).units;
+    ({ units, owners } = await loadUnits());
   } catch (e) {
     console.error("App shell: couldn't load the units", e);
   }
 
-  // The account is the landlord the leases name; with several on file, the one with the most units.
-  const counts = new Map<string, number>();
-  for (const u of units) if (u.summary.landlord) counts.set(u.summary.landlord, (counts.get(u.summary.landlord) ?? 0) + 1);
-  const owners = [...counts.keys()];
-  const account = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Your account";
+  // The account: GOOD_FAITH_ACCOUNT, or the owner of the oldest tenancy (accountName), shown without "LLC".
+  const named = accountName(owners);
+  const account = named ? displayName(named) : "Your account";
 
   // The bell: steps that are overdue or due within five days.
   const alerts: ShellAlert[] = units

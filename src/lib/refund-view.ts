@@ -67,12 +67,8 @@ export type RefundView = {
   } | null;
 };
 
-/** "m•••@gmail.com": enough to recognize the account without spelling it out on screen. */
-export function maskEmail(email: string | null | undefined): string | null {
-  if (!email) return null;
-  const at = email.indexOf("@");
-  return at > 0 ? `${email[0]}•••${email.slice(at)}` : email;
-}
+/** "m•••@gmail.com": enough to recognize the account without spelling it out on screen. Shared with the tenant page. */
+export { maskEmail } from "./copy";
 
 /** A RULES entry split into its citation and its words, e.g. "Civ. Code 1950.5(h)(1)" and "The itemized...". */
 function rule(text: string): { cite?: string; body: string } {

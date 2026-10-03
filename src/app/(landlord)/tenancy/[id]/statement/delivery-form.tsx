@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { longDate, shortDate } from "@/lib/dates";
 import type { DeliveryRecord } from "@/lib/statement";
 import { Button } from "@/components/button";
-import { Drawer } from "@/components/drawer";
+import { Drawer, drawerFooter } from "@/components/drawer";
 import { InfoTip } from "@/components/info-tip";
 import { FormField } from "@/components/field";
 import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
@@ -102,11 +102,7 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
   }
 
   return (
-    <Drawer open onClose={p.onClose} title={p.existing ? "Change the delivery record" : "Record delivery"} sub="How the itemized statement went out"
-      footer={<>
-        <Button variant="primary" onClick={save} disabled={busy || (method === "email" && !agreed)}>{busy ? "Saving..." : "Record delivery"}</Button>
-        <Button onClick={p.onClose}>Cancel</Button>
-      </>}>
+    <Drawer open onClose={p.onClose} title={p.existing ? "Change the delivery record" : "Record delivery"} sub="How the itemized statement went out">
       <div className="flex flex-col gap-5">
         <FormField group label="Method" hint={
           <InfoTip title="How the statement goes out" cite="Civ. Code 1950.5(h)(1)(B), (h)(6)">
@@ -149,6 +145,10 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
           </label>
         )}
         {error && <Notice>{error}</Notice>}
+      </div>
+      <div className={drawerFooter}>
+        <Button variant="primary" onClick={save} disabled={busy || (method === "email" && !agreed)}>{busy ? "Saving..." : "Record delivery"}</Button>
+        <Button onClick={p.onClose}>Cancel</Button>
       </div>
     </Drawer>
   );

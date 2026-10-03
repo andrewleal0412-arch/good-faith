@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
+import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
-import { longDate, pacificDate } from "@/lib/dates";
+import { pacificDate, shortDate } from "@/lib/dates";
 
 // The private tenant link: made here, copied once, turned off here. The token is shown the one time it is made,
 // since only its hash is kept; making another replaces the live one. "Email it" opens the landlord's own mail app
@@ -16,8 +17,10 @@ export function TenantLinkPanel(p: {
   address: string;
   contacts: { name: string; email: string | null }[];
   active: { id: string; createdAt: string; lastSeenAt: string | null } | null;
+  quiet?: boolean; // the record header holds the view's primary button, so this panel's buttons are secondary
 }) {
   const router = useRouter();
+  const [confirm, dialog] = useConfirm();
   const field = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState<string | null>(null); // the link just made, held until the page is left
   const [copied, setCopied] = useState(false);
@@ -27,26 +30,26 @@ export function TenantLinkPanel(p: {
   const api = `/api/tenancies/${p.tenancyId}/tenant-link`;
 
   async function create() {
-    if (p.active && !confirm("Make a new link? The current one stops working the moment the new one exists.")) return;
+    if (p.active && !(await confirm({ title: "Make a new link?", body: "The current link stops working the moment the new one exists.", action: "Make a new link" }))) return;
     setBusy("create");
     setError("");
     setCopied(false);
     setCopyNote("");
-    const r = await fetch(api, { method: "POST" });
-    const j = await r.json().catch(() => ({}));
+    const r = await fetch(api, { method: "POST" }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
     setBusy(null);
-    if (!r.ok) return setError(j.error ?? "Couldn't create the link.");
+    if (!r?.ok) return setError(j.error ?? "Couldn't create the link.");
     setUrl(`${window.location.origin}${j.path}`);
     router.refresh();
   }
 
   async function revoke() {
-    if (!confirm("Turn the tenant link off? Anyone opening it sees a plain not-found page from then on.")) return;
+    if (!(await confirm({ title: "Turn the link off?", body: "Anyone opening it sees a plain not-found page from then on.", action: "Turn off" }))) return;
     setBusy("revoke");
     setError("");
-    const r = await fetch(api, { method: "DELETE" });
+    const r = await fetch(api, { method: "DELETE" }).catch(() => null);
     setBusy(null);
-    if (!r.ok) return setError((await r.json().catch(() => ({}))).error ?? "Couldn't turn the link off.");
+    if (!r?.ok) return setError((r ? (await r.json().catch(() => ({}))).error : null) ?? "Couldn't turn the link off.");
     setUrl(null);
     router.refresh();
   }
@@ -96,7 +99,7 @@ export function TenantLinkPanel(p: {
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input ref={field} readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Tenant link"
                 className={`${inputClass} min-w-0 flex-1 text-sm`} />
-              <Button variant="primary" onClick={copy}><Icon name="copy" />{copied ? "Copied" : "Copy"}</Button>
+              <Button variant={p.quiet ? "secondary" : "primary"} onClick={copy}><Icon name="copy" />{copied ? "Copied" : "Copy"}</Button>
               {mailto && <ButtonLink plain href={mailto}><Icon name="mail" />Email it</ButtonLink>}
             </div>
             {copyNote && <p className="mt-1.5 text-xs text-ink-3">{copyNote}</p>}
@@ -104,7 +107,7 @@ export function TenantLinkPanel(p: {
         ) : p.active ? (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <StatusChip tone="green">Active</StatusChip>
-            <span className="text-ink-3">Since {longDate(pacificDate(p.active.createdAt))}, {p.active.lastSeenAt ? `last opened ${when(p.active.lastSeenAt)}` : "not opened yet"}</span>
+            <span className="text-ink-3">Since {shortDate(pacificDate(p.active.createdAt))}, {p.active.lastSeenAt ? `last opened ${when(p.active.lastSeenAt)}` : "not opened yet"}</span>
           </div>
         ) : (
           <p className="text-sm text-ink-3">No link yet</p>
@@ -112,7 +115,7 @@ export function TenantLinkPanel(p: {
 
         <div className="mt-4 flex flex-wrap gap-2">
           {!url && (
-            <Button variant={p.active ? "secondary" : "primary"} onClick={create} disabled={busy === "create"}>
+            <Button variant={p.active || p.quiet ? "secondary" : "primary"} onClick={create} disabled={busy === "create"}>
               <Icon name="link" />{busy === "create" ? "Making it..." : p.active ? "Make a new link" : "Create tenant link"}
             </Button>
           )}
@@ -121,6 +124,7 @@ export function TenantLinkPanel(p: {
           )}
         </div>
       </div>
+      {dialog}
     </Card>
   );
 }

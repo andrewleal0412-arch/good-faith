@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { addDays, longDate } from "@/lib/dates";
+import { addDays, shortDate } from "@/lib/dates";
 import { FORWARDING_MAX, PLANNED_MOVE_OUT_HORIZON_DAYS, PLANNED_MOVE_OUT_PAST_DAYS, tenantMoveOutSentOn, type TenantMoveOut } from "@/lib/tenant";
 import { buttonClass } from "@/components/button";
 import { FormField } from "@/components/field";
@@ -13,7 +13,7 @@ const input = inputClass;
 // "I'm moving out": the planned date and the forwarding address the statement is mailed to (Civ. Code 1950.5(h)(6)).
 // Sending it again changes the one record rather than adding another; the landlord sees the latest. Once the
 // landlord has recorded the actual move-out (moveOutDate), the date is settled and only the address is asked for.
-export function MovingOutForm(p: { token: string; tenants: string[]; today: string; moveOutDate: string | null; existing: TenantMoveOut | null }) {
+export function MovingOutForm(p: { token: string; tenants: string[]; today: string; moveOutDate: string | null; existing: TenantMoveOut | null; quiet?: boolean }) {
   const router = useRouter();
   const dateLocked = !!p.moveOutDate;
   const [saved, setSaved] = useState(p.existing); // the record as the server last returned it, so a change shows at once
@@ -44,18 +44,23 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
   if (!open && saved) {
     const m = saved;
     return (
-      <div className="mt-4 rounded-md bg-surface px-4 py-3 text-base text-ink-2">
-        <b className="text-ink">{justSent ? "Sent to your landlord." : `Sent ${longDate(tenantMoveOutSentOn(m))}.`}</b>{" "}
-        {m.name ? `${m.name}: ` : ""}{!dateLocked && <>moving out <b className="text-ink">{longDate(m.planned_move_out)}</b>; </>}mail the statement to <b className="text-ink">{m.forwarding_address}</b>.{" "}
-        <button onClick={() => setOpen(true)} className="font-medium text-brand hover:underline">Change</button>
+      <div className="flex items-start gap-3 rounded-lg border border-line-2 bg-surface px-4 py-3.5" role={justSent ? "status" : undefined}>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">{justSent ? "Sent to your landlord" : `Sent ${shortDate(tenantMoveOutSentOn(m))}`}</p>
+          <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+            {m.name && <><dt className="text-ink-3">From</dt><dd className="min-w-0">{m.name}</dd></>}
+            {!dateLocked && <><dt className="text-ink-3">Moving out</dt><dd className="min-w-0">{shortDate(m.planned_move_out)}</dd></>}
+            <dt className="text-ink-3">Mail to</dt><dd className="min-w-0 break-words">{m.forwarding_address}</dd>
+          </dl>
+        </div>
+        <button type="button" onClick={() => setOpen(true)} className={buttonClass("link", "md")}>Change</button>
       </div>
     );
   }
 
   return (
-    <div className="mt-4 rounded-md border border-line p-4">
-      <p className="text-base font-medium">{dateLocked ? "Where to mail the statement" : "I'm moving out"}</p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+    <div>
+      <div className="grid gap-4 sm:grid-cols-2">
         {p.tenants.length > 1 && (
           <Field label="Your name">
             <select className={input} value={name} onChange={(e) => setName(e.target.value)}>
@@ -71,22 +76,22 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
           </Field>
         )}
         <div className="sm:col-span-2">
-          <Field label="Forwarding address for the statement" hint="Street, city, state and ZIP. The itemized statement and anything mailed with it go here.">
-            <input className={input} value={address} maxLength={FORWARDING_MAX} onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St, Apt 4, Orange, CA 92866" />
+          <Field label="Forwarding address" hint="Street, city, state and ZIP.">
+            <input className={input} value={address} maxLength={FORWARDING_MAX} autoComplete="street-address" onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St, Apt 4, Orange, CA 92866" />
           </Field>
         </div>
       </div>
       {error && <Notice className="mt-3">{error}</Notice>}
       <div className="mt-4 flex gap-2">
-        <button onClick={send} disabled={busy || (!dateLocked && !date) || !address || !name} className={buttonClass("primary", "md")}>
-          {busy ? "Sending..." : p.existing ? "Send the change" : "Send to the landlord"}
+        <button type="button" onClick={send} disabled={busy || (!dateLocked && !date) || !address || !name} className={buttonClass(p.quiet ? "secondary" : "primary", "md")}>
+          {busy ? "Sending..." : p.existing ? "Send the change" : "Send to your landlord"}
         </button>
-        {p.existing && <button onClick={() => setOpen(false)} className={buttonClass("secondary", "md")}>Cancel</button>}
+        {p.existing && <button type="button" onClick={() => setOpen(false)} className={buttonClass("secondary", "md")}>Cancel</button>}
       </div>
     </div>
   );
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return <FormField label={label} note={hint} labelClass="mb-1.5 block text-xs font-medium text-ink-3">{children}</FormField>;
+  return <FormField label={label} note={hint}>{children}</FormField>;
 }

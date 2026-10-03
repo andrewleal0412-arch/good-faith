@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
+import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { Notice } from "@/components/ui";
 
@@ -20,6 +21,7 @@ export function RefundActions(p: {
   auth: string; // the sentence under the buttons
 }) {
   const router = useRouter();
+  const [confirm, dialog] = useConfirm();
   const [busy, setBusy] = useState<"start" | "approve" | "decline" | null>(null);
   const [error, setError] = useState("");
   const [startedAt, setStartedAt] = useState(0);
@@ -33,7 +35,7 @@ export function RefundActions(p: {
   const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
 
   async function call(kind: "start" | "approve" | "decline") {
-    if (kind === "decline" && !window.confirm("Decline this refund? Nothing is sent, and the agent stops.")) return;
+    if (kind === "decline" && !(await confirm({ title: "Decline this refund?", body: "Nothing is sent, and the agent stops.", action: "Decline" }))) return;
     setStartedAt(Date.now());
     setNow(Date.now());
     setBusy(kind);
@@ -69,29 +71,7 @@ export function RefundActions(p: {
       {busy
         ? <p className="mt-4 text-sm text-ink-3" role="status">{progress}... {elapsed}s</p>
         : <p className="mt-4 text-sm text-ink-3">{p.auth}</p>}
+      {dialog}
     </>
-  );
-}
-
-/** The PayPal id with a copy button that turns into a check for a moment. */
-export function CopyId({ text, label }: { text: string; label: string }) {
-  const [done, setDone] = useState(false);
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setDone(true);
-      setTimeout(() => setDone(false), 1500);
-    } catch {
-      setDone(false);
-    }
-  }
-  return (
-    <span className="inline-flex items-center gap-2 tabular-nums">
-      <span className="break-all">{text}</span>
-      <button type="button" onClick={copy} aria-label={done ? "Copied" : label} title={done ? "Copied" : label}
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-ink-4 hover:bg-surface-2 hover:text-ink-2">
-        <Icon name={done ? "check" : "copy"} className="size-3.5" />
-      </button>
-    </span>
   );
 }

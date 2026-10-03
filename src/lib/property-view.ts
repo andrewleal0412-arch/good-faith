@@ -107,3 +107,6 @@ export function splitAddress(address: string, city: string | null): { street: st
   const rest = address.slice(street.length).replace(/^,\s*/, "").trim();
   return { street, cityLine: rest || city || "" };
 }
+
+/** A street line for a heading: the unit designator keeps its number ("Unit B"), so a wrap never leaves the "B" alone. */
+export const keepUnit = (street: string) => street.replace(/\b(Unit|Apt\.?|Apartment|Suite|Ste\.?|#)\s+(\S+)$/i, "$1\u00a0$2");
