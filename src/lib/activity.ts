@@ -23,6 +23,10 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "deposit_invoice_sent": return `Sent a PayPal deposit invoice for ${usd(d?.amount as number)}${d?.reason === "lease over the legal cap; invoiced the cap" ? `, not the ${usd(d?.charged_by_lease as number)} the lease asks for (legal cap)` : ""}`;
     case "deposit_invoice_failed": return "PayPal rejected the deposit invoice";
     case "move_out_inspected": return `Compared move-in and move-out photos (${(d?.rooms as string[])?.join(", ")}): ${d?.damage} damage, ${d?.cleaning} cleaning, ${d?.wear_and_tear} wear and tear (not chargeable)${(d?.unclear as number) ? `, ${d?.unclear} unclear` : ""}`;
+    case "finding_added": return `Added a finding by hand: ${String(d?.item).toLowerCase()} (${String(d?.classification).replace(/_/g, " ")}), ${d?.room}`;
+    case "finding_reviewed": return d?.status === "accepted" ? `Accepted ${String(d?.item).toLowerCase()} as ordinary wear and tear, not charged`
+      : d?.status === "dismissed" ? `Dismissed the suggested finding: ${String(d?.item).toLowerCase()}` : `Reopened the finding: ${String(d?.item).toLowerCase()}`;
+    case "finding_removed": return `Removed the finding added by hand: ${String(d?.item).toLowerCase()}`;
     case "deduction_added": return `Deducted ${usd(d?.amount as number)} for ${String(d?.item).toLowerCase()}: ${d?.math}`;
     case "deduction_removed": return `Removed the ${usd(d?.amount as number)} deduction for ${String(d?.item).toLowerCase()}`;
     case "move_out_date_set": return `Tenant moved out ${day(d?.move_out_date)}; statement and refund due by ${day(d?.statement_due)}`;
@@ -58,7 +62,7 @@ export function describe(action: string, d: Record<string, unknown> | null): str
 }
 
 /** Actions too small for the Properties page's Recent activity (each PDF build, each lease check before a tenancy). */
-export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved"];
+export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved", "finding_reviewed"];
 
 /** The same for one tenancy's own Activity, which keeps the lease check and the tenants opening their statement. */
 export const QUIET_ON_RECORD = QUIET_ACTIONS.filter((a) => a !== "lease_checked" && a !== "tenant_opened_statement");
@@ -91,6 +95,9 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "refund_method_agreed": return "Refund agreement signed";
     case "deposit_invoice_sent": return `Deposit of ${usd(d?.amount as number)} requested by PayPal`;
     case "move_out_inspected": return "Move-out photos compared";
+    case "finding_added": return "Finding added";
+    case "finding_reviewed": return d?.status === "accepted" ? "Finding accepted" : d?.status === "dismissed" ? "Finding dismissed" : "Finding reopened";
+    case "finding_removed": return "Finding removed";
     case "deduction_added": return `Deduction of ${usd(d?.amount as number)} added`;
     case "deduction_removed": return "Deduction removed";
     case "move_out_date_set": return "Move-out recorded";

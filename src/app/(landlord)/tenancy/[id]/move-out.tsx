@@ -3,235 +3,409 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, buttonClass } from "@/components/button";
+import { Drawer } from "@/components/drawer";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
-import { Card, CardHead, Money, Notice, StatusChip, inlineInputClass, type Tone } from "@/components/ui";
-import { pacificDate, shortDate } from "@/lib/dates";
+import { Menu } from "@/components/menu";
+import { FilePick } from "@/components/file-pick";
+import { Card, CardHead, Money, Notice, StatusChip, Thumb, inlineInputClass } from "@/components/ui";
+import type { Box } from "@/lib/boxes";
+import { basisOf, type StoredDeduction } from "@/lib/deductions";
+import { findingLine, findingTitle, gist, KIND, type Classification, type FindingStatus } from "@/lib/findings";
 import { uploadPhotos } from "@/lib/uploads";
 import { DeductionForm } from "./deduction-form";
+import { FindingForm } from "./finding-form";
+import { MoveOutDate } from "./move-out-date";
+import { BADGE, PhotoCompare, type CompareMode, type Marker } from "./photo-compare";
 
 export type FindingView = {
   id?: string;
+  n: number; // the number down the page, on the photo marker and in the Deductions table
+  pair: string; // the room and its two photos: findings that share them share one card
   room: string;
   item: string;
+  label: string | null;
+  summary: string | null;
   observation: string;
-  classification: "wear_and_tear" | "damage" | "cleaning" | "unclear";
+  classification: Classification;
   reason: string;
   remedy: string;
   severity: string;
   confidence: number;
-  pair: string; // the room and its two photos: findings that share them share one card
+  source: "inspection" | "landlord";
+  status: FindingStatus | null;
+  box: Box | null;
+  moveInBox: Box | null;
   beforeUrl: string | null;
   afterUrl: string | null;
-  deduction: { id: string; amount: number; math: string; note: string | null } | null;
+  beforeDate: string | null;
+  afterDate: string | null;
+  deduction: (Pick<StoredDeduction, "id" | "amount" | "math" | "proration" | "performer" | "work" | "category"> & { note: string | null }) | null;
 };
 
-/** The Why? tip carries the model's first sentence, not its whole paragraph; the card's title attribute keeps the rest. */
-function gist(reason: string): string {
-  const first = reason.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? reason;
-  return first.length > 160 ? `${first.slice(0, 157).replace(/\s+\S*$/, "")}...` : first;
-}
+/** A room that was compared and showed no change: its photos, with room to add a finding by hand. */
+export type QuietRoom = { room: string; beforeUrl: string | null; afterUrl: string | null; beforeDate: string | null; afterDate: string | null };
 
-const KIND: Record<FindingView["classification"], { label: string; tone: Tone; note: string }> = {
-  damage: { label: "Damage", tone: "red", note: "May be deducted: the repair cost, prorated by age." },
-  cleaning: { label: "Cleaning", tone: "amber", note: "May be deducted, only back to move-in cleanliness." },
-  wear_and_tear: { label: "Wear and tear", tone: "gray", note: "Not chargeable under California law." },
-  unclear: { label: "Unclear", tone: "gray", note: "Needs a better photo before anything is charged." },
-};
+type DrawerState = { kind: "deduction"; f: FindingView & { id: string } } | { kind: "finding"; room: string; like: string | null } | { kind: "photos" } | { kind: "compare" };
 
+const LEGEND: [Classification, string][] = [["damage", "border-red-dot"], ["cleaning", "border-amber-dot"], ["wear_and_tear", "border-dashed border-ink-4"]];
+
+// The move-out photos and what the comparison found. Before the comparison: the photos by room, the move-out date and
+// the Compare button. After it: Mercury-calm room cards (Zillow's slider, Lime's numbered damage report), each with
+// the photos, numbered boxes over the move-out photo, and the suggested findings beside them, each accepted by making
+// its deduction (or, for wear and tear, by agreeing it isn't charged). Forms open in a side drawer.
 export function MoveOut(p: {
   tenancyId: string;
   rooms: string[];
   moveOutPhotos: { id: string; room: string; url: string | null }[];
   findings: FindingView[];
+  quietRooms: QuietRoom[];
   inspectedAt: string | null;
-  locked: boolean; // the deposit has been returned, so the deductions are final
+  moveOutDate: string | null;
+  locked: boolean; // the deposit has been returned, so the findings and deductions are final
+  quiet?: boolean; // the record header holds the view's primary button, so Compare shows as secondary
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [drawer, setDrawer] = useState<DrawerState | null>(null);
   const [room, setRoom] = useState(p.rooms[0] ?? "Living room");
-  const [open, setOpen] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
 
-  // Photos are shrunk in the browser and sent in requests under the host's body limit (src/lib/uploads.ts). The input is
-  // cleared first, so choosing the same files again after a failure fires a change event.
-  async function upload(input: HTMLInputElement) {
-    const files = Array.from(input.files ?? []);
-    input.value = "";
-    if (!files.length) return;
+  // Photos are shrunk in the browser and sent in requests under the host's body limit (src/lib/uploads.ts).
+  async function upload(list: File[], afterDone?: () => void) {
+    if (!list.length) return;
     setBusy("photos");
     setError("");
-    const res = await uploadPhotos(`/api/tenancies/${p.tenancyId}/photos`, { phase: "move_out_before", room }, files);
+    const res = await uploadPhotos(`/api/tenancies/${p.tenancyId}/photos`, { phase: "move_out_before", room }, list);
     setBusy(null);
     if (!res.ok) setError(res.error);
+    else afterDone?.();
     router.refresh();
   }
 
-  async function removeDeduction(id: string) {
-    setBusy(`remove-${id}`);
-    await fetch(`/api/tenancies/${p.tenancyId}/deductions/${id}`, { method: "DELETE" });
-    setBusy(null);
-    router.refresh();
-  }
-
-  async function inspect() {
-    if (p.findings.some((f) => f.deduction) &&
-      !confirm("Comparing again replaces these findings. Your deductions stay in the list below but won't show on the new cards. Continue?")) return;
+  // Comparing again replaces the suggested findings; once a deduction exists, a small drawer asks first.
+  async function inspect(confirmed = false) {
+    if (!confirmed && p.findings.some((f) => f.deduction)) return setDrawer({ kind: "compare" });
+    setDrawer(null);
     setBusy("inspect");
     setError("");
     const r = await fetch(`/api/tenancies/${p.tenancyId}/inspect`, { method: "POST" });
     setBusy(null);
-    if (!r.ok) setError((await r.json()).error ?? "Inspection failed.");
+    if (!r.ok) setError((await r.json().catch(() => ({}))).error ?? "The comparison didn't finish. Try again.");
     router.refresh();
   }
 
-  const counts = (["damage", "cleaning", "wear_and_tear", "unclear"] as const)
-    .map((k) => [k, p.findings.filter((f) => f.classification === k).length] as const).filter(([, n]) => n);
+  async function act(key: string, url: string, init: RequestInit) {
+    setBusy(key);
+    setError("");
+    const r = await fetch(url, init);
+    setBusy(null);
+    if (!r.ok) setError((await r.json().catch(() => ({}))).error ?? "Couldn't save. Try again.");
+    router.refresh();
+  }
+  const review = (f: FindingView, status: FindingStatus | null) => act(`review-${f.id}`, `/api/tenancies/${p.tenancyId}/findings/${f.id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+  });
+  const remove = (f: FindingView) => act(`review-${f.id}`, `/api/tenancies/${p.tenancyId}/findings/${f.id}`, { method: "DELETE" });
+
   const outRooms = [...new Set(p.moveOutPhotos.map((x) => x.room))];
   const photoMeta = `${p.moveOutPhotos.length} photo${p.moveOutPhotos.length === 1 ? "" : "s"}${outRooms.length ? `, ${outRooms.length} room${outRooms.length === 1 ? "" : "s"}` : ""}`;
 
-  // One card per room and photo pair, findings numbered in order down the page (the statement uses the same order).
-  const groups: { key: string; room: string; before: string | null; after: string | null; items: { f: FindingView; n: number }[] }[] = [];
-  p.findings.forEach((f, i) => {
+  // One card per room and photo pair, in page order (the findings arrive numbered down the page).
+  const groups: { key: string; room: string; before: { url: string | null; date: string | null }; after: { url: string | null; date: string | null }; items: FindingView[] }[] = [];
+  for (const f of p.findings) {
     let g = groups.find((x) => x.key === f.pair);
-    if (!g) groups.push(g = { key: f.pair, room: f.room, before: f.beforeUrl, after: f.afterUrl, items: [] });
-    g.items.push({ f, n: i + 1 });
-  });
+    if (!g) groups.push(g = { key: f.pair, room: f.room, before: { url: f.beforeUrl, date: f.beforeDate }, after: { url: f.afterUrl, date: f.afterDate }, items: [] });
+    g.items.push(f);
+  }
+  const compared = groups.length + p.quietRooms.length;
+
+  const roomPicker = (
+    <select value={room} onChange={(e) => setRoom(e.target.value)} aria-label="Room" className={`${inlineInputClass} pr-8`}>
+      {p.rooms.map((r) => <option key={r}>{r}</option>)}
+    </select>
+  );
+
+  const drawers = (
+    <>
+      <Drawer open={drawer?.kind === "deduction"} onClose={() => setDrawer(null)} title="Add deduction"
+        sub={drawer?.kind === "deduction" ? `${drawer.f.n}. ${findingTitle(drawer.f)}, ${drawer.f.room}` : undefined}>
+        {drawer?.kind === "deduction" && (
+          <DeductionForm tenancyId={p.tenancyId} finding={drawer.f}
+            onCancel={() => setDrawer(null)} onDone={() => { setDrawer(null); router.refresh(); }} />
+        )}
+      </Drawer>
+      <Drawer open={drawer?.kind === "finding"} onClose={() => setDrawer(null)} title="Add finding" sub={drawer?.kind === "finding" ? drawer.room : undefined}>
+        {drawer?.kind === "finding" && (
+          <FindingForm tenancyId={p.tenancyId} room={drawer.room} like={drawer.like}
+            onCancel={() => setDrawer(null)} onDone={() => { setDrawer(null); router.refresh(); }} />
+        )}
+      </Drawer>
+      <Drawer open={drawer?.kind === "photos"} onClose={() => setDrawer(null)} title="Add move-out photos" sub="Compare again afterwards to include them">
+        <div className="space-y-4">
+          <div>
+            <p className="mb-1.5 text-sm font-medium">Room</p>
+            {roomPicker}
+          </div>
+          <div>
+            <p className="mb-1.5 text-sm font-medium">Photos</p>
+            <FilePick label="Choose photos" icon="camera" accept="image/*" multiple ariaLabel="Move-out photos" files={files} onChange={setFiles} />
+          </div>
+          {error && <Notice>{error}</Notice>}
+          <div className="sticky -bottom-5 -mx-5 -mb-5 mt-6 flex gap-2 border-t border-line-2 bg-canvas px-5 py-3.5">
+            <Button variant="primary" disabled={!files.length || busy === "photos"}
+              onClick={() => upload(files, () => { setFiles([]); setDrawer(null); })}>
+              {busy === "photos" ? "Uploading..." : "Upload"}
+            </Button>
+            <Button onClick={() => setDrawer(null)}>Cancel</Button>
+          </div>
+        </div>
+      </Drawer>
+      <Drawer open={drawer?.kind === "compare"} onClose={() => setDrawer(null)} title="Compare again?">
+        <p className="text-sm text-ink-2">Suggested findings are replaced. Your deductions stay.</p>
+        <div className="sticky -bottom-5 -mx-5 -mb-5 mt-6 flex gap-2 border-t border-line-2 bg-canvas px-5 py-3.5">
+          <Button variant="primary" onClick={() => inspect(true)}>Compare again</Button>
+          <Button onClick={() => setDrawer(null)}>Cancel</Button>
+        </div>
+      </Drawer>
+    </>
+  );
+
+  // Before the comparison: the photos by room, the move-out date, and the button that compares them.
+  if (!compared) {
+    return (
+      <>
+        <Card>
+          <CardHead title="Move-out photos" meta={photoMeta}
+            right={<InfoTip align="end" title="Before any cleaning or repair" cite="Civ. Code 1950.5(g)(2)">
+              Photograph each room after the tenants leave and before any work that will be deducted, then again after it.
+            </InfoTip>} />
+          {!p.locked && !p.moveOutDate && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line-2 px-5 py-3 text-sm">
+              <span className="text-ink-3">Moved out</span>
+              <MoveOutDate tenancyId={p.tenancyId} value={null} locked={false} />
+              <InfoTip align="end" title="The 21-day clock" cite="Civ. Code 1950.5(h)(1)">The itemized statement and the refund are due within 21 calendar days after the tenants leave.</InfoTip>
+            </div>
+          )}
+          {outRooms.length > 0 && (
+            <div className="flex flex-wrap gap-x-6 gap-y-3 border-b border-line-2 px-5 py-4">
+              {outRooms.map((r) => (
+                <div key={r}>
+                  <p className="mb-1.5 text-xs text-ink-3">{r}</p>
+                  <div className="flex gap-1.5">
+                    {p.moveOutPhotos.filter((x) => x.room === r).slice(0, 4).map((x) => <Thumb key={x.id} src={x.url} size={56} className="rounded-sm" />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!p.locked && (
+            <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+              {roomPicker}
+              <label className={buttonClass("secondary", "md", "cursor-pointer")}>
+                <Icon name="camera" />{busy === "photos" ? "Uploading..." : "Add photos"}
+                <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { const l = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ""; upload(l); }} />
+              </label>
+              <Button variant={p.quiet ? "secondary" : "primary"} className="sm:ml-auto" onClick={() => inspect()} disabled={!p.moveOutPhotos.length || busy === "inspect"}>
+                <Icon name="image" />{busy === "inspect" ? "Comparing every room..." : p.inspectedAt ? "Compare again" : "Compare with move-in"}
+              </Button>
+            </div>
+          )}
+          {error && <Notice className="mx-5 mb-4">{error}</Notice>}
+        </Card>
+        {drawers}
+      </>
+    );
+  }
+
+  const kinds = new Set(p.findings.filter((f) => f.status !== "dismissed").map((f) => f.classification));
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="text-lg font-medium">Photo comparison</h2>
+        <span className="text-xs text-ink-3">{compared} room{compared === 1 ? "" : "s"}</span>
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-ink-3 sm:ml-auto">
+          {!p.locked && <span className="max-lg:hidden">Suggested findings. Review before accepting.</span>}
+          {!p.locked && <span aria-hidden className="text-line max-lg:hidden">|</span>}
+          {LEGEND.map(([k, cls]) => (
+            <span key={k} className="inline-flex items-center gap-1.5"><i className={`size-2.5 rounded-[3px] border-[1.5px] ${cls}`} />{KIND[k].label}</span>
+          ))}
+          {kinds.has("unclear") && <span className="inline-flex items-center gap-1.5"><i className="size-2.5 rounded-[3px] border-[1.5px] border-dashed border-ink-3" />Unclear</span>}
+          {!p.locked && (
+            <Menu label="Photo actions" width={200} items={[
+              { label: "Add photos", icon: "camera", onSelect: () => setDrawer({ kind: "photos" }) },
+              { label: busy === "inspect" ? "Comparing..." : "Compare again", icon: "image", disabled: busy === "inspect", onSelect: () => inspect() },
+            ]} />
+          )}
+        </div>
+      </div>
+      {/* The comparison can run before the move-out date is in; the date starts the 21-day clock, so it is asked for
+          here until it is recorded (the "Record move-out" step links to this section). */}
+      {!p.moveOutDate && !p.locked && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-canvas px-4 py-3 text-sm">
+          <span className="size-2 shrink-0 rounded-full bg-amber-dot" aria-hidden />
+          <span className="font-medium">Moved out</span>
+          <MoveOutDate tenancyId={p.tenancyId} value={null} locked={false} />
+          <span className="text-xs text-ink-3">Starts the 21-day clock</span>
+        </div>
+      )}
+      {busy === "inspect" && <Notice tone="gray" className="mb-3">Comparing every room. This takes about half a minute.</Notice>}
+      {error && !drawer && <Notice className="mb-3">{error}</Notice>}
+
+      <div className="flex flex-col gap-4">
+        {groups.map((g) => (
+          <RoomCard key={g.key} room={g.room} before={g.before} after={g.after} items={g.items} locked={p.locked} busy={busy}
+            onDeduct={(f) => f.id && setDrawer({ kind: "deduction", f: { ...f, id: f.id } })}
+            onReview={review} onRemove={remove}
+            onAddFinding={() => setDrawer({ kind: "finding", room: g.room, like: g.items.find((f) => f.id)?.id ?? null })} />
+        ))}
+        {p.quietRooms.map((q) => (
+          <RoomCard key={`quiet-${q.room}`} room={q.room} before={{ url: q.beforeUrl, date: q.beforeDate }} after={{ url: q.afterUrl, date: q.afterDate }}
+            items={[]} locked={p.locked} busy={busy} onDeduct={() => {}} onReview={review} onRemove={remove}
+            onAddFinding={() => setDrawer({ kind: "finding", room: q.room, like: null })} />
+        ))}
+      </div>
+      {drawers}
+    </>
+  );
+}
+
+function RoomCard({ room, before, after, items, locked, busy, onDeduct, onReview, onRemove, onAddFinding }: {
+  room: string;
+  before: { url: string | null; date: string | null };
+  after: { url: string | null; date: string | null };
+  items: FindingView[];
+  locked: boolean;
+  busy: string | null;
+  onDeduct: (f: FindingView) => void;
+  onReview: (f: FindingView, status: FindingStatus | null) => void;
+  onRemove: (f: FindingView) => void;
+  onAddFinding: () => void;
+}) {
+  const [mode, setMode] = useState<CompareMode>("side");
+  const [hot, setHot] = useState<string | null>(null);
+  const active = items.filter((f) => f.status !== "dismissed");
+  const accepted = active.filter((f) => f.deduction || f.status === "accepted").length;
+  const charged = active.filter((f) => f.deduction).length;
+  const unsure = !locked && active.some((f) => f.source !== "landlord" && f.confidence < 0.7);
+  const markers: Marker[] = active.map((f) => ({ id: f.id ?? String(f.n), n: f.n, kind: f.classification, label: findingTitle(f), box: f.box, moveInBox: f.moveInBox }));
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardHead title="Move-out photos"
-          meta={p.locked && p.inspectedAt ? `${photoMeta}, compared ${shortDate(pacificDate(p.inspectedAt))}` : photoMeta}
-          right={<InfoTip align="end" title="Before any cleaning or repair" cite="Civ. Code 1950.5(g)(2)">
-            Photograph each room after the tenants leave and before any work that will be deducted, then again after it.
-          </InfoTip>} />
-        {!p.locked && (
-          <div className="flex flex-wrap items-center gap-2 px-5 py-4">
-            <select value={room} onChange={(e) => setRoom(e.target.value)} aria-label="Room" className={`${inlineInputClass} pr-8`}>
-              {p.rooms.map((r) => <option key={r}>{r}</option>)}
-            </select>
-            <label className={buttonClass("secondary", "md", "cursor-pointer")}>
-              <Icon name="camera" />{busy === "photos" ? "Uploading..." : "Add photos"}
-              <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => upload(e.currentTarget)} />
-            </label>
-            <Button variant={p.inspectedAt ? "secondary" : "primary"} className="sm:ml-auto" onClick={inspect} disabled={!p.moveOutPhotos.length || busy === "inspect"}>
-              <Icon name="image" />{busy === "inspect" ? "Comparing every room..." : p.inspectedAt ? "Compare again" : "Compare with move-in"}
-            </Button>
-          </div>
+    <section className="@container rounded-lg border border-line bg-canvas shadow-sm" aria-label={room}>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-line-2 px-4 py-2.5">
+        <h3 className="text-base font-medium">{room}</h3>
+        <span className="text-xs text-ink-3">{items.length ? `${items.length} finding${items.length === 1 ? "" : "s"}` : "No changes found"}</span>
+        {unsure && (
+          <InfoTip trigger={<span className="text-xs text-ink-3 underline decoration-dotted underline-offset-2 hover:text-ink">Less certain</span>}>
+            The comparison was less sure about this room. Look at both photos before accepting a deduction.
+          </InfoTip>
         )}
-        {error && <Notice className="mx-5 mb-4">{error}</Notice>}
-      </Card>
-
-      {groups.length > 0 && (
-        <>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h2 className="text-lg font-medium">Photo comparison</h2>
-            <span className="text-xs text-ink-3">{counts.map(([k, n]) => `${n} ${KIND[k].label.toLowerCase()}`).join(", ")}</span>
-            <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-ink-3">
-              <Icon name="image" className="size-3.5 text-ink-4" />Suggested findings. Review before accepting.
-            </span>
+        <div role="group" aria-label="Photo view" className="ml-auto inline-flex gap-0.5 rounded-sm bg-surface-2 p-[3px]">
+          {([["side", "Side by side"], ["slider", "Slider"]] as const).map(([k, label]) => (
+            <button key={k} type="button" aria-pressed={mode === k} onClick={() => setMode(k)}
+              className={`h-6 rounded-xs px-2 text-xs ${mode === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Photos and findings side by side once the card is wide enough for both (a container query: the sidebar
+          takes 232px, so the viewport alone can't say); stacked below that. */}
+      <div className="grid @3xl:grid-cols-[minmax(0,1fr)_332px]">
+        <div className="min-w-0 p-3 sm:p-3.5 @3xl:border-r @3xl:border-line-2">
+          <PhotoCompare room={room} before={before} after={after} markers={markers} mode={mode} hot={hot} onHot={setHot} />
+        </div>
+        <div className="flex flex-col @max-3xl:border-t @max-3xl:border-line-2">
+          <div className="flex items-center gap-1.5 px-4 pb-1.5 pt-3 text-xs">
+            <Icon name="image" className="size-3.5 text-ink-4" /><span className="font-medium text-ink-3">Suggested</span>
+            {active.length > 0 && <span className="ml-auto text-ink-3">{locked ? `${charged} of ${active.length} charged` : `${accepted} of ${active.length} accepted`}</span>}
           </div>
-          <ul className="flex flex-col gap-4">
-            {groups.map((g) => {
-              const chargeable = g.items.filter(({ f }) => f.classification !== "wear_and_tear").length;
-              const accepted = g.items.filter(({ f }) => f.deduction).length;
-              const unsure = g.items.some(({ f }) => f.confidence < 0.7);
-              const formFor = g.items.find(({ f }) => f.id && open === f.id && !f.deduction)?.f;
-              return (
-                <li key={g.key}>
-                  <Card>
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line-2 px-4 py-2.5">
-                      <h3 className="text-base font-medium">{g.room}</h3>
-                      <span className="text-xs text-ink-3">{g.items.length} finding{g.items.length === 1 ? "" : "s"}</span>
-                      {unsure && (
-                        <span className="ml-auto inline-flex items-center gap-1 text-xs text-ink-3">
-                          Check photo
-                          <InfoTip align="end" title="Less certain">The comparison was less sure about this room. Look at both photos before accepting a deduction.</InfoTip>
-                        </span>
-                      )}
-                    </div>
-                    <div className="grid md:grid-cols-[minmax(0,1fr)_332px]">
-                      <div className="grid grid-cols-2 content-start gap-2.5 p-3.5 md:border-r md:border-line-2">
-                        {[["Move-in", g.before], ["Move-out", g.after]].map(([label, url]) => (
-                          <figure key={label as string} className="relative aspect-[3/2] overflow-hidden rounded-md bg-surface-2">
-                            {url && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={url as string} alt={`${g.room}, ${label}`} className="size-full object-cover" />
-                            )}
-                            <figcaption className="absolute left-2 top-2 rounded-[5px] bg-white/95 px-[7px] py-0.5 text-xs font-medium text-ink">{label}</figcaption>
-                          </figure>
-                        ))}
-                      </div>
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5 border-b border-line-2 px-4 py-2 text-xs text-ink-3 max-md:border-t">
-                          <Icon name="image" className="size-3.5 text-ink-4" /><span className="font-medium text-ink-2">Suggested</span>
-                          {chargeable > 0 && <span className="ml-auto">{accepted} of {chargeable} accepted</span>}
-                        </div>
-                        {g.items.map(({ f, n }) => {
-                          const k = KIND[f.classification];
-                          return (
-                            <div key={f.id ?? n} className="border-b border-line-2 px-4 py-3 last:border-b-0">
-                              <div className="flex items-start gap-3">
-                                <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-ink-2">{n}</span>
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-sm font-medium">{f.item}</div>
-                                  <StatusChip tone={k.tone} dot={false} size="sm" className="mt-1">{k.label}</StatusChip>
-                                  <p className="mt-1 line-clamp-2 text-xs text-ink-3" title={`${f.observation}\n\n${f.reason}`}>{f.observation}</p>
-                                  <InfoTip trigger="why" align="end" className="mt-0.5" title={k.label} cite="Civ. Code 1950.5(b)(2)-(3), (e)(2)(A)">
-                                    {gist(f.reason)} {k.note}
-                                  </InfoTip>
-                                </div>
-                                {f.deduction ? (
-                                  <div className="shrink-0 text-right">
-                                    <Money value={f.deduction.amount} className="block text-sm font-medium" />
-                                    <div className="mt-1 inline-flex items-center gap-1 text-xs text-green"><Icon name="check" className="size-[11px]" />Accepted</div>
-                                  </div>
-                                ) : f.classification === "wear_and_tear" ? (
-                                  <div className="shrink-0 text-right"><Money value={0} className="text-sm font-medium text-ink-3" /></div>
-                                ) : null}
-                              </div>
+          {items.length ? items.map((f) => (
+            <FindingRow key={f.id ?? f.n} f={f} locked={locked} busy={busy === `review-${f.id}`} hot={hot === (f.id ?? String(f.n))}
+              onHot={(on) => setHot(on ? f.id ?? String(f.n) : null)}
+              onDeduct={() => onDeduct(f)} onReview={(s) => onReview(f, s)} onRemove={() => onRemove(f)} />
+          )) : (
+            <p className="px-4 pb-3 pt-1 text-xs text-ink-3">Nothing changed between the move-in and move-out photos.</p>
+          )}
+          {!locked && (
+            <div className="mt-auto border-t border-line-2 px-4 pb-3 pt-2.5">
+              <Button variant="link" size="sm" onClick={onAddFinding}><Icon name="plus" />Add finding</Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
 
-                              {f.deduction && (
-                                <div className="ml-8 mt-2.5 rounded-md bg-surface px-3 py-2.5 text-xs text-ink-2">
-                                  <div className="flex items-start gap-2">
-                                    <span className="min-w-0 flex-1">{f.deduction.math}</span>
-                                    {!p.locked && (
-                                      <button onClick={() => removeDeduction(f.deduction!.id)} disabled={busy === `remove-${f.deduction.id}`}
-                                        className="shrink-0 font-medium text-brand hover:underline disabled:opacity-50">Remove</button>
-                                    )}
-                                  </div>
-                                  {/* The landlord's reason for the work, which the statement carries with the cost ((h)(2)(D)). */}
-                                  {f.deduction.note && <div className="mt-1 text-ink-3">Why this work: {f.deduction.note}</div>}
-                                </div>
-                              )}
+/** One finding, as the mockup's rows read: its number in the box color, the title, the classification chip and one
+ *  line of what changed with "Why?" at its end; on the right, the amount and its state, or until it is reviewed the one
+ *  action that accepts it (a deduction, or for wear and tear agreeing it isn't charged) over a quiet Dismiss. */
+function FindingRow({ f, locked, busy, hot, onHot, onDeduct, onReview, onRemove }: {
+  f: FindingView; locked: boolean; busy: boolean; hot: boolean; onHot: (on: boolean) => void;
+  onDeduct: () => void; onReview: (s: FindingStatus | null) => void; onRemove: () => void;
+}) {
+  const k = KIND[f.classification];
+  const dismissed = f.status === "dismissed";
+  const wear = f.classification === "wear_and_tear";
+  const open = !locked && !f.deduction && !f.status && !!f.id;
+  const why = f.deduction ? (() => {
+    const b = basisOf(f.deduction);
+    return (
+      <InfoTip trigger="why" title={b.title} cite={f.deduction.proration !== "none" ? `${k.cite}; DRE guide p. 84 (guidance, not statute)` : k.cite}>
+        {f.deduction.math}.{f.deduction.note ? ` ${f.deduction.note}` : ""}
+      </InfoTip>
+    );
+  })() : (
+    <InfoTip trigger="why" title={k.rule} cite={k.cite}>
+      {f.source === "landlord" ? "Added by you." : gist(f.reason)} {k.note}
+    </InfoTip>
+  );
+  const quiet = "text-xs text-ink-3 hover:text-ink disabled:opacity-50";
+  const line = f.source === "landlord"
+    ? (f.observation === "Added by the landlord." ? "Added by you." : `Added by you. ${findingLine(f)}`)
+    : findingLine(f);
 
-                              {!f.deduction && f.classification !== "wear_and_tear" && !p.locked && f.id && open !== f.id && (
-                                <div className="ml-8 mt-1.5">
-                                  <Button variant="link" onClick={() => setOpen(f.id!)}>
-                                    <Icon name="plus" />{f.classification === "unclear" ? "Add a deduction anyway" : "Add deduction"}
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    {formFor && (
-                      <div className="border-t border-line-2 p-4">
-                        <p className="mb-3 text-sm font-medium">Deduction for {formFor.item.charAt(0).toLowerCase() + formFor.item.slice(1)}</p>
-                        <DeductionForm tenancyId={p.tenancyId} finding={{ ...formFor, id: formFor.id! }}
-                          onCancel={() => setOpen(null)} onDone={() => { setOpen(null); router.refresh(); }} />
-                      </div>
-                    )}
-                  </Card>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
+  return (
+    <div onMouseEnter={() => onHot(true)} onMouseLeave={() => onHot(false)} onFocus={() => onHot(true)} onBlur={() => onHot(false)}
+      className={`flex gap-2.5 border-t border-line-2 px-4 pb-3 pt-2.5 [&:nth-child(2)]:border-t-0 ${hot ? "bg-surface" : ""}`}>
+      <span className={`flex size-5 shrink-0 items-center justify-center rounded-[5px] text-xs font-semibold ${dismissed ? "bg-surface-3 text-ink-3" : `${BADGE[f.classification]} text-white`}`}>{f.n}</span>
+      <div className={`min-w-0 flex-1 ${dismissed ? "opacity-60" : ""}`}>
+        <div className="text-sm font-medium" title={f.item}>{findingTitle(f)}</div>
+        <StatusChip tone={k.tone} dot={false} size="sm" className="mt-1">{k.label}</StatusChip>
+        <p className="mt-[5px] text-xs text-ink-3">
+          <span title={`${f.observation}\n\n${f.reason}`}>{line}</span> {why}
+        </p>
+        {!locked && f.status && (
+          <button type="button" className={`mt-1 ${quiet}`} disabled={busy} onClick={() => onReview(null)}>Undo</button>
+        )}
+      </div>
+      <div className="flex min-w-16 shrink-0 flex-col items-end text-right">
+        {open ? (
+          <>
+            {wear
+              ? <Button size="sm" disabled={busy} onClick={() => onReview("accepted")}>Accept</Button>
+              : <Button size="sm" disabled={busy} onClick={onDeduct}>Add deduction</Button>}
+            {f.source === "landlord"
+              ? <button type="button" className={`mt-1.5 ${quiet}`} disabled={busy} onClick={onRemove}>Remove</button>
+              : <button type="button" className={`mt-1.5 ${quiet}`} disabled={busy} onClick={() => onReview("dismissed")}>Dismiss</button>}
+          </>
+        ) : (
+          <>
+            {(f.deduction || wear || locked || f.status) && (
+              <Money value={f.deduction ? f.deduction.amount : 0} className={`block text-sm font-medium ${f.deduction ? "" : "text-ink-3"}`} />
+            )}
+            {f.deduction || f.status === "accepted" ? (
+              <div className="mt-1 inline-flex items-center gap-[3px] text-xs text-green"><Icon name="check" className="size-[11px]" />Accepted</div>
+            ) : dismissed ? (
+              <div className="mt-1 text-xs text-ink-3">Dismissed</div>
+            ) : locked ? (
+              <div className="mt-1 text-xs text-ink-3">Not charged</div>
+            ) : null}
+          </>
+        )}
+      </div>
     </div>
   );
 }

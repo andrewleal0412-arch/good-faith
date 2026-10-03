@@ -12,6 +12,7 @@ import { Button, ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, KV, Notice, inlineInputClass } from "@/components/ui";
+import { MoveOutDate } from "./move-out-date";
 import { NoticeGivenForm } from "./notice-given-form";
 
 export type EventView = { kind: EventKind; date: string; label: string };
@@ -26,11 +27,13 @@ export function NoticeSection(p: {
   noticeGivenOn: string | null;
   plannedMoveOut: string | null;
   moveOutDate: string | null;
+  moveOutLocked: boolean; // the deposit has gone back, so the move-out date is part of the record
   notices: Notices;
   refundNotice: RefundNoticeStatus;
   events: EventView[];
   closed: boolean; // closed out: the statement went out and nothing is left to return
   tenantMoveOut: TenantMoveOut | null; // what the tenants sent through their link, if anything
+  quiet?: boolean; // the record header holds the view's primary button, so Record notice shows as secondary
 }) {
   const router = useRouter();
   const [end, setEnd] = useState(p.endDate ?? "");
@@ -62,8 +65,10 @@ export function NoticeSection(p: {
   const ends = p.plannedMoveOut ?? p.endDate;
   const windowOpens = ends ? inspectionWindowOpens(ends) : null;
   const showForm = !p.noticeGivenOn || editing;
+  // The citation for the card as a whole sits beside the line it explains (the notice form, or "Not recorded"), not as
+  // a lone icon in the card head; once a notice is given, each notice row carries its own.
   const why = (
-    <InfoTip align="end" title="The dates the move-out hangs on" cite="Civ. Code 1950.5(f)(1), (h)(1)(A)(ii)(II)">
+    <InfoTip title="The dates the move-out hangs on" cite="Civ. Code 1950.5(f)(1), (h)(1)(A)(ii)(II)">
       Set the lease end once and record the day either side gives notice. The two written notices the law asks for, and every
       date after them, follow from that.
     </InfoTip>
@@ -74,12 +79,13 @@ export function NoticeSection(p: {
   if (p.moveOutDate || p.closed) {
     return (
       <Card>
-        <CardHead title="Notice and dates" right={why} />
+        <CardHead title="Notice and dates" />
         <div className="flex flex-col divide-y divide-line-2">
           <KV className="px-5 py-3.5" rows={[
             ["Lease ends", p.endDate ? longDate(p.endDate) : "Month to month"],
-            ["Notice", p.noticeGivenOn ? `Given ${longDate(p.noticeGivenOn)}${p.plannedMoveOut ? `, move-out planned ${longDate(p.plannedMoveOut)}` : ""}` : "Not recorded"],
-            ...(p.moveOutDate ? [["Moved out", longDate(p.moveOutDate)] as [string, string]] : []),
+            ["Notice", p.noticeGivenOn ? `Given ${longDate(p.noticeGivenOn)}${p.plannedMoveOut ? `, move-out planned ${longDate(p.plannedMoveOut)}` : ""}`
+              : <span key="n" className="inline-flex items-center gap-1.5">Not recorded{why}</span>],
+            ["Moved out", <MoveOutDate key="m" tenancyId={p.tenancyId} value={p.moveOutDate} locked={p.moveOutLocked || p.closed} />],
           ]} />
           {p.noticeGivenOn && (
             <ul className="flex flex-col divide-y divide-line-2">
@@ -109,7 +115,7 @@ export function NoticeSection(p: {
 
   return (
     <Card>
-      <CardHead title="Notice and dates" right={why} />
+      <CardHead title="Notice and dates" />
       <div className="flex flex-col divide-y divide-line-2">
         {error && <div className="px-5 py-3"><Notice>{error}</Notice></div>}
 
@@ -140,7 +146,7 @@ export function NoticeSection(p: {
           )}
           {showForm ? (
             <div>
-              <p className="text-sm font-medium">Tenant gave notice</p>
+              <p className="flex items-center gap-1.5 text-sm font-medium">Tenant gave notice{!p.noticeGivenOn && why}</p>
               <div className="mt-2.5 flex flex-wrap items-end gap-3">
                 <label className="block">
                   <span className="mb-1.5 block text-xs text-ink-3">Notice given on</span>
@@ -150,7 +156,7 @@ export function NoticeSection(p: {
                   <span className="mb-1.5 block text-xs text-ink-3">Planned move-out</span>
                   <input type="date" className={inlineInputClass} value={planned} min={given} onChange={(e) => setPlanned(e.target.value)} />
                 </label>
-                <Button variant="primary" onClick={saveNotice} disabled={busy === "notice" || !given || !planned}>
+                <Button variant={p.quiet ? "secondary" : "primary"} onClick={saveNotice} disabled={busy === "notice" || !given || !planned}>
                   {busy === "notice" ? "Saving..." : "Record notice"}
                 </Button>
                 {editing && <Button onClick={() => setEditing(false)}>Cancel</Button>}

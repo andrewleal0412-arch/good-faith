@@ -13,6 +13,7 @@ import { guardRefund } from "@/lib/closeout";
 import { wasPaid } from "@/lib/invoice-status";
 import { db, signedUrl } from "@/lib/db";
 import { settle, statementDue, type StoredDeduction } from "@/lib/deductions";
+import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
 import { dayLabel, daysBetween, longDate, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
@@ -27,7 +28,7 @@ import { activeTenantLink } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
 import { MoneyTimeline } from "./money";
 import { MoveInSteps } from "./move-in-steps";
-import { MoveOut, type FindingView } from "./move-out";
+import { MoveOut, type FindingView, type QuietRoom } from "./move-out";
 import { CloseOut, type PendingView } from "./close-out";
 import { NoticeSection } from "./notice";
 import { Settlement } from "./settlement";
@@ -73,17 +74,40 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     id: p.id as string, phase: p.phase as string, room: p.room as string, url: await signedUrl("photos", p.storage_path),
   })));
   const deductions = (deductionRows ?? []).map((d) => ({ ...d, amount: Number(d.amount) })) as StoredDeduction[];
-  // Move-out findings with signed before/after URLs for the side-by-side view, and the deduction made from each.
-  const findings: FindingView[] = await Promise.all(((t.move_out_findings ?? []) as (Omit<FindingView, "beforeUrl" | "afterUrl" | "deduction" | "pair"> & {
-    moveInPath: string; moveOutPath: string;
-  })[]).map(async (f) => {
+  // Each photo's signed URL and the day it was taken, by storage path, for the comparison cards.
+  const photoRows = (photos ?? []) as { storage_path: string; phase: string; room: string; taken_at: string | null; created_at: string }[];
+  const urlOf = new Map(photoRows.map((p, i) => [p.storage_path, photoViews[i].url]));
+  const dateOf = (path: string) => {
+    const p = photoRows.find((x) => x.storage_path === path);
+    return p ? shortDate(pacificDate(p.taken_at ?? p.created_at)) : null;
+  };
+  const url = async (path: string) => urlOf.get(path) ?? await signedUrl("photos", path);
+  // Move-out findings in page order and numbered, with their checked boxes, their photos and the deduction made from
+  // each. Rows from before boxes, or before the landlord's review, read as no box and not reviewed.
+  const stored = inPageOrder((t.move_out_findings ?? []) as StoredFinding[]);
+  const findings: FindingView[] = await Promise.all(stored.map(async (f) => {
     const d = deductions.find((x) => f.id && x.finding?.id === f.id);
     return {
-      ...f, pair: `${f.room}|${f.moveInPath}|${f.moveOutPath}`,
-      beforeUrl: await signedUrl("photos", f.moveInPath), afterUrl: await signedUrl("photos", f.moveOutPath),
-      deduction: d ? { id: d.id, amount: d.amount, math: d.math, note: d.note ?? null } : null,
+      id: f.id, n: f.n, pair: f.pair, room: f.room, item: f.item, label: f.label ?? null, summary: f.summary ?? null, observation: f.observation,
+      classification: f.classification, reason: f.reason, remedy: f.remedy, severity: f.severity, confidence: Number(f.confidence) || 0,
+      source: f.source ?? "inspection", status: f.status ?? null, ...boxesOf(f),
+      beforeUrl: await url(f.moveInPath), afterUrl: await url(f.moveOutPath), beforeDate: dateOf(f.moveInPath), afterDate: dateOf(f.moveOutPath),
+      deduction: d ? { id: d.id, amount: d.amount, math: d.math, note: d.note ?? null, proration: d.proration, performer: d.performer, work: d.work, category: d.category } : null,
     };
   }));
+  // Rooms the comparison looked at and found nothing in: their first move-in and move-out photos, so a finding can still
+  // be added by hand.
+  const inspectedAt = t.move_out_inspected_at as string | null;
+  const quietRooms: QuietRoom[] = inspectedAt ? await Promise.all([...new Set(photoRows.filter((x) => x.phase === "move_out_before" && x.created_at <= inspectedAt).map((x) => x.room))]
+    .filter((r) => !stored.some((f) => f.room === r))
+    .flatMap((r) => {
+      const i = photoRows.find((x) => x.room === r && x.phase === "move_in"), o = photoRows.find((x) => x.room === r && x.phase === "move_out_before");
+      return i && o ? [{ r, i, o }] : [];
+    })
+    .map(async ({ r, i, o }) => ({ room: r, beforeUrl: await url(i.storage_path), afterUrl: await url(o.storage_path), beforeDate: dateOf(i.storage_path), afterDate: dateOf(o.storage_path) }))) : [];
+  const numbers = Object.fromEntries(stored.filter((f) => f.id).map((f) => [f.id!, f.n]));
+  const wearRows = stored.filter((f) => f.id && f.classification === "wear_and_tear" && f.status !== "dismissed")
+    .map((f) => ({ id: f.id!, n: f.n, item: findingTitle(f), full: f.item, room: f.room, photos: (f.moveInPath ? 1 : 0) + (f.moveOutPath ? 1 : 0) }));
   const paid = wasPaid(invoiceStatus);
   const returned = (payments ?? []).find((x) => x.kind === "refund" || x.kind === "payout");
 
@@ -133,10 +157,14 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     .map((e) => ({ id: e.id as string, tenancyId: id, actor: e.actor as string, action: e.action as string, detail: e.detail as Record<string, unknown> | null, createdAt: e.created_at as string })),
   () => summary.tenants, 40);
 
-  // The record header's one primary action: the refund review once the findings are in, otherwise the next step.
+  // The record header's one primary action: the refund review once the findings are in, otherwise the next step. It is
+  // the view's only indigo button, so the cards below show theirs as secondary; the exception is a refund waiting for
+  // approval, whose Send button on the Move-out tab is the primary and the header steps aside.
   const reviewRefund = inspected && !returned && !closed;
-  const primary = reviewRefund ? { label: "Review refund", href: tabHref(id, "move-out", "refund") }
+  const awaitingApproval = run?.status === "awaiting_approval" && !!pendingView;
+  const primary = reviewRefund ? (tab === "move-out" && awaitingApproval ? null : { label: "Review refund", href: tabHref(id, "move-out", "refund") })
     : !closed && step.label !== "View" && step.label !== "View statement" ? step : null;
+  const quiet = !!primary;
   const hasStatement = inspected || !!t.move_out_date;
   const statementLabel = t.statement_delivered_at ? "Statement" : "Statement draft";
   const more: MenuItem[] = [
@@ -151,6 +179,28 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     { label: "Refund notice draft", href: `/tenancy/${id}/notices/electronic-refund`, icon: "doc" },
   ];
 
+  // The notice and its dates: first on the tab before the comparison, last after it.
+  const notice = (
+    <section id="notice" className="scroll-mt-24">
+      <NoticeSection
+        tenancyId={id}
+        today={today}
+        tenants={summary.tenants}
+        endDate={summary.endDate}
+        noticeGivenOn={summary.noticeGivenOn}
+        plannedMoveOut={summary.plannedMoveOut}
+        moveOutDate={summary.moveOutDate}
+        moveOutLocked={!!returned}
+        notices={summary.notices}
+        refundNotice={summary.refundNotice}
+        events={events.map((e) => ({ kind: e.kind, date: e.date, label: e.label }))}
+        closed={closed}
+        tenantMoveOut={tenantMoveOut}
+        quiet={quiet}
+      />
+    </section>
+  );
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -159,7 +209,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           <Icon name="arrow-left" className="size-[15px]" />
         </Link>
         <Thumb src={thumb} size={64} className="rounded-md max-sm:hidden" />
-        <div className="min-w-0 flex-1">
+        {/* A 16rem basis, so on a narrow window the buttons wrap below the address instead of squeezing it word by word. */}
+        <div className="min-w-0 flex-[1_1_16rem]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h1 className="text-xl font-medium">{addr.street}</h1>
             <StatusChip tone={status.tone} size="lg">{status.label}</StatusChip>
@@ -199,7 +250,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                   warnings: flags.filter((f) => f.severity === "warning").length,
                 }}
                 agreement={agreement}
-                lawful={lawfulDeposit(terms)}
+                lawful={terms ? lawfulDeposit(terms) : null}
                 invoice={invoice ? { id: invoice.paypal_id, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
                   payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null } : null}
                 photos={photoViews}
@@ -264,33 +315,20 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <div className="flex flex-col gap-7">
           <FactStrip cols={4}>
             <Fact label="Deposit held" value={held != null ? <Money value={held} /> : "--"}
-              sub={held != null ? (paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid"} />
+              sub={held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid"} />
             <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}`} />
             <Fact label={returned ? "Refunded" : money.balanceClaimed > 0 ? "Balance claimed" : "Refund due"} big
               value={<Money value={returned ? Number(returned.amount) : money.balanceClaimed > 0 ? money.balanceClaimed : money.refund} cents="small" />}
-              sub={returned ? `By PayPal, ${shortDate(pacificDate(returned.created_at))}` : summary.tenants.length > 1 ? `To ${summary.tenants.length} tenants` : `To ${summary.tenants[0] ?? "the tenants"}`} />
+              sub={returned ? `By PayPal, ${shortDate(pacificDate(returned.created_at))}` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
             <Fact label="Statement and refund due"
               info={<InfoTip align="end" title="21 days after move-out" cite="Civ. Code 1950.5(h)(1)">The itemized statement and the refund are due within 21 calendar days after the tenants leave.</InfoTip>}
               value={due ? shortDate(due) : "--"}
               sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(pacificDate(t.statement_delivered_at))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out)}` : "No move-out yet"} />
           </FactStrip>
 
-          <section id="notice" className="scroll-mt-24">
-            <NoticeSection
-              tenancyId={id}
-              today={today}
-              tenants={summary.tenants}
-              endDate={summary.endDate}
-              noticeGivenOn={summary.noticeGivenOn}
-              plannedMoveOut={summary.plannedMoveOut}
-              moveOutDate={summary.moveOutDate}
-              notices={summary.notices}
-              refundNotice={summary.refundNotice}
-              events={events.map((e) => ({ kind: e.kind, date: e.date, label: e.label }))}
-              closed={closed}
-              tenantMoveOut={tenantMoveOut}
-            />
-          </section>
+          {/* Before the comparison the notice and its dates lead; after it, the photos and the money do, and the notice
+              record moves to the foot of the tab. */}
+          {!inspected && notice}
 
           <section id="photos" className="scroll-mt-24">
             <MoveOut
@@ -298,8 +336,11 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
               rooms={[...new Set(moveIn.map((x) => x.room))]}
               moveOutPhotos={photoViews.filter((x) => x.phase === "move_out_before")}
               findings={findings}
-              inspectedAt={t.move_out_inspected_at}
+              quietRooms={quietRooms}
+              inspectedAt={inspectedAt}
+              moveOutDate={t.move_out_date}
               locked={!!returned}
+              quiet={quiet}
             />
           </section>
 
@@ -307,13 +348,11 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             <section id="deductions" className="scroll-mt-24">
               <Settlement
                 tenancyId={id}
-                today={today}
-                moveOutDate={t.move_out_date}
                 depositHeld={held}
-                refundTo={agreement?.paypal_email ?? null}
                 deductions={deductions}
+                numbers={numbers}
+                wear={wearRows}
                 returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, at: returned.created_at } : null}
-                statement={{ href: `/tenancy/${id}/statement`, delivered: delivery ? describeDelivery(delivery) : null }}
               />
             </section>
           )}
@@ -323,11 +362,14 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
               <CloseOut
                 tenancyId={id}
                 refunded={!!returned}
+                quiet={quiet}
                 returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, on: pacificDate(returned.created_at) } : null}
                 run={run ? { id: run.id, status: run.status, error: run.error, at: run.created_at ? pacificDate(run.created_at) : null, items: timeline(run.messages), pending: pendingView } : null}
               />
             </section>
           )}
+
+          {inspected && notice}
         </div>
       )}
 

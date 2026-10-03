@@ -33,7 +33,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
       const [inP, outP] = await Promise.all([Promise.all(r.in.map(photo)), Promise.all(r.out.map(photo))]);
       const findings = await inspectRoom(room, inP, outP);
       // Attach the actual photo paths so the statement can show each before/after pair (AB 2801).
-      return { room, findings: findings.map((f) => ({ ...f, id: crypto.randomUUID(), moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] })) };
+      return { room, findings: findings.map((f) => ({ ...f, id: crypto.randomUUID(), source: "inspection" as const, moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] })) };
     } catch (e) {
       console.error(`inspection failed for ${room}`, e);
       return { room, findings: null };
@@ -44,8 +44,11 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
     return Response.json({ error: `The inspection of the ${failed.join(" and the ")} didn't finish. Try again.` }, { status: 500 });
   }
   try {
-    const findings: (Finding & { id: string; moveInPath: string; moveOutPath: string })[] = results.flatMap((r) => r.findings ?? []);
-    await db.from("tenancies").update({ move_out_findings: findings, move_out_inspected_at: new Date().toISOString(), status: "moving_out" }).eq("id", id);
+    const findings: (Finding & { id: string; source: "inspection"; moveInPath: string; moveOutPath: string })[] = results.flatMap((r) => r.findings ?? []);
+    // The suggested findings are replaced and the ones the landlord added by hand stay, in one locked step, so a
+    // finding added while the comparison ran isn't lost.
+    const { error } = await db.rpc("replace_suggested_findings", { p_tenancy: id, p_findings: findings });
+    if (error) throw new Error(error.message);
     await audit(id, "agent", "move_out_inspected", {
       rooms: ready.map(([room]) => room),
       wear_and_tear: findings.filter((f) => f.classification === "wear_and_tear").length,

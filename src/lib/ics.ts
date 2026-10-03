@@ -82,7 +82,7 @@ export function buildIcs(events: CalendarEvent[], opts: { name: string; url?: st
   for (const e of events) {
     lines.push(
       "BEGIN:VEVENT",
-      `UID:${e.uid}@deposit-agent`,
+      `UID:${e.uid}@goodfaith`,
       `DTSTAMP:${stamp}`,
       `DTSTART;VALUE=DATE:${icsDate(e.date)}`,
       `DTEND;VALUE=DATE:${icsDate(addDays(e.date, 1))}`,

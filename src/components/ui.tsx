@@ -132,15 +132,27 @@ export function FactStrip({ children, cols = 3, className }: { children: ReactNo
   );
 }
 
-/** One cell of the strip: a label, a value and one sub line. `big` is the view's hero figure. */
+/** One cell of the strip: a label, a value and one sub line. `big` is the view's hero figure. Where the strip wraps to
+ *  two rows (below lg) the three share the strip's rows as a subgrid, so when a label or a sub line wraps on a phone
+ *  the values beside it still line up; on one row each cell stacks on its own, as the mockup's strip does. */
 export function Fact({ label, value, sub, big, info }: { label: ReactNode; value: ReactNode; sub?: ReactNode; big?: boolean; info?: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col px-3 py-2.5 sm:px-5 sm:py-3.5">
-      <div className="flex flex-1 items-start gap-[5px] text-xs text-ink-3 sm:flex-none sm:items-center">{label}{info}</div>
+    <div className="row-span-3 grid min-w-0 grid-cols-1 grid-rows-subgrid content-start px-3 py-2.5 sm:px-5 sm:py-3.5 lg:row-span-1 lg:flex lg:flex-col">
+      <div className="text-xs text-ink-3"><FactLabel label={label} info={info} /></div>
       <div className={cx("mt-1 truncate font-medium tabular-nums", big ? "text-base sm:text-xl" : "text-base sm:text-lg")}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-ink-3 sm:truncate">{sub}</div>}
     </div>
   );
+}
+
+/** The label and its tip as one run of text: the icon is tied to the last word, so on a phone it wraps with that word
+ *  instead of floating to the cell's edge or onto a line of its own. */
+function FactLabel({ label, info }: { label: ReactNode; info?: ReactNode }) {
+  if (!info) return <>{label}</>;
+  const tip = <span className="ml-[5px] inline-flex align-[-2px]">{info}</span>;
+  if (typeof label !== "string" || !label.includes(" ")) return <>{label}{tip}</>;
+  const cut = label.lastIndexOf(" ");
+  return <>{label.slice(0, cut + 1)}<span className="whitespace-nowrap">{label.slice(cut + 1)}{tip}</span></>;
 }
 
 /* ---------- Key-value list ---------- */

@@ -21,10 +21,11 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { data: t } = await db.from("tenancies").select("move_out_findings").eq("id", id).single();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const finding = ((t.move_out_findings ?? []) as { id?: string; room: string; item: string; classification: string;
-    moveInPath: string; moveOutPath: string }[]).find((f) => f.id === findingId);
+    moveInPath: string; moveOutPath: string; status?: string | null }[]).find((f) => f.id === findingId);
   if (!finding) return Response.json({ error: "That finding is from an older inspection. Refresh the page." }, { status: 400 });
   const { data: sent } = await db.from("payments").select("id").eq("tenancy_id", id).in("kind", ["refund", "payout"]).limit(1);
   if (sent?.length) return Response.json({ error: "The deposit has already been returned, so the deductions are final." }, { status: 409 });
+  if (finding.status === "dismissed") return Response.json({ error: "That finding was dismissed. Reopen it first." }, { status: 400 });
   if (finding.classification === "wear_and_tear") {
     return Response.json({ error: "Ordinary wear and tear can't be deducted (Civ. Code 1950.5(b)(2), (e)(1)-(2))." }, { status: 400 });
   }

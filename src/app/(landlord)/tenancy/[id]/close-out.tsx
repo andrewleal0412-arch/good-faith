@@ -51,6 +51,7 @@ export function CloseOut(p: {
   run: { id: string; status: string; error: string | null; at: string | null; items: TimelineItem[]; pending: PendingView | null } | null;
   refunded: boolean;
   returned: { amount: number; kind: string; id: string | null; on: string } | null; // what PayPal sent back, once it has
+  quiet?: boolean; // the record header holds the view's primary button, so Prepare refund shows as secondary
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"start" | "approve" | "decline" | null>(null);
@@ -89,11 +90,7 @@ export function CloseOut(p: {
 
   return (
     <Card>
-      <CardHead title="Refund"
-        right={<InfoTip align="end" title="Nothing moves without you">
-          The agent checks the file against the law, confirms the deposit with PayPal and proposes the refund. A rules check runs
-          again the moment you approve.
-        </InfoTip>} />
+      <CardHead title="Refund" />
       <div className="px-5 py-4">
         {error && <Notice className="mb-4">{error}</Notice>}
 
@@ -127,7 +124,7 @@ export function CloseOut(p: {
           </div>
         ) : !busy && (
           <p className="text-sm text-ink-3">
-            {p.refunded ? "The deposit has been returned." : p.run ? "No refund is waiting for approval." : "When the deductions are final, prepare the refund."}
+            {p.refunded ? "The deposit has been returned." : p.run ? "No refund is waiting for approval." : "When the deductions are final, prepare the refund. Nothing moves until you approve it."}
           </p>
         )}
 
@@ -140,7 +137,7 @@ export function CloseOut(p: {
         )}
 
         {canStart && (
-          <Button variant={p.run ? "secondary" : "primary"} className="mt-4" onClick={() => call("start")}>
+          <Button variant={p.run || p.quiet ? "secondary" : "primary"} className="mt-4" onClick={() => call("start")}>
             {p.run ? "Run the close-out again" : "Prepare refund"}
           </Button>
         )}

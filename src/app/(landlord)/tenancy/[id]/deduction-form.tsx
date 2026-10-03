@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/button";
 import { InfoTip } from "@/components/info-tip";
 import { FormField } from "@/components/field";
+import { FilePick } from "@/components/file-pick";
 import { Money, Notice, inputClass, textareaClass } from "@/components/ui";
 import { chargeable, defaultProration, suggestedLife, type Performer, type Proration, type Work } from "@/lib/deductions";
 import { mb, notAPhoto, shrinkPhoto, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
@@ -72,8 +73,9 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
     onDone();
   }
 
+  // In its drawer: the fields scroll, and the amount with the save button stays pinned at the foot.
   return (
-    <div className="space-y-4">
+    <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!busy && !("error" in preview)) save(); }}>
       <Field label="What was done" group>
         <Segmented value={work} onChange={(w) => { setWork(w); setProration(defaultProration(w)); }}
           options={[["repair", "Repaired"], ["replace", "Replaced"], ["clean", "Cleaned"]]} />
@@ -90,7 +92,7 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
           <Field label="Vendor address"><input className={input} value={v.vendorAddress} onChange={set("vendorAddress")} /></Field>
           <Field label="Vendor phone"><input className={input} inputMode="tel" value={v.vendorPhone} onChange={set("vendorPhone")} /></Field>
           <Field label="Invoice or receipt (PDF or photo)">
-            <input type="file" accept="application/pdf,image/*" className="text-sm text-ink-2 file:mr-3 file:h-[30px] file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:text-sm file:font-medium file:text-ink" onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
+            <FilePick label="Choose file" accept="application/pdf,image/*" files={receipt ? [receipt] : []} onChange={(f) => setReceipt(f[0] ?? null)} />
           </Field>
         </div>
       ) : (
@@ -124,7 +126,7 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
       )}
 
       <Field label="After-repair photos" hint={<InfoTip title="Before and after" cite="Civ. Code 1950.5(g)(2)">Required for every repair or cleaning deduction.</InfoTip>}>
-        <input type="file" accept="image/*" multiple className="text-sm text-ink-2 file:mr-3 file:h-[30px] file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:text-sm file:font-medium file:text-ink" onChange={(e) => setAfter(Array.from(e.target.files ?? []))} />
+        <FilePick label="Add photos" icon="camera" accept="image/*" multiple files={after} onChange={setAfter} />
       </Field>
       <div className="flex items-center gap-1.5 text-sm text-ink-2">
         <label className="flex items-center gap-2">
@@ -134,22 +136,24 @@ export function DeductionForm({ tenancyId, finding, onDone, onCancel }: {
         <InfoTip title="Good-faith estimate" cite="Civ. Code 1950.5(h)(3)">Deduct a good-faith estimate now, then send the invoice within 14 days of finishing.</InfoTip>
       </div>
 
-      <div className="rounded-md bg-surface px-3.5 py-3">
-        {"error" in preview ? (
-          <p className="text-sm text-ink-3">{preview.error}</p>
-        ) : (
-          <>
-            <p className="text-base font-medium">Deduct <Money value={preview.amount} /></p>
-            <p className="mt-0.5 text-xs text-ink-3">{preview.math}{preview.guidance ? " (DRE guidance)" : ""}</p>
-          </>
-        )}
-      </div>
       {error && <Notice>{error}</Notice>}
-      <div className="flex gap-2">
-        <Button variant="primary" onClick={save} disabled={busy || "error" in preview}>{busy ? "Saving..." : "Add deduction"}</Button>
-        <Button onClick={onCancel}>Cancel</Button>
+      <div className="sticky -bottom-5 -mx-5 -mb-5 mt-6 border-t border-line-2 bg-canvas px-5 pb-4 pt-3.5">
+        <div aria-live="polite" className="mb-3 min-h-[38px]">
+          {"error" in preview ? (
+            <p className="text-sm text-ink-3">{preview.error}</p>
+          ) : (
+            <>
+              <p className="text-lg font-medium">Deduct <Money value={preview.amount} /></p>
+              <p className="text-xs text-ink-3">{preview.math}{preview.guidance ? " (DRE guidance)" : ""}</p>
+            </>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" disabled={busy || "error" in preview}>{busy ? "Saving..." : "Add deduction"}</Button>
+          <Button onClick={onCancel}>Cancel</Button>
+        </div>
       </div>
-    </div>
+    </form>
   );
 }
 

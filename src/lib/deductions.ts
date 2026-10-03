@@ -102,6 +102,24 @@ export type StoredDeduction = {
   finding: { id?: string; moveInPath?: string; moveOutPath?: string } | null;
 };
 
+/** A deduction's basis in two short lines for a table ("Prorated, 4 of 10 years left" over "Replaced, 6 years old"),
+ *  read from the stored math, and a short title for its Why? tip. The full math stays the explanation of record. */
+export function basisOf(d: Pick<StoredDeduction, "category" | "math" | "proration" | "performer" | "work">): { main: string; sub: string; title: string } {
+  if (d.category === "rent") return { main: "Unpaid rent", sub: "Rent owed", title: "Unpaid rent" };
+  const life = d.math.match(/× ([\d.]+) years? left of a ([\d.]+)-year useful life \(([\d.]+) years? old\)/);
+  if (d.proration === "useful_life" && life) {
+    return { main: `Prorated, ${life[1]} of ${life[2]} years left`, sub: `Replaced, ${yrs(Number(life[3]))} old`, title: "Prorated by age" };
+  }
+  const paint = d.math.match(/× (full cost|nothing|two thirds|one third) \(paint ([\d.]+) years? old/);
+  if (d.proration === "paint_schedule" && paint) {
+    return { main: `Paint schedule, ${paint[1]}`, sub: `Paint ${yrs(Number(paint[2]))} old`, title: "Paint schedule" };
+  }
+  const sub = d.work === "clean" ? "Cleaning to move-in condition" : d.work === "replace" ? "Replaced, full cost" : "Repair, no depreciation";
+  const labor = d.math.match(/^([\d.]+) hours? × (\$[\d,.]+)\/hour/);
+  if (labor) return { main: `${labor[1]} h × ${labor[2]}`, sub, title: "Your labor at an hourly rate" };
+  return { main: "Actual cost", sub, title: d.work === "clean" ? "Actual cost of the cleaning" : "Actual cost, no depreciation" };
+}
+
 /** What the statement still needs for each deduction under (h)(2) and (g)(2). Empty when it's complete.
  *  A good-faith estimate (h)(3) stands in for the finished repair and its invoice, so it needs neither the after
  *  photo nor the receipt yet; the vendor's name, address and phone take the invoice's place. */
