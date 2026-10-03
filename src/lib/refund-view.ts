@@ -5,12 +5,12 @@ import { closeOutFacts, guardWithFacts, paidAgo, type CloseOutFacts, type Rail }
 import { pacificDate, shortDate, whenText } from "./dates";
 import { db } from "./db";
 import { usd } from "./deductions";
-import { DEMO_DEPOSIT_DATE, POOL_EMPTY } from "./demo-pool";
+import { DEMO_DEPOSIT_DATE, DEMO_REFUND_BLOCKS } from "./demo-pool";
 import { returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 import { streetLine } from "./ledger";
 import { tabHref } from "./property-view";
 import type { DeliveryRecord } from "./statement";
-import { deadlineWords, packFor } from "./states/server";
+import { deadlineWords, packFor, refundRecordWords } from "./states/server";
 import type { StatePack } from "./states/types";
 
 // The refund as Mercury's Review transfer reads it, for the focused /tenancy/<id>/refund page: who gets what from
@@ -65,8 +65,11 @@ export type RefundView = {
     method: string | null; // how the tenants paid, PayPal's code
     blockers: string[];
     warnings: string[];
-    // A demo copy made when the day's pre-paid sandbox deposits were used up: everything works but sending the money.
+    // A demo copy that holds no sandbox deposit of its own (made when the day's pre-paid deposits were used up, or the
+    // Texas unit, whose deposit is always its template's): everything works but sending the money. demoBlock is the
+    // sentence it shows, present only then.
     poolEmpty: boolean;
+    demoBlock?: string;
     checks: Check[];
     run: RunView | null;
     pending: { tool: string; amount: number; check: string | null } | null; // check: null = matches the rules right now
@@ -104,11 +107,13 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean,
   });
   const a = f.refundAgreement;
   if (a || pack.refund.agreementRequired) {
+    // California's agreement to a PayPal refund; in a state with no such rule, the tenants' written designation.
+    const record = refundRecordWords(pack);
     out.push({
-      key: "agreement", label: "Refund by PayPal agreed in writing",
+      key: "agreement", label: record.check,
       value: a ? `Signed ${shortDate(pacificDate(a.signedAt))}` : "Not on file",
       state: a ? "ok" : "fail",
-      tip: { title: "Refund by PayPal", ...rule(RULES.electronicRefund) },
+      tip: { title: record.tip, ...rule(RULES.electronicRefund) },
     });
   }
   if (f.tenancy.tenants.length > 1) {
@@ -235,15 +240,16 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
         : { rail: "payout", amount, email: pd.input.email as string }),
     };
   }
-  const poolEmpty = f.blockers.includes(POOL_EMPTY);
-  if (poolEmpty) console.warn(`demo copy tenancy ${id}: its refund page shows the empty sandbox deposit pool`);
+  const demoBlock = f.blockers.find((b) => DEMO_REFUND_BLOCKS.includes(b)) ?? null;
+  if (demoBlock) console.warn(`demo copy tenancy ${id}: its refund page says it holds no sandbox deposit of its own`);
   return {
     ...base,
     sent: null,
     review: {
       amount: pending?.amount ?? f.totals.refund, depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
       balanceClaimed: f.totals.balanceClaimed, ...(f.standing ? { standing: f.standing.label } : {}), rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
-      blockers: f.blockers.filter((b) => b !== POOL_EMPTY), warnings: f.warnings, poolEmpty, checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
+      blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),
+      checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
       run: await runView(run), pending,
     },
   };

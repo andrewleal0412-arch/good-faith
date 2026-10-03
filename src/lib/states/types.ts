@@ -260,6 +260,9 @@ export type StatePack = {
     /** The state's next open move-in step, if any: before the deposit invoice (a Washington checklist, a New York
      *  inspection offer) or after the payment (the account the deposit is held in); null when none is open. */
     moveIn: (t: TenancySummary, today: string, h: StepHelpers) => { step: NextStep; beforeInvoice: boolean } | null;
+    /** The state's own step once notice is given, while the move-out is still ahead (Texas: the forwarding address in
+     *  writing, asked for before the tenants leave); null when none is open. Absent in California. */
+    beforeMoveOut?: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
     /** Extra steps after the comparison, before the statement and refund; null when none is open. */
     afterInspection: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
     /** Move-in items still open that the card lists under a later step. */

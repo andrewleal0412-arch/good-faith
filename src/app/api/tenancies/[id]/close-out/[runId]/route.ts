@@ -1,6 +1,6 @@
 import { answerApproval } from "@/lib/agent";
 import { db } from "@/lib/db";
-import { POOL_EMPTY, tenancyDepositNotOurs } from "@/lib/demo-pool";
+import { tenancyDepositBlock } from "@/lib/demo-pool";
 import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -18,7 +18,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   // this tenancy's goes on to answerApproval's "No such run."
   if (approved) {
     const { data: run } = await db.from("agent_runs").select("id").eq("id", runId).eq("tenancy_id", id).maybeSingle();
-    if (run && (await tenancyDepositNotOurs(ws.id, id))) return Response.json({ error: POOL_EMPTY }, { status: 409 });
+    const blocked = run ? await tenancyDepositBlock(ws.id, id) : null;
+    if (blocked) return Response.json({ error: blocked }, { status: 409 });
   }
   try {
     return Response.json(await answerApproval(id, runId, approved));

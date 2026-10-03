@@ -120,32 +120,34 @@ export async function isTemplate(tenancyId: string): Promise<boolean> {
 export const uploadPrefix = (ws: Workspace) => `ws/${ws.id}/`;
 
 // The template tenancies' own files (their photos, receipts and leases), which every demo copy points at and none may
-// change. Read from demo_templates, which doesn't change while the app runs; kept ten minutes.
-let templates: { ids: Set<string>; leases: Set<string>; until: number } | null = null;
+// change. Read from demo_templates, which doesn't change while the app runs; kept ten minutes. A template seeded before
+// workspaces keeps its files under <tenancy>/; one seeded since (the Texas unit) under its workspace's prefix,
+// ws/<owner workspace>/<tenancy>/.
+type TemplateFiles = { ids: Set<string>; folders: Set<string>; leases: Set<string> };
+let templates: (TemplateFiles & { until: number }) | null = null;
 
-export async function templateFiles(): Promise<{ ids: Set<string>; leases: Set<string> }> {
+export async function templateFiles(): Promise<TemplateFiles> {
   if (templates && templates.until > Date.now()) return templates;
-  const { data } = await db.from("demo_templates").select("tenancy_id, tenancies(lease_pdf_path)");
-  const rows = (data ?? []) as unknown as { tenancy_id: string; tenancies: { lease_pdf_path: string | null } | null }[];
+  const { data } = await db.from("demo_templates").select("tenancy_id, tenancies(lease_pdf_path, workspace_id)");
+  const rows = (data ?? []) as unknown as { tenancy_id: string; tenancies: { lease_pdf_path: string | null; workspace_id: string | null } | null }[];
   templates = {
     ids: new Set(rows.map((r) => r.tenancy_id)),
+    folders: new Set(rows.flatMap((r) => [`${r.tenancy_id}/`, ...(r.tenancies?.workspace_id ? [`ws/${r.tenancies.workspace_id}/${r.tenancy_id}/`] : [])])),
     leases: new Set(rows.map((r) => r.tenancies?.lease_pdf_path).filter((x): x is string => !!x)),
     until: Date.now() + 10 * 60_000,
   };
   return templates;
 }
 
-const isTemplateFile = (t: { ids: Set<string>; leases: Set<string> }, path: string) =>
-  t.leases.has(path) || t.ids.has(path.split("/")[0]);
+const isTemplateFile = (t: TemplateFiles, path: string) => t.leases.has(path) || [...t.folders].some((f) => path.startsWith(f));
 
 /** Whether a page in this workspace may get a link to a stored file: one this workspace uploaded (under its ws/<id>/
  *  prefix), one of the read-only template files every copy points at, or, for the owner, a file stored before
- *  workspaces existed (no ws/ prefix). Never one under another workspace's prefix. */
+ *  workspaces existed (no ws/ prefix). Never one under another workspace's prefix, except a template's own folder. */
 export async function maySign(ws: Workspace, path: string): Promise<boolean> {
   if (!path || path.includes("..")) return false;
   if (path.startsWith(uploadPrefix(ws))) return true;
-  if (path.startsWith("ws/")) return false;
-  if (ws.kind === "owner") return true;
+  if (ws.kind === "owner" && !path.startsWith("ws/")) return true;
   return isTemplateFile(await templateFiles(), path);
 }
 
@@ -159,11 +161,14 @@ export async function signedUrlsFor(ws: Workspace, bucket: "leases" | "photos" |
 }
 
 /** Whether a route may remove a stored file of this tenancy: only one this workspace uploaded for it, or, for the
- *  owner, one stored under the tenancy's own folder before workspaces existed. Template files never. */
+ *  owner, one stored under the tenancy's own folder before workspaces existed. Template files never, in either storage
+ *  layout: a template seeded since workspaces (the Texas unit) keeps its files under the owner's own ws/ prefix, so
+ *  the template check comes before every yes, not only the older layout's. */
 export async function mayRemove(ws: Workspace, tenancyId: string, path: string | null | undefined): Promise<boolean> {
   if (!path || path.includes("..")) return false;
-  if (path.startsWith(`${uploadPrefix(ws)}${tenancyId}/`)) return true;
-  if (ws.kind !== "owner" || !path.startsWith(`${tenancyId}/`)) return false;
+  const own = path.startsWith(`${uploadPrefix(ws)}${tenancyId}/`);
+  const older = ws.kind === "owner" && path.startsWith(`${tenancyId}/`);
+  if (!own && !older) return false;
   return !isTemplateFile(await templateFiles(), path);
 }
 
@@ -178,13 +183,14 @@ function addressKey(address: string): string {
 
 export type NewCopy = { ok: true; ws: string; pool: "claimed" | "empty" } | { ok: false; message: string; status: number };
 
-/** A new private copy of the demo for one browser: today's copy allowance for its address and in total, then both
- *  template tenancies copied with their dates moved to today and, when the pool has one, a pre-paid sandbox deposit
- *  for the move-out unit (one transaction in Postgres, create_demo_workspace). With `replace`, the browser's previous
- *  copy gives back a deposit it never used; its rows stay until the sweep (scripts/demo-sweep.mjs). */
+/** A new private copy of the demo for one browser: today's copy allowance for its address and in total, then every
+ *  template tenancy (the two California units and the Texas one) copied with its dates moved to today and, when the
+ *  pool has one, a pre-paid sandbox deposit for the California move-out unit (one transaction in Postgres,
+ *  create_demo_copy; the Texas unit never takes one). With `replace`, the browser's previous copy gives back a deposit
+ *  it never used; its rows stay until the sweep (scripts/demo-sweep.mjs). */
 export async function createDemoCopy(address: string, replace?: string): Promise<NewCopy> {
   const limits = copyLimits();
-  const { data, error } = await db.rpc("create_demo_workspace", {
+  const { data, error } = await db.rpc("create_demo_copy", {
     p_ip_key: addressKey(address),
     p_ip_limit: limits.perAddress,
     p_total_limit: limits.total,

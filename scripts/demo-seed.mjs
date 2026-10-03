@@ -7,7 +7,15 @@
 // Re-running continues an unfinished demo tenancy at the same address (a step already done is skipped), so a run
 // that stopped halfway picks up where it left off. --fresh starts another one.
 //
+// --state TX builds the Texas demo tenancy instead (2317 Mesquite Bend Dr, Unit 3, Austin, under Harbor View Rentals,
+// from demo/lease-texas.pdf): the lease check, the tenants' PayPal account, the deposit invoice paid by the sandbox
+// tenant, move-in photos, and the tenants' 30 days' notice to leave when the lease ends, with the tenant link sent
+// along for their forwarding address. It stops there, with the written forwarding address still to come, so the Texas
+// steps (Tex. Prop. Code 92.103, 92.107) are the ones on screen. Registered as the `notice` template (20 days ago), each
+// demo copy dates the notice 20 days before it is made, so there the tenants move out in 10. One Claude call.
+//
 //   npm run demo:seed                            build or continue the demo tenancy
+//   npm run demo:seed -- --state TX              build or continue the Texas demo tenancy
 //   npm run demo:seed -- --fresh                 start a new one even if an unfinished one exists
 //   npm run demo:seed -- --tenancy <id>          continue that tenancy
 //   npm run demo:seed -- --until inspect         stop before a step: lease, agreement, invoice, pay, move_in_photos,
@@ -30,34 +38,65 @@ import {
   payAsSandboxTenant, pythonBin, sleep, templateIds, usd,
 } from "./demo-common.mjs";
 
-const STEPS = ["lease", "agreement", "invoice", "pay", "move_in_photos", "notice", "move_out_date", "move_out_photos", "inspect", "deductions", "tenant_link"];
-
-const TITLE = {
-  agreement: "Refund agreement (Civ. Code 1950.5(h)(1)(A))",
-  invoice: "Deposit invoice through PayPal (Civ. Code 1950.5(c))",
-  pay: "Tenant pays the deposit",
-  move_in_photos: "Move-in photos (Civ. Code 1950.5(g)(1))",
-  notice: "Tenant gave notice (Civ. Code 1950.5(f)(1), (h)(1)(A)(ii)(II))",
-  move_out_date: "Move-out date: the 21-day clock (Civ. Code 1950.5(h)(1))",
-  move_out_photos: "Move-out photos (Civ. Code 1950.5(g)(2))",
-  inspect: "Inspection: Claude compares the rooms",
-  deductions: "Deductions with receipts and after-repair photos (Civ. Code 1950.5(h)(2))",
-  tenant_link: "Private tenant link",
-};
+const ALL_STEPS = ["lease", "agreement", "invoice", "pay", "move_in_photos", "notice", "move_out_date", "move_out_photos", "inspect", "deductions", "tenant_link"];
 
 // PayPal statuses that mean the deposit was paid (src/lib/invoice-status.ts).
 const PAID = ["PAID", "MARKED_AS_PAID", "PARTIALLY_REFUNDED", "REFUNDED"];
 
-const DEMO = {
-  lease: join(ROOT, "demo/lease-single-owner.pdf"),
-  addressMatch: "Juniper Hollow", // how the seed recognizes a tenancy it made
-  // Room name in the app, photo file in demo/photos/<move_in|move_out|after_repair>/.
-  rooms: [["Bedroom 1", "bedroom.jpg"], ["Living room", "living_room.jpg"], ["Kitchen", "kitchen.jpg"]],
-  // The lease's ownership clause: one person, one property, one unit. Used only if the extraction leaves it out.
-  owner: { ownerType: "natural_person", ownerPropertyCount: 1, ownerUnitCount: 1 },
-  receiptDate: "October 1, 2026", // the date printed in demo/receipts/*.html; re-dated to follow the move-out
-  noticeDays: 30, // the tenants' notice names a move-out this many days out
-  inspectionNoticeAfterDays: 2, // the landlord mailed the initial-inspection notice this many days after the notice
+// Room name in the app, photo file in demo/photos/<move_in|move_out|after_repair>/.
+const ROOMS = [["Bedroom 1", "bedroom.jpg"], ["Living room", "living_room.jpg"], ["Kitchen", "kitchen.jpg"]];
+
+// The demo tenancy each state builds. California's runs to the move-out review; Texas's stops at the notice.
+const DEMOS = {
+  CA: {
+    state: "CA",
+    lease: join(ROOT, "demo/lease-single-owner.pdf"),
+    leaseHtml: "demo/lease-single-owner.html",
+    addressMatch: "Juniper Hollow", // how the seed recognizes a tenancy it made
+    rooms: ROOMS,
+    // The lease's ownership clause: one person, one property, one unit. Used only if the extraction leaves it out.
+    owner: { ownerType: "natural_person", ownerPropertyCount: 1, ownerUnitCount: 1 },
+    receiptDate: "October 1, 2026", // the date printed in demo/receipts/*.html; re-dated to follow the move-out
+    noticeDays: 30, // the tenants' notice names a move-out this many days out
+    inspectionNoticeAfterDays: 2, // the landlord mailed the initial-inspection notice this many days after the notice
+    atLeaseEnd: false, // the move-out is today (or --move-out), so the 21-day clock runs
+    steps: ALL_STEPS,
+    titles: {
+      agreement: "Refund agreement (Civ. Code 1950.5(h)(1)(A))",
+      invoice: "Deposit invoice through PayPal (Civ. Code 1950.5(c))",
+      pay: "Tenant pays the deposit",
+      move_in_photos: "Move-in photos (Civ. Code 1950.5(g)(1))",
+      notice: "Tenant gave notice (Civ. Code 1950.5(f)(1), (h)(1)(A)(ii)(II))",
+      move_out_date: "Move-out date: the 21-day clock (Civ. Code 1950.5(h)(1))",
+      move_out_photos: "Move-out photos (Civ. Code 1950.5(g)(2))",
+      inspect: "Inspection: Claude compares the rooms",
+      deductions: "Deductions with receipts and after-repair photos (Civ. Code 1950.5(h)(2))",
+      tenant_link: "Private tenant link",
+    },
+  },
+  TX: {
+    state: "TX",
+    lease: join(ROOT, "demo/lease-texas.pdf"),
+    leaseHtml: "demo/lease-texas.html",
+    addressMatch: "Mesquite Bend",
+    rooms: ROOMS,
+    owner: null, // Texas has no cap, so nothing turns on the owner's portfolio
+    noticeDays: 30, // the lease's 30 days' written notice
+    inspectionNoticeAfterDays: null, // Texas asks no notice back from the landlord
+    // The tenants leave when the fixed term ends, so a copy reads "Lease end" and "Moving out" as one day, ahead of it.
+    atLeaseEnd: true,
+    // No move-out yet: the forwarding address in writing (92.107) and the 30 days from surrender (92.103(a)) are
+    // what the copy shows next.
+    steps: ["lease", "agreement", "invoice", "pay", "move_in_photos", "notice", "tenant_link"],
+    titles: {
+      agreement: "The tenants' PayPal account (Tex. Prop. Code 92.103(a))",
+      invoice: "Deposit invoice through PayPal (Tex. Prop. Code 92.102)",
+      pay: "Tenant pays the deposit",
+      move_in_photos: "Move-in photos (evidence for Tex. Prop. Code 92.109(c))",
+      notice: "Tenant gave notice to leave at the lease end (Tex. Prop. Code 92.103(a), 92.107)",
+      tenant_link: "Private tenant link",
+    },
+  },
 };
 
 // One deduction per receipt or labor record, matched to an inspection finding in the same room. The finding has to be
@@ -92,6 +131,9 @@ const DEDUCTIONS = [
 ];
 
 const args = parseArgs(process.argv.slice(2));
+const DEMO = DEMOS[args.state];
+const STEPS = DEMO.steps;
+const TITLE = DEMO.titles;
 const env = loadEnv();
 // The demo pays with a sandbox test account, so it only ever runs against the PayPal sandbox.
 if ((env.PAYPAL_ENVIRONMENT ?? "").trim().toUpperCase() === "LIVE") {
@@ -104,8 +146,6 @@ const caveats = []; // what the presenter should know, printed with the summary
 let tenantPath = null; // the tenant link made this run; the token is shown once and never stored
 let PY = null; // the Python that runs Playwright
 
-await main();
-
 async function main() {
   await requireServer();
   await signIn();
@@ -117,6 +157,7 @@ async function main() {
     if ((await templateIds(db)).has(id)) fail("That tenancy is a template every demo copy is made from, so it doesn't change. Run without --tenancy to build a new demo tenancy.");
     const st = await state(id);
     if (closedOut(st)) fail(`Tenancy ${id} is already closed out (the statement went out or the deposit was returned). Run with --fresh for a new demo tenancy.`);
+    if ((st.t.properties?.state ?? "CA") !== DEMO.state) fail(`Tenancy ${id} is in ${st.t.properties?.state ?? "CA"}, not ${DEMO.state}. Run with --state ${st.t.properties?.state ?? "CA"}.`);
     log(`Continuing tenancy ${id} (${st.t.properties?.address ?? "address not recorded"})`);
   } else if (!args.fresh) {
     id = await findOpenDemoTenancy();
@@ -143,26 +184,33 @@ async function main() {
       inspect: inspectStep, deductions: deductionsStep, tenant_link: tenantLinkStep,
     };
     for (const [step, run] of Object.entries(steps)) {
+      if (!STEPS.includes(step)) continue;
       await stopIfAsked(step, id);
       log(`\n${TITLE[step]}`);
       await run(id, await state(id));
     }
     await backdateRecords(id);
     await summary(id, "Demo tenancy ready");
-    log("  Next, live: open the page and run the close-out agent. It proposes the PayPal refund for your approval.");
+    if (DEMO.state === "TX") {
+      log("  It stops at the notice: the tenants leave at the lease end and their forwarding address in writing is still to come.");
+      log("  To copy it into every demo copy, register it as the notice template, 20 days ago (docs/DEPLOY.md, section 9): each copy");
+      log("  then dates the notice 20 days before it is made, and its tenants move out 10 days after.");
+    } else {
+      log("  Next, live: open the page and run the close-out agent. It proposes the PayPal refund for your approval.");
+    }
     log(`  Remove this tenancy later with: npm run demo:reset -- ${id}`);
   } catch (e) {
     console.error(`\nSeed stopped: ${e.message}`);
     if (id) {
       await backdateRecords(id).catch(() => {});
-      console.error(`Fix the cause and continue with: npm run demo:seed -- --tenancy ${id}\n${BASE}/tenancy/${id}`);
+      console.error(`Fix the cause and continue with: npm run demo:seed -- ${stateArg()}--tenancy ${id}\n${BASE}/tenancy/${id}`);
     }
     process.exit(1);
   }
 }
 
 function parseArgs(argv) {
-  const a = { fresh: false, tenancy: null, until: null, moveOut: null };
+  const a = { fresh: false, tenancy: null, until: null, moveOut: null, state: "CA" };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i], v = argv[i + 1];
     if (k === "--fresh") a.fresh = true;
@@ -171,11 +219,14 @@ function parseArgs(argv) {
     else if (k === "--tenancy") { a.tenancy = v?.toLowerCase() ?? null; i++; }
     else if (k === "--until") { a.until = v; i++; }
     else if (k === "--move-out") { a.moveOut = v; i++; }
-    else if (k === "--help" || k === "-h") { console.log(`${usageText()}\nSteps for --until: ${STEPS.join(", ")}`); process.exit(0); }
+    else if (k === "--state") { a.state = (v ?? "").toUpperCase(); i++; }
+    else if (k === "--help" || k === "-h") { console.log(`${usageText()}\nSteps for --until: ${ALL_STEPS.join(", ")} (Texas: ${DEMOS.TX.steps.join(", ")})`); process.exit(0); }
     else fail(`Unknown option ${k}.\n${usageText()}`);
   }
+  if (!DEMOS[a.state]) fail(`--state needs one of: ${Object.keys(DEMOS).join(", ")}.`);
   if (a.tenancy && !UUID.test(a.tenancy)) fail("--tenancy needs the tenancy's id (the UUID in its URL).");
-  if (a.until && !STEPS.includes(a.until)) fail(`--until needs one of: ${STEPS.join(", ")}`);
+  if (a.until && !DEMOS[a.state].steps.includes(a.until)) fail(`--until needs one of: ${DEMOS[a.state].steps.join(", ")}`);
+  if (a.moveOut && a.state === "TX") fail("--move-out doesn't apply to the Texas demo: it stops at the notice, with the tenants leaving at the lease end.");
   if (a.moveOut && !/^\d{4}-\d{2}-\d{2}$/.test(a.moveOut)) fail("--move-out needs a date as YYYY-MM-DD.");
   if (a.moveOut && a.moveOut > pacificToday()) fail("--move-out can't be in the future: the tenants have to have moved out for the 21-day clock to run.");
   if (a.fresh && a.tenancy) fail("--fresh and --tenancy don't go together.");
@@ -183,7 +234,12 @@ function parseArgs(argv) {
 }
 
 function usageText() {
-  return "Usage: npm run demo:seed -- [--fresh | --tenancy <id>] [--until <step>] [--move-out YYYY-MM-DD]";
+  return "Usage: npm run demo:seed -- [--state CA | TX] [--fresh | --tenancy <id>] [--until <step>] [--move-out YYYY-MM-DD]";
+}
+
+/** "--state TX " for the hints the seed prints, so a Texas run's next command names Texas too. */
+function stateArg() {
+  return args.state === "CA" ? "" : `--state ${args.state} `;
 }
 
 async function stopIfAsked(step, id) {
@@ -192,7 +248,7 @@ async function stopIfAsked(step, id) {
   if (id) {
     await backdateRecords(id).catch(() => {});
     await summary(id, "So far");
-    log(`  Continue with: npm run demo:seed -- --tenancy ${id}`);
+    log(`  Continue with: npm run demo:seed -- ${stateArg()}--tenancy ${id}`);
   }
   process.exit(0);
 }
@@ -244,7 +300,7 @@ async function api(method, path, { json, form, timeout = 60_000 } = {}) {
 
 async function state(id) {
   const [{ data: t, error }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
-    db.from("tenancies").select("id, tenants, start_date, end_date, move_out_date, notice_given_on, planned_move_out, notices, refund_agreement, lease_flags, move_out_findings, move_out_inspected_at, statement_delivered_at, properties(address)").eq("id", id).maybeSingle(),
+    db.from("tenancies").select("id, tenants, start_date, end_date, move_out_date, notice_given_on, planned_move_out, notices, refund_agreement, lease_flags, move_out_findings, move_out_inspected_at, statement_delivered_at, properties(address, state)").eq("id", id).maybeSingle(),
     db.from("payments").select("id, kind, paypal_id, amount, status, raw").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("phase, room").eq("tenancy_id", id),
     db.from("deductions").select("id, item, room, amount, note, finding").eq("tenancy_id", id).order("created_at"),
@@ -262,8 +318,8 @@ function closedOut(st) {
  *  demo, and never a template. */
 async function findOpenDemoTenancy() {
   const [owner, templates] = await Promise.all([ownerWorkspaceId(db), templateIds(db)]);
-  const { data } = await db.from("tenancies").select("id, created_at, properties!inner(address)")
-    .ilike("properties.address", `%${DEMO.addressMatch}%`).is("statement_delivered_at", null).eq("workspace_id", owner)
+  const { data } = await db.from("tenancies").select("id, created_at, properties!inner(address, state)")
+    .ilike("properties.address", `%${DEMO.addressMatch}%`).eq("properties.state", DEMO.state).is("statement_delivered_at", null).eq("workspace_id", owner)
     .order("created_at", { ascending: false });
   for (const row of (data ?? []).filter((r) => !templates.has(r.id))) {
     const { data: sent } = await db.from("payments").select("id").eq("tenancy_id", row.id).in("kind", ["refund", "payout"]).limit(1);
@@ -274,7 +330,7 @@ async function findOpenDemoTenancy() {
 
 async function startTenancy() {
   if (!existsSync(DEMO.lease)) {
-    fail(`${DEMO.lease} is missing. Render it with: python scripts/render_pdf.py demo/lease-single-owner.html demo/lease-single-owner.pdf`);
+    fail(`${DEMO.lease} is missing. Render it with: python scripts/render_pdf.py ${DEMO.leaseHtml} ${DEMO.leaseHtml.replace(/\.html$/, ".pdf")}`);
   }
   log("\nLease check: Claude reads the lease, the rules engine checks it (one API call, about half a minute)");
   const fd = new FormData();
@@ -283,13 +339,15 @@ async function startTenancy() {
   const terms = r.terms;
   // The owner's type and portfolio decide which cap applies (D4). When the extraction leaves them out, the landlord
   // confirms them from the lease's ownership clause, as the page asks; the route recomputes the flags from the terms.
-  if (terms.ownerType === "unknown" || terms.ownerPropertyCount == null || terms.ownerUnitCount == null) {
+  if (DEMO.owner && (terms.ownerType === "unknown" || terms.ownerPropertyCount == null || terms.ownerUnitCount == null)) {
     Object.assign(terms, DEMO.owner);
     log("  the extraction left the owner's portfolio out; confirmed from the lease: one person, one property, one unit");
   }
+  // The state the landlord confirms on the lease check: the demo lease's own.
+  if (r.state !== DEMO.state) log(`  the lease check read the state as ${r.state ?? "not stated"}; confirmed from the lease: ${DEMO.state}`);
   log(`  ${terms.propertyAddress ?? "address not found"}; landlord ${terms.landlordName ?? "?"}; tenants ${terms.tenants.join(" and ")}`);
   log(`  rent ${usd(terms.monthlyRent ?? 0)}; security asked at move-in ${usd(r.totalSecurity)}`);
-  const s = await api("POST", "/api/tenancies", { json: { terms, leasePath: r.leasePath } });
+  const s = await api("POST", "/api/tenancies", { json: { terms, leasePath: r.leasePath, state: DEMO.state } });
   const st = await state(s.id);
   for (const f of st.t.lease_flags ?? []) if (f.severity !== "info") log(`  ${f.severity} ${f.id}: ${f.title}`);
   log(`  started tenancy ${s.id}`);
@@ -301,7 +359,8 @@ async function agreementStep(id, st) {
   need(env, ["PAYPAL_SANDBOX_BUYER_EMAIL"], "Run scripts/setup-sandbox-tenant.sh to store the sandbox test tenant.");
   const signers = st.t.tenants.map((x) => x.name);
   await api("POST", `/api/tenancies/${id}/agreement`, { json: { paypalEmail: env.PAYPAL_SANDBOX_BUYER_EMAIL, signers } });
-  log(`  ${signers.join(" and ")} agreed in writing to a PayPal refund to the sandbox test tenant's account`);
+  log(DEMO.state === "CA" ? `  ${signers.join(" and ")} agreed in writing to a PayPal refund to the sandbox test tenant's account`
+    : `  ${signers.join(" and ")} named the sandbox test tenant's PayPal account for the invoice and the refund`);
 }
 
 async function invoiceStep(id, st) {
@@ -378,13 +437,17 @@ async function noticeStep(id, st) {
   if (given) skip(`notice given ${longDate(given)}, planned move-out ${longDate(st.t.planned_move_out)}`);
   else if (st.t.move_out_date) return log("  the move-out date is already set, so the notice stage is past; nothing to record");
   else {
-    const planned = moveOutFor(st);
+    // California: the move-out is today (or --move-out). Texas: at the lease end, so the forwarding address and the
+    // 30 days from surrender are what a copy shows next (a lease with no end: ten days from today).
+    const planned = DEMO.atLeaseEnd ? st.t.end_date ?? addDays(today, 10) : moveOutFor(st);
     given = addDays(planned, -DEMO.noticeDays);
     if (st.t.start_date && given < st.t.start_date) given = st.t.start_date;
     if (given > today) given = today;
-    const r = await api("POST", `/api/tenancies/${id}/notice`, { json: { noticeGivenOn: given, plannedMoveOut: planned } });
-    log(`  notice given ${longDate(given)} for a move-out on ${longDate(planned)}; the inspection window opens ${longDate(r.inspectionWindowOpens)}`);
+    const r = await api("POST", `/api/tenancies/${id}/notice`, { json: { noticeGivenOn: given, plannedMoveOut: planned, givenBy: "tenant" } });
+    log(`  notice given ${longDate(given)} for a move-out on ${longDate(planned)}${r.inspectionWindowOpens ? `; the inspection window opens ${longDate(r.inspectionWindowOpens)}` : ""}`);
   }
+  // Texas asks no notice back from the landlord; the tenants' forwarding address in writing (92.107) is still to come.
+  if (DEMO.inspectionNoticeAfterDays == null) return log("  no notice is owed back in Texas; the written forwarding address is still to come (Tex. Prop. Code 92.107)");
   // The initial-inspection notice (Civ. Code 1950.5(f)(1)) went out by first-class mail soon after. The electronic-
   // refund notice ((h)(1)(A)(ii)(II)) is not owed: the refund agreement signed at move-in already settles the method.
   if (st.t.notices?.inspection) return skip("initial-inspection notice recorded as given");
@@ -511,9 +574,10 @@ async function backdateRecords(id) {
   const st = await state(id);
   const { start_date: start, move_out_date: moveOut, notice_given_on: noticeOn } = st.t;
   if (!start) return;
-  const [{ data: rows }, { data: photos }] = await Promise.all([
+  const [{ data: rows }, { data: photos }, { data: links }] = await Promise.all([
     db.from("audit_log").select("id, action, detail, created_at").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("id, phase, created_at").eq("tenancy_id", id).order("created_at"),
+    db.from("tenant_links").select("id, created_at").eq("tenancy_id", id).order("created_at"),
   ]);
   const when = (date, minute) => new Date(Date.parse(`${date}T17:00:00Z`) + minute * 60_000).toISOString(); // 10:00 Pacific daylight time
   const earlier = (ts, current) => Date.parse(ts) < Date.parse(current);
@@ -540,6 +604,12 @@ async function backdateRecords(id) {
   if (noticeOn) {
     place(actions("notice_recorded", "notice_changed"), noticeOn, 0);
     for (const r of logRows((r) => r.action === "notice_given" && r.detail?.date)) place([r], r.detail.date, 30);
+    // Stopped at the notice (Texas): the tenant link went out with it, for the forwarding address in writing, rather
+    // than reading as the newest thing on the tenancy.
+    if (!moveOut) {
+      place(actions("tenant_link_created"), noticeOn, 5);
+      place((links ?? []).map((l) => ({ ...l, table: "tenant_links" })), noticeOn, 5);
+    }
   }
   // Move-out day: the photos, the date, the comparison. Deductions and the statement keep their own day.
   if (moveOut) {
@@ -584,11 +654,18 @@ async function summary(id, title) {
     const { data: live } = await db.from("tenant_links").select("id").eq("tenancy_id", id).is("revoked_at", null).limit(1).maybeSingle();
     if (live) log("  Tenant's page: a link is active; its URL was shown when it was made. Make a new link on the tenancy page to get one again.");
   }
-  if (inv && PAID.includes(inv.status)) {
+  if (inv && PAID.includes(inv.status) && DEMO.state === "TX") {
+    log(`  deposit held ${usd(inv.amount)}` + (st.t.planned_move_out ? `; notice given ${longDate(st.t.notice_given_on)}, moving out ${longDate(st.t.planned_move_out)}; the refund is due 30 days after surrender, once the tenants give a forwarding address in writing` : ""));
+  } else if (inv && PAID.includes(inv.status)) {
     log(`  deposit held ${usd(inv.amount)}; deductions ${usd(total)} (${st.deductions.length}); ${usd(Math.max(0, Number(inv.amount) - total))} to return` +
       (st.t.move_out_date ? `; due by ${longDate(addDays(st.t.move_out_date, 21))}` : ""));
+  }
+  if (inv && PAID.includes(inv.status)) {
     const paidOn = depositPaidOn(st);
     if (paidOn) log(`  PayPal dates the sandbox payment the day it was paid, so the statement says the deposit was paid on ${longDate(paidOn)}. The other records are dated the days they belong to.`);
   }
   for (const c of caveats) log(`  Note: ${c}`);
 }
+
+// Last, so every declaration above (the session cookie among them) is initialized before the run starts.
+await main();

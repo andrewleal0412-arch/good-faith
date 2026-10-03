@@ -8,7 +8,7 @@
 // Known gaps).
 
 import { refundableSecurity, type Flag, type LeaseTerms } from "../rules";
-import { addDays, longDate, MAIL_METHODS, plural, RECEIVED, usd } from "./common";
+import { addDays, longDate, MAIL_METHODS, monthsOfRent, plural, RECEIVED, usd } from "./common";
 import type { Notices } from "../notices";
 import type { ClientPack, ClockInput } from "./types";
 
@@ -53,8 +53,8 @@ function evaluate(t: LeaseTerms): Flag[] {
   const deposit = refundableSecurity(t);
   flags.push({
     id: "F3", severity: "info", note: true, title: "No deposit cap in Florida",
-    detail: `Florida sets no limit on a deposit or advance rent. The lease's deposit, ${usd(deposit)}${rent ? `, is ${Math.round((deposit / rent) * 100) / 100} months' rent` : ""}; it is shown for information only.`,
-    cite: F("83.49"), fact: `${usd(deposit)}${rent ? `, ${Math.round((deposit / rent) * 100) / 100} months' rent` : ""}`,
+    detail: `Florida sets no limit on a deposit or advance rent. The lease's deposit, ${usd(deposit)}${rent ? `, is ${monthsOfRent(deposit, rent)}` : ""}; it is shown for information only.`,
+    cite: F("83.49"), fact: `${usd(deposit)}${rent ? `, ${monthsOfRent(deposit, rent)}` : ""}`,
   });
   for (const q of t.nonrefundableLanguage) {
     flags.push({

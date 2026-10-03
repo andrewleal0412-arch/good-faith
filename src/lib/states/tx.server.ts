@@ -81,6 +81,17 @@ export const TX_SERVER: ServerPart = {
       leaseEndsCite: C("92.103"),
     },
     moveIn: () => null,
+    // Before the move-out: ask for the forwarding address while the tenants are still there (T6; docs/rules/TX.md,
+    // section B.12). Not a deadline: nothing is owed until it arrives, and the tenants never forfeit the deposit without it.
+    beforeMoveOut: (t, _today, h) => {
+      const ends = t.plannedMoveOut ?? t.endDate;
+      if (!ends || forwardingOf({ link: t.tenantMoveOut?.forwardingAddress, record: t.notices.forwarding_address })) return null;
+      return {
+        ...h.dated("Get the forwarding address in writing", "The refund and the written itemized list are owed once the tenants give a forwarding address in writing. Ask before they leave: through the tenant link, or record one that came by letter, email or text.",
+          C("92.107"), ends, false, "Planned move-out"),
+        action: { label: "Record address", path: "notices/forwarding-address", icon: "pen" },
+      };
+    },
     afterInspection: (t, _today, h) => {
       if (forwardingOf({ link: t.tenantMoveOut?.forwardingAddress, record: t.notices.forwarding_address }) || !t.moveOutDate) return null;
       return {
@@ -107,9 +118,11 @@ export const TX_SERVER: ServerPart = {
     checklist: grade(ITEMS),
     short: shortOf(ITEMS),
     checklistTip: "The 11 items a Texas itemized statement needs under the rules spec: Property Code 92.103 to 92.113. Each item's tip says why it is done, missing or not needed here.",
-    interest: (city) => {
+    // No city on the line: Texas has no deposit interest statute and its cities may not regulate deposits (1.004), so
+    // "None required in Austin" would suggest a local rule that can't exist.
+    interest: () => {
       const note = "No deposit interest is included: Texas has no deposit interest statute.";
-      return { city, known: false, note, checkReason: note };
+      return { city: null, known: false, note, checkReason: note };
     },
     interestTitle: "Deposit interest",
     wearAtZero: true,

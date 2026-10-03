@@ -77,9 +77,19 @@ export function onePack(codes: (string | null | undefined)[]): ClientPack | null
 }
 
 /** The deadline's words for a tenancy on its track: the due date's label, the refund page's check and its tip title.
- *  California's, Texas's, New York's and Washington's never change; Florida's follow the claim notice. */
+ *  California's, Texas's, New York's and Washington's never change (Texas says "Refund and itemized list due", in its
+ *  statute's words); Florida's follow the claim notice. */
 export function deadlineWords(pack: ClientPack, c: ClockInput): { due: string; within: string; title: string } {
   return pack.deadline.words?.(c) ?? { due: "Statement and refund due", within: `Within the ${pack.deadline.days} days`, title: `${pack.deadline.days}-day deadline` };
+}
+
+/** What the tenants' signed refund record is called. Where a PayPal refund needs their written agreement (California's
+ *  1950.5(h)(1)(A); Washington, by product policy) it is the refund agreement; elsewhere it is only their written
+ *  designation of the PayPal account (Texas, New York, Florida), and never named as an agreement the law asks for. */
+export function refundRecordWords(pack: Pick<ClientPack, "refund">) {
+  return pack.refund.agreementRequired
+    ? { name: "Refund agreement", check: "Refund by PayPal agreed in writing", tip: "Refund by PayPal", unsigned: "PayPal refund, in writing", none: "Not agreed" }
+    : { name: "Refund account", check: "Refund account designated in writing", tip: "Refund account", unsigned: "PayPal account, in writing", none: "Not designated" };
 }
 
 /** The local rules a pack knows of for a city, shown only as a warning that local rules may add requirements. */

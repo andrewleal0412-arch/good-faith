@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { POOL_EMPTY } from "@/lib/demo-pool";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { loadRefundView, maskEmail, type Check, type RefundView, type RunView } from "@/lib/refund-view";
+import { refundRecordWords } from "@/lib/states/server";
 import { tenancyPack } from "@/lib/tenancy-pack";
 import { CopyId } from "@/components/copy-id";
 import { ownedTenancy, pageTenancy } from "@/lib/workspace";
@@ -52,7 +53,7 @@ export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/re
       </header>
       <main className="flex flex-1 justify-center px-4 pb-20 pt-6 sm:px-8 sm:pt-16">
         <div className="w-[560px] max-w-full">
-          {v.sent ? <Sent v={v} statute={statute} /> : <Review v={v} statute={statute} />}
+          {v.sent ? <Sent v={v} statute={statute} /> : <Review v={v} statute={statute} record={refundRecordWords(pack).name.toLowerCase()} />}
         </div>
       </main>
     </div>
@@ -109,7 +110,7 @@ function partyRows(v: RefundView): [ReactNode, ReactNode, ReactNode?][] {
 
 /* ---------- Review ---------- */
 
-function Review({ v, statute }: { v: RefundView; statute: string }) {
+function Review({ v, statute, record }: { v: RefundView; statute: string; record: string }) {
   const r = v.review!;
   const run = r.run;
   const awaiting = !!r.pending && run?.status === "awaiting_approval";
@@ -120,7 +121,7 @@ function Review({ v, statute }: { v: RefundView; statute: string }) {
   const word = payout ? "payout" : "refund";
 
   const note = awaiting ? `This ${word} will be sent today through PayPal.`
-    : r.poolEmpty && !r.blockers.length ? `This demo copy can't send the ${word}.`
+    : r.demoBlock && !r.blockers.length ? `This demo copy can't send the ${word}.`
     : blocked ? "Nothing can be sent until the checks below pass."
       : nothing ? "The deductions use the whole deposit, so no money goes back."
         : "Prepared by the agent and sent only when you approve it.";
@@ -143,7 +144,7 @@ function Review({ v, statute }: { v: RefundView; statute: string }) {
       <Money value={r.amount} className="mt-3 block text-2xl font-medium" />
       <p className="mt-2 text-ink-3">{note}</p>
 
-      {r.poolEmpty && <Notice tone="gray" className="mt-5">{POOL_EMPTY}</Notice>}
+      {r.demoBlock && <Notice tone="gray" className="mt-5">{r.demoBlock}</Notice>}
       {r.blockers.length > 0 && (
         <div role="alert" className="mt-5 rounded-md bg-red-bg px-3.5 py-2.5 text-sm text-red">
           {r.blockers.map((b, i) => <p key={i} className={i ? "mt-1" : ""}>{b}</p>)}
@@ -169,7 +170,7 @@ function Review({ v, statute }: { v: RefundView; statute: string }) {
               <CheckRow c={{
                 key: "guard", label: "Final check before sending", value: failedCheck ? "Blocked" : "Matches the file",
                 state: failedCheck ? "fail" : "ok",
-                tip: { title: "The last check", body: `The prepared ${word}'s amount, payment and account, checked against the deposit, the deductions and the refund agreement. When you send it, Good Faith checks once more, as they are at that moment, before PayPal is called.` },
+                tip: { title: "The last check", body: `The prepared ${word}'s amount, payment and account, checked against the deposit, the deductions and the ${record}. When you send it, Good Faith checks once more, as they are at that moment, before PayPal is called.` },
               }} />
             )}
           </ul>
@@ -190,7 +191,7 @@ function Review({ v, statute }: { v: RefundView; statute: string }) {
         disabled={awaiting ? !!failedCheck : blocked || running}
         auth={awaiting
           ? `By clicking “Send ${word},” you authorize Good Faith to issue this PayPal ${payout ? "Payout" : "refund"}.`
-          : r.poolEmpty ? "Preparing is off in this copy because today's sandbox deposits are used up."
+          : r.demoBlock ? (r.demoBlock === POOL_EMPTY ? "Preparing is off in this copy because today's sandbox deposits are used up." : "Preparing is off in this copy because its deposit is shared with every other copy.")
             : "The agent verifies the deposit with PayPal first. Nothing is sent until you approve it."}
       />
     </>

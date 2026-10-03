@@ -55,7 +55,10 @@ export function describe(action: string, d: Record<string, unknown> | null): str
       return `Checked the lease: ${v} violation${v === 1 ? "" : "s"}, ${w} warning${w === 1 ? "" : "s"}`;
     }
     case "tenancy_started": return "Started this tenancy";
-    case "refund_method_agreed": return `Agreed in writing to a PayPal refund (${(d?.signed_by as string[])?.join(", ")})`;
+    // `designated`: a state that asks for no agreement (Texas, New York, Florida), where the tenants named the account.
+    case "refund_method_agreed": return d?.designated
+      ? `Named in writing the PayPal account for the deposit invoice and its refund (${(d?.signed_by as string[])?.join(", ")})`
+      : `Agreed in writing to a PayPal refund (${(d?.signed_by as string[])?.join(", ")})`;
     case "deposit_invoice_sent": return `Sent a PayPal deposit invoice for ${usd(d?.amount as number)}${d?.reason === "lease over the legal cap; invoiced the cap" ? `, not the ${usd(d?.charged_by_lease as number)} the lease asks for (legal cap)` : ""}`;
     case "deposit_invoice_failed": return "PayPal rejected the deposit invoice";
     case "move_out_inspected": return `Compared move-in and move-out photos (${(d?.rooms as string[])?.join(", ")}): ${d?.damage} damage, ${d?.cleaning} cleaning, ${d?.wear_and_tear} wear and tear (not chargeable)${(d?.unclear as number) ? `, ${d?.unclear} unclear` : ""}`;
@@ -133,7 +136,7 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
   const who = tenants.join(" and ") || "the tenants";
   switch (action) {
     case "tenancy_started": return "Tenancy started";
-    case "refund_method_agreed": return "Refund agreement signed";
+    case "refund_method_agreed": return d?.designated ? "Refund account designated" : "Refund agreement signed";
     case "deposit_invoice_sent": return `Deposit of ${usd(d?.amount as number)} requested by PayPal`;
     case "move_out_inspected": return "Move-out photos compared";
     case "finding_added": return "Finding added";

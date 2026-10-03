@@ -7,7 +7,7 @@
 // W12, W19's materials receipt (docs/rules/README.md, Known gaps).
 
 import { refundableSecurity, type Flag, type LeaseTerms } from "../rules";
-import { addDays, longDate, MAIL_METHODS, plural, SIGNED, usd } from "./common";
+import { addDays, longDate, MAIL_METHODS, monthsOfRent, plural, SIGNED, usd } from "./common";
 import type { ClientPack } from "./types";
 
 const R = (s: string) => `RCW ${s}`;
@@ -28,8 +28,8 @@ function evaluate(t: LeaseTerms): Flag[] {
   });
   flags.push({
     id: "W15", severity: "info", note: true, title: "No statewide deposit cap",
-    detail: `Washington sets no statewide cap for these tenancies. The lease's deposit, ${usd(deposit)}${rent ? `, is ${Math.round((deposit / rent) * 100) / 100} months' rent` : ""}. Seattle, Tacoma, Bellingham and Olympia cap deposits and fees locally.`,
-    cite: R("59.18.260 to 59.18.285"), fact: `${usd(deposit)}${rent ? `, ${Math.round((deposit / rent) * 100) / 100} months' rent` : ""}`,
+    detail: `Washington sets no statewide cap for these tenancies. The lease's deposit, ${usd(deposit)}${rent ? `, is ${monthsOfRent(deposit, rent)}` : ""}. Seattle, Tacoma, Bellingham and Olympia cap deposits and fees locally.`,
+    cite: R("59.18.260 to 59.18.285"), fact: `${usd(deposit)}${rent ? `, ${monthsOfRent(deposit, rent)}` : ""}`,
   });
   for (const c of t.otherMoveInCharges.filter((x) => x.refundable === false)) {
     flags.push({

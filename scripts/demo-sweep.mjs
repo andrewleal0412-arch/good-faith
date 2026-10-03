@@ -9,7 +9,8 @@
 //   npm run demo:sweep -- --workspace <id> --apply   remove one demo copy now, whatever its age (a test copy)
 //
 // Never touched: the owner's workspace, any workspace holding a template tenancy, the templates' own files (a copy's
-// photos, receipts and lease point at them; they are not under ws/), and the pool's unclaimed sandbox deposits. A
+// photos, receipts and lease point at them: under <tenancy>/, or for the Texas template under the owner's ws/<id>/,
+// which is never swept), and the pool's unclaimed sandbox deposits. A
 // deposit a removed copy claimed and never used goes back to the pool (release_demo_deposit); one it refunded stays
 // marked as used. On Render this can run daily as a cron job (docs/DEPLOY.md).
 import { dbClient, fail, loadEnv, ownerWorkspaceId, templateIds } from "./demo-common.mjs";

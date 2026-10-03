@@ -5,14 +5,14 @@ import { Card, EmptyState, PageHead, StatusChip, Table, Td, Th, trClass, type To
 import { pacificDate, shortDate } from "@/lib/dates";
 import { listedRecords, noticeInfoFor, NOTICE_SLUG, recordsFor, type NoticeKind } from "@/lib/notices";
 import { packOf } from "@/lib/next-step";
-import { onePack } from "@/lib/states/server";
+import { onePack, refundRecordWords } from "@/lib/states/server";
 import { splitAddress, tabHref } from "@/lib/property-view";
 import { loadUnits } from "@/lib/units";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Documents" };
 
-// Every paper the law asks for, across every property: the lease, the refund agreement, the written notices and records
+// Every paper the law asks for, across every property: the lease, the refund agreement (or account), the written notices and records
 // the property's state pack names (California: the inspection and electronic-refund notices) and the itemized
 // statement, each with its state and where it opens.
 export default async function DocumentsPage() {
@@ -44,7 +44,7 @@ export default async function DocumentsPage() {
     };
     const rows: Row[] = [
       { key: `${s.id}-lease`, name: "Lease", status: "Checked", tone: "green", href: tabHref(s.id, "documents") },
-      { key: `${s.id}-agreement`, name: "Refund agreement", status: s.agreement ? "Signed" : "Not signed", tone: s.agreement ? "green" : "amber", href: tabHref(s.id, "overview", "move-in"), cite: pack.refund.documentsTip.cite },
+      { key: `${s.id}-agreement`, name: refundRecordWords(pack).name, status: s.agreement ? "Signed" : "Not signed", tone: s.agreement ? "green" : "amber", href: tabHref(s.id, "overview", "move-in"), cite: pack.refund.documentsTip.cite },
       ...listedRecords(pack, "move_in", s.notices).map(record),
       ...(Object.keys(info) as NoticeKind[]).map(notice),
       ...listedRecords(pack, "move_out", s.notices).map(record),
@@ -64,7 +64,7 @@ export default async function DocumentsPage() {
   const why = one ? (
     <InfoTip title="What each document is for">
       <span className="flex flex-col gap-1">
-        <span>Refund agreement: {one.refund.documentsTip.cite}</span>
+        <span>{refundRecordWords(one).name}: {one.refund.documentsTip.cite}</span>
         {[...recordsFor(one, "move_in"), ...recordsFor(one, "notice"), ...recordsFor(one, "move_out")].filter((r) => !r.hiddenUntilRecorded).map((r) => (
           <span key={r.kind}>{cap(r.short)}: {r.cite}</span>
         ))}

@@ -14,7 +14,7 @@ import { wasPaid } from "@/lib/invoice-status";
 import { loadLedger } from "@/lib/ledger-load";
 import { ledgerTotals } from "@/lib/ledger";
 import { closedOut, dueLabelOf, dueOf, packOf, refundLeft, type TenancySummary } from "@/lib/next-step";
-import { GROUP_LABEL, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup } from "@/lib/property-view";
+import { GROUP_LABEL, keepUnit, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup } from "@/lib/property-view";
 import { packFor } from "@/lib/states/server";
 import { accountName, loadRecentActivity, loadThumbnails, loadUnits, UPCOMING_DAYS } from "@/lib/units";
 
@@ -36,6 +36,14 @@ function heldNow(s: TenancySummary): number {
 function StateTag({ state }: { state: string }) {
   const pack = packFor(state);
   return <span title={`${pack.name}: ${pack.statute.short}`} className="ml-1.5 inline-flex h-[18px] items-center rounded-xs bg-surface-2 px-1 align-[1px] text-xs font-medium text-ink-3">{pack.code}</span>;
+}
+
+/** A street with its state tag. When the column is narrow the street wraps between words, and the tag stays with the
+ *  last one ("Unit 3 TX"), so it never sits alone on a line. */
+function Street({ street, state }: { street: string; state: string }) {
+  const s = keepUnit(street);
+  const i = s.lastIndexOf(" ");
+  return <>{s.slice(0, i + 1)}<span className="whitespace-nowrap">{s.slice(i + 1)}<StateTag state={state} /></span></>;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -126,14 +134,17 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
               )}
             </div>
 
-            {/* The table from 1024px, with Tenants and Rent from 1400px (below that the tenants take the city's line); cards
-                below 1024px. The rail sits beside the table from 1280px, under it before. */}
+            {/* The table from 1024px, with Tenants from 1400px (below that the tenants take the city's line); cards below
+                1024px. The rail sits beside the table from 1280px, under it before. The table is never wider than about
+                840px (the 1208px page less its gutters and the rail), so it has no Rent column: rent is on each unit's
+                page and the phone cards. The street may wrap, so a long address or step never pushes the last columns
+                out of the card; every other cell keeps to one line. */}
             <Card className="hidden lg:block">
               {shown.length ? (
                 <Table>
                   <thead>
                     <tr>
-                      <Th first>Property</Th><Th className="max-[1399px]:hidden">Tenants</Th><Th align="right" className="max-[1399px]:hidden">Rent</Th><Th align="right">Deposit</Th><Th>Status</Th><Th>Next step</Th><Th last />
+                      <Th first>Property</Th><Th className="max-[1399px]:hidden">Tenants</Th><Th align="right">Deposit</Th><Th>Status</Th><Th>Next step</Th><Th last />
                     </tr>
                   </thead>
                   <tbody>
@@ -141,18 +152,17 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                       const s = r.summary;
                       return (
                         <tr key={s.id} className={trClass}>
-                          <Td first className="whitespace-nowrap">
+                          <Td first>
                             <Link href={`/tenancy/${s.id}`} className="flex items-center gap-3">
                               <Thumb src={thumbs.get(s.id) ?? null} />
                               <span className="min-w-0">
-                                <span className="block font-medium text-ink">{r.addr.street}<StateTag state={s.state} /></span>
-                                <span className="block text-xs text-ink-3 max-[1399px]:hidden">{r.addr.cityLine}</span>
-                                <span className="block text-xs text-ink-3 min-[1400px]:hidden">{s.tenants.join(", ") || r.addr.cityLine}</span>
+                                <span className="block font-medium text-ink"><Street street={r.addr.street} state={s.state} /></span>
+                                <span className="block whitespace-nowrap text-xs text-ink-3 max-[1399px]:hidden">{r.addr.cityLine}</span>
+                                <span className="block whitespace-nowrap text-xs text-ink-3 min-[1400px]:hidden">{s.tenants.join(", ") || r.addr.cityLine}</span>
                               </span>
                             </Link>
                           </Td>
                           <Td className="whitespace-nowrap max-[1399px]:hidden">{s.tenants.length ? s.tenants.map((t) => <div key={t}>{t}</div>) : <span className="text-ink-3">None named</span>}</Td>
-                          <Td align="right" className="max-[1399px]:hidden">{s.monthlyRent != null ? <Money value={s.monthlyRent} /> : <span className="text-ink-3">Not set</span>}</Td>
                           <Td align="right">{s.deposit ? <Money value={s.deposit.amount} /> : <span className="text-ink-3">None</span>}</Td>
                           <Td><StatusChip tone={r.status.tone}>{r.status.label}</StatusChip></Td>
                           <Td className="whitespace-nowrap"><Link href={r.step.href} className="font-medium text-brand hover:underline">{r.step.label}</Link></Td>
@@ -180,7 +190,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                   <Card key={s.id} className="flex items-start gap-3 p-3.5">
                     <Link href={`/tenancy/${s.id}`} aria-label={r.addr.street} tabIndex={-1}><Thumb src={thumbs.get(s.id) ?? null} size={48} /></Link>
                     <div className="min-w-0 flex-1">
-                      <Link href={`/tenancy/${s.id}`} className="block font-medium">{r.addr.street}<StateTag state={s.state} /></Link>
+                      <Link href={`/tenancy/${s.id}`} className="block font-medium"><Street street={r.addr.street} state={s.state} /></Link>
                       <div className="truncate text-xs text-ink-3">{s.tenants.join(", ") || "No tenants named"}</div>
                       <div className="mt-2 flex gap-4 text-xs text-ink-3">
                         <span>Rent<b className="block text-sm font-medium text-ink">{s.monthlyRent != null ? <Money value={s.monthlyRent} /> : "Not set"}</b></span>

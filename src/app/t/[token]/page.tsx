@@ -115,7 +115,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
             info={<InfoTip align="end" title={pack.tenant.mailTip(!!v.moveOutDate).title} cite={pack.tenant.mailTip(!!v.moveOutDate).cite}>
               {pack.tenant.mailTip(!!v.moveOutDate).text}
             </InfoTip>}>
-            <MovingOutForm token={token} tenants={v.tenants} today={v.today} moveOutDate={v.moveOutDate} existing={v.moveOut} quiet={!!stand.pay} />
+            <MovingOutForm token={token} tenants={v.tenants} today={v.today} moveOutDate={v.moveOutDate} existing={v.moveOut} quiet={!!stand.pay} state={v.state} />
           </Section>
         )}
 

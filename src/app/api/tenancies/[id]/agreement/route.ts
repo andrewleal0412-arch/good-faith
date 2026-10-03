@@ -31,6 +31,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     refund_agreement: agreement,
     tenants: (t.tenants as { name: string }[]).map((x, i) => ({ ...x, email: i === 0 ? paypalEmail : null })),
   }).eq("id", id);
-  await audit(id, "tenant", "refund_method_agreed", { method: "paypal", signed_by: signers });
+  // Where the state asks for no agreement, the entry says it is the tenants' designation of the account, so the activity
+  // never calls it a refund agreement.
+  await audit(id, "tenant", "refund_method_agreed", { method: "paypal", signed_by: signers, ...(pack.refund.agreementRequired ? {} : { designated: true }) });
   return Response.json({ ok: true });
 }

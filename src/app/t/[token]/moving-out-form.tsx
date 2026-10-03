@@ -10,10 +10,19 @@ import { Notice, inputClass } from "@/components/ui";
 
 const input = inputClass;
 
+/** A forwarding address as the tenants would write one, in the unit's own state. */
+const EXAMPLE: Record<string, string> = {
+  CA: "123 Main St, Apt 4, Orange, CA 92866",
+  TX: "123 Main St, Apt 4, Austin, TX 78701",
+  NY: "123 Main St, Apt 4, Brooklyn, NY 11201",
+  FL: "123 Main St, Apt 4, Tampa, FL 33602",
+  WA: "123 Main St, Apt 4, Tacoma, WA 98402",
+};
+
 // "I'm moving out": the planned date and the forwarding address the statement is mailed to (Civ. Code 1950.5(h)(6)).
 // Sending it again changes the one record rather than adding another; the landlord sees the latest. Once the
 // landlord has recorded the actual move-out (moveOutDate), the date is settled and only the address is asked for.
-export function MovingOutForm(p: { token: string; tenants: string[]; today: string; moveOutDate: string | null; existing: TenantMoveOut | null; quiet?: boolean }) {
+export function MovingOutForm(p: { token: string; tenants: string[]; today: string; moveOutDate: string | null; existing: TenantMoveOut | null; quiet?: boolean; state?: string }) {
   const router = useRouter();
   const dateLocked = !!p.moveOutDate;
   const [saved, setSaved] = useState(p.existing); // the record as the server last returned it, so a change shows at once
@@ -77,7 +86,7 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
         )}
         <div className="sm:col-span-2">
           <Field label="Forwarding address" hint="Street, city, state and ZIP.">
-            <input className={input} value={address} maxLength={FORWARDING_MAX} autoComplete="street-address" onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St, Apt 4, Orange, CA 92866" />
+            <input className={input} value={address} maxLength={FORWARDING_MAX} autoComplete="street-address" onChange={(e) => setAddress(e.target.value)} placeholder={EXAMPLE[p.state ?? "CA"] ?? EXAMPLE.CA} />
           </Field>
         </div>
       </div>

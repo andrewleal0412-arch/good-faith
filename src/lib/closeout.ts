@@ -1,7 +1,7 @@
 import "server-only";
 import { pacificDate, paypalPaidAt } from "./dates";
 import { db } from "./db";
-import { depositNotOurs, POOL_EMPTY } from "./demo-pool";
+import { depositBlock } from "./demo-pool";
 import { missingDocs, settle, usd, type StoredDeduction } from "./deductions";
 import { wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
@@ -122,9 +122,10 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   const alreadyReturned = returned
     ? { kind: returned.kind, amount: Number(returned.amount), paypalId: returned.paypal_id, at: returned.created_at }
     : null;
-  // A demo copy refunds only a sandbox deposit of its own (src/lib/demo-pool.ts): one made when the pool was empty
-  // shows the template's deposit, which is never refunded from a copy.
-  if (!alreadyReturned && inv?.paypal_id && (await depositNotOurs(t.workspace_id as string, inv.paypal_id))) blockers.push(POOL_EMPTY);
+  // A demo copy refunds only a sandbox deposit of its own (src/lib/demo-pool.ts): one made when the pool was empty, and
+  // every copy of the Texas unit, shows the template's deposit, which is never refunded from a copy.
+  const demoBlock = !alreadyReturned && inv?.paypal_id ? await depositBlock(t.workspace_id as string, inv.paypal_id) : null;
+  if (demoBlock) blockers.push(demoBlock);
   if (alreadyReturned) blockers.push(`The deposit was already returned: ${usd(alreadyReturned.amount)} by PayPal ${alreadyReturned.kind} ${alreadyReturned.paypalId} on ${alreadyReturned.at.slice(0, 10)}, sent by this close-out after the landlord approved it. Don't send another.`);
 
   const tm = (t.tenant_move_out ?? null) as TenantMoveOut | null;

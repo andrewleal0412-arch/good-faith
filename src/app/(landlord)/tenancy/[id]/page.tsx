@@ -23,7 +23,7 @@ import { closedOut, dueLabelOf, dueOf, inspectionExcused, nextStep } from "@/lib
 import { NOTICE_SLUG, describeNoticeGiven, listedRecords, noticeInfoFor, recordsFor, type NoticeKind, type Notices } from "@/lib/notices";
 import { keepUnit, propertyStatus, splitAddress, stepLink, tabHref, TABS, type TabKey } from "@/lib/property-view";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
-import { packFor } from "@/lib/states/server";
+import { packFor, refundRecordWords } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
 import { deliveryLine, describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { describeTenantMoveOut, type TenantMoveOut } from "@/lib/tenant";
@@ -445,12 +445,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
               })}
               <li className="flex items-center gap-3 px-4 py-3 text-sm">
                 <span className="text-ink-3">Refund to</span>
-                <span className="ml-auto min-w-0 truncate">{agreement ? `PayPal, ${agreement.paypal_email}` : <span className="text-ink-3">Not agreed</span>}</span>
+                <span className="ml-auto min-w-0 truncate">{agreement ? `PayPal, ${agreement.paypal_email}` : <span className="text-ink-3">{refundRecordWords(pack).none}</span>}</span>
               </li>
             </ul>
             <div className="max-lg:hidden">
             <Table minWidth={560}>
-              <thead><tr><Th first>Name</Th><Th>Email</Th><Th>Refund agreement</Th><Th last>Refund to</Th></tr></thead>
+              <thead><tr><Th first>Name</Th><Th>Email</Th><Th>{refundRecordWords(pack).name}</Th><Th last>Refund to</Th></tr></thead>
               <tbody>
                 {contacts.map((c) => {
                   const signed = agreement?.signed_by.includes(c.name);
@@ -459,7 +459,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                       <Td first className="font-medium">{c.name}</Td>
                       <Td>{c.email ?? <span className="text-ink-3">Not on file</span>}</Td>
                       <Td>{signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}</Td>
-                      <Td last>{agreement ? <span className="inline-flex items-center gap-1.5">PayPal, {agreement.paypal_email}</span> : <span className="text-ink-3">Not agreed</span>}</Td>
+                      <Td last>{agreement ? <span className="inline-flex items-center gap-1.5">PayPal, {agreement.paypal_email}</span> : <span className="text-ink-3">{refundRecordWords(pack).none}</span>}</Td>
                     </tr>
                   );
                 })}
@@ -490,7 +490,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   );
 }
 
-/** "2 of 4 done": the lease check, the refund agreement, the paid deposit and the move-in photos, plus the state's
+/** "2 of 4 done": the lease check, the refund agreement (or account), the paid deposit and the move-in photos, plus the state's
  *  own move-in records (a Washington checklist, the account a deposit is held in). */
 function moveInMeta(pack: StatePack, o: { agreement: boolean; paid: boolean; photos: boolean; notices: Notices }) {
   const records = recordsFor(pack, "move_in");
@@ -531,7 +531,7 @@ async function Documents(p: {
       open: leaseUrl ? <a href={leaseUrl} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">Open PDF</a> : <span className="text-ink-3">No file</span>,
     },
     {
-      name: "Refund agreement", sub: p.agreement ? `Signed by ${p.agreement.signed_by.join(" and ")}` : "PayPal refund, in writing",
+      name: refundRecordWords(p.pack).name, sub: p.agreement ? `Signed by ${p.agreement.signed_by.join(" and ")}` : refundRecordWords(p.pack).unsigned,
       status: p.agreement ? <StatusChip tone="green">Signed {shortDate(pacificDate(p.agreement.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>,
       open: <Link href={tabHref(p.id, "overview", "move-in")} className="font-medium text-brand hover:underline">View</Link>,
       info: <InfoTip title={p.pack.refund.documentsTip.title} cite={p.pack.refund.documentsTip.cite}>{p.pack.refund.documentsTip.text}</InfoTip>,

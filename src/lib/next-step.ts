@@ -198,6 +198,10 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
         : undated(label, detail, cite, "soon"));
     }
     if (!ends) return withOpen(undated("Set the planned move-out date", flow.noDateDetail, null, "soon"));
+    // The state's own step while the move-out is ahead (Texas: the forwarding address in writing). From the move-out
+    // day on, recording the move-out comes first: it starts the state's clock.
+    const before = today < ends ? pack.steps.beforeMoveOut?.(t, today, h) : null;
+    if (before) return withOpen(before);
     if (windowOpens && today < windowOpens) {
       return withOpen(dated("Inspection window opens", flow.windowStep(windowOpens), flow.windowCite, windowOpens, false));
     }

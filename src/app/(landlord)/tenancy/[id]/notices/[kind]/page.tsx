@@ -307,7 +307,7 @@ async function PackRecordPage({ id, t, pack, def, today }: { id: string; t: NonN
             <CardHead title="Status" right={given ? <StatusChip tone="green">{def.verb}</StatusChip> : <StatusChip tone="amber">{blocks ? "Draft" : "Not recorded"}</StatusChip>} />
             <div className="flex flex-col gap-3 px-5 py-4">
               <p className="flex items-center gap-1.5 text-sm text-ink-2">
-                {given ? (blocks ? "Prints as the copy that went out" : "On record") : blocks ? `Print it, fill the blanks, then mark it ${def.verb.toLowerCase()}` : "Record it once it is done"}
+                {given ? (blocks ? "Prints as the copy that went out" : "On record") : blocks ? `Print it, fill the blanks, then mark it ${def.verb.toLowerCase()}` : def.verb === "Received" ? "Record it once it arrives" : "Record it once it is done"}
                 <InfoTip align="end" title={def.title} cite={def.cite}>{def.when ?? def.tip}</InfoTip>
               </p>
               {status && (

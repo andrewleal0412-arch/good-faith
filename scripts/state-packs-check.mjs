@@ -126,6 +126,14 @@ eq("TX: the PayPal account first when there is no invoice", next({ state: "TX", 
 const moved = { moveOutDate: "2026-09-30", moveOutPhotos: 3, moveOutInspectedAt: "2026-10-01T18:00:00Z", noticeGivenOn: "2026-09-01", plannedMoveOut: "2026-09-30" };
 eq("TX: a written forwarding address before the statement", next({ state: "TX", ...moved }).label, "Get the forwarding address in writing");
 eq("TX: the tenant link's address counts", next({ state: "TX", ...moved, tenantMoveOut: { name: "A Tenant", plannedMoveOut: "2026-09-30", forwardingAddress: "9 Elm St, Austin, TX 78701", sentOn: "2026-09-01" } }).due, "2026-10-30");
+const txNotice = { state: "TX", status: "moving_out", noticeGivenOn: "2026-09-13", plannedMoveOut: "2026-10-13" };
+const askAddress = next(txNotice);
+eq("TX: before the move-out, ask for the forwarding address", [askAddress.label, askAddress.due, askAddress.deadline, askAddress.dueLabel, askAddress.action?.path],
+  ["Get the forwarding address in writing", "2026-10-13", false, "Planned move-out", "notices/forwarding-address"]);
+eq("TX: a recorded address leaves the move-out", next({ ...txNotice, notices: { forwarding_address: { date: "2026-09-20", method: "email", to: "A Tenant", recorded_at: "x", detail: "9 Elm St, Austin, TX 78701" } } }).label, "Move-out");
+eq("TX: the tenant link's address leaves the move-out", next({ ...txNotice, tenantMoveOut: { name: "A Tenant", plannedMoveOut: "2026-10-13", forwardingAddress: "9 Elm St, Austin, TX 78701", sentOn: "2026-09-13" } }).label, "Move-out");
+eq("TX: from the move-out day, recording the move-out comes first", nextStepLib.nextStep(sum({ ...txNotice, plannedMoveOut: "2026-10-03" }), today).label, "Move-out");
+eq("CA: no step of its own before the move-out", next({ status: "moving_out", noticeGivenOn: "2026-09-13", plannedMoveOut: "2026-10-13", notices: { inspection: { date: "2026-09-15", method: "mail", to: "A Tenant", recorded_at: "x" } } }).label, "Move-out");
 eq("NY: offer the move-in inspection", next({ state: "NY" }).label, "Offer the move-in inspection");
 const offered = { move_in_inspection: { date: "2025-12-20", method: "mail", to: "A Tenant", recorded_at: "x" }, deposit_account: { date: "2026-01-02", method: "mail", to: "A Tenant", recorded_at: "x", detail: "Bank" } };
 eq("NY: the inspection-rights notice after notice", next({ state: "NY", notices: offered, noticeGivenOn: "2026-09-25", plannedMoveOut: "2026-10-31" }).label, "Send the inspection-rights notice");
@@ -181,6 +189,13 @@ eq("FL: deadline words with no claim", states.deadlineWords(FL, { moveOutDate: "
 eq("FL: deadline words before the claim notice", states.deadlineWords(FL, { moveOutDate: "2026-09-01", endDate: null, plannedMoveOut: null, claimed: true }).due, "Claim notice due");
 eq("FL: deadline words after it", states.deadlineWords(FL, { moveOutDate: "2026-09-01", endDate: null, plannedMoveOut: null, claimed: true, claimNoticeDate: "2026-09-15" }).within, "Within 30 days of the claim notice");
 eq("CA: deadline words never change", states.deadlineWords(CA, { moveOutDate: "2026-09-01", endDate: null, plannedMoveOut: null, claimed: true }).within, "Within the 21 days");
+eq("CA: the deadline's label is unchanged", states.deadlineWords(CA, { moveOutDate: "2026-09-01", endDate: null, plannedMoveOut: null }).due, "Statement and refund due");
+eq("TX: the deadline in the statute's words", states.deadlineWords(TX, { moveOutDate: "2026-09-01", endDate: null, plannedMoveOut: null }), { due: "Refund and itemized list due", within: "Within the 30 days", title: "30-day deadline" });
+// The tenants' signed refund record: an agreement where a PayPal refund needs one, otherwise their designation.
+eq("CA: the refund record is an agreement", [states.refundRecordWords(CA).name, states.refundRecordWords(CA).check], ["Refund agreement", "Refund by PayPal agreed in writing"]);
+eq("WA: an agreement too (product policy)", states.refundRecordWords(WA).name, "Refund agreement");
+for (const k of ["TX", "NY", "FL"]) eq(`${k}: the refund record is the account, never an agreement`, [states.refundRecordWords(PACKS[k]).name, states.refundRecordWords(PACKS[k]).check], ["Refund account", "Refund account designated in writing"]);
+eq("TX: no city on the interest line (no local deposit rules in Texas)", TX.statement.interest("Austin", { buildingUnits: 4, notices: {} }).city, null);
 check("TX: the penalty says wrongfully", /wrongfully withheld/.test(TX.chip.text) && /wrongfully withheld/.test(TX.deadline.railText));
 check("FL: the 7-day notice tip names the method", /certified mail or in person/.test(FL.tenant.mailTip(false).text));
 check("FL: no notice by day 30 forfeits the claim", FL.close.extraBlockers(facts({ tenancy: { moveOutDate: "2026-08-20" } }), ctx()).some((b) => /forfeited/.test(b)));

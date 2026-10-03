@@ -6,7 +6,7 @@ An AI agent that runs a California security deposit from move-in to refund for s
 
 It organizes records and fills in templates from the statute and published state guidance. It does not give legal advice.
 
-![Properties: every unit with its status, the next step the law asks for, and the nearest 21-day deadline](docs/screenshots/home.png)
+![Properties: two California units and one in Texas, each with its status and the next step its state's law asks for, and the nearest statement deadline](docs/screenshots/home.png)
 
 ![A move-out finding: Claude's reading of the bedroom carpet next to the move-in photo, with the deduction computed in code and prorated by the carpet's age](docs/screenshots/inspection.png)
 
@@ -19,10 +19,11 @@ Demo video: [to be added before submission]
 Hosted demo: [good-faith.onrender.com](https://good-faith.onrender.com). It runs in the PayPal sandbox, so no real money moves. It is on Render, and the first page after a quiet spell can take up to a minute while the server wakes.
 
 1. Open the link and enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, made the moment you enter the code and dated to that day. Nobody else sees your copy, and you see nobody else's.
-2. Properties shows two units, both managed by Harbor View Rentals (1140 E. Juniper Hollow Ln is owned by Elena Marquez, whose name is on its lease and its refund). 482 N. Glassell St, Unit B closed out a few days ago: deposit refunded through PayPal, itemized statement delivered. 1140 E. Juniper Hollow Ln moved out yesterday, with 20 days left to send the statement and the refund. Each deposit is a real sandbox payment made for the demo, so PayPal dates it recently rather than at move-in a year ago.
-3. Open 1140 E. Juniper Hollow Ln and its Move-out tab: the move-in and move-out photos side by side, Claude's findings boxed on the photos, and the three deductions computed in code.
-4. Review refund, then Prepare refund. The close-out agent reads the file, checks the deposit with PayPal and proposes $3,790.00 back to the tenants' original payment. Send refund approves it, and PayPal's Agent Toolkit sends a real sandbox refund against your copy's own pre-paid sandbox deposit. Refund sent shows PayPal's refund id; the statement is next.
-5. Everything else works too: check a lease (`demo/lease-single-owner.pdf`), start a tenancy, add photos and deductions. Start over, in the account menu, gives your browser a fresh copy.
+2. Properties shows three units, all managed by Harbor View Rentals (1140 E. Juniper Hollow Ln is owned by Elena Marquez, whose name is on its lease and its refund). 482 N. Glassell St, Unit B closed out a few days ago: deposit refunded through PayPal, itemized statement delivered. 1140 E. Juniper Hollow Ln moved out yesterday, with 20 days left to send the statement and the refund. Each deposit is a real sandbox payment made for the demo, so PayPal dates it recently rather than at move-in a year ago.
+3. 2317 Mesquite Bend Dr, Unit 3 is in Austin, so the same engine applies Texas law to it (the "Rules: Tex. Prop. Code ch. 92" chip): the tenants gave notice and move out when the lease ends, in 10 days, the next step is their forwarding address in writing, and the refund is due 30 days after they surrender the unit; the chip's tip names the Texas bad-faith penalty ($100, three times what is wrongfully withheld, and attorney's fees). Its deposit is one sandbox payment every copy shares, so its refund stays off, and PayPal dates that payment the day the demo was built, after the notice.
+4. Open 1140 E. Juniper Hollow Ln and its Move-out tab: the move-in and move-out photos side by side, Claude's findings boxed on the photos, and the three deductions computed in code.
+5. Review refund, then Prepare refund. The close-out agent reads the file, checks the deposit with PayPal and proposes $3,790.00 back to the tenants' original payment. Send refund approves it, and PayPal's Agent Toolkit sends a real sandbox refund against your copy's own pre-paid sandbox deposit. Refund sent shows PayPal's refund id; the statement is next.
+6. Everything else works too: check a lease (`demo/lease-single-owner.pdf`, or `demo/lease-texas.pdf` for Texas), start a tenancy, add photos and deductions. Start over, in the account menu, gives your browser a fresh copy.
 
 The demo has daily limits on the Claude jobs and on new copies per network. If the day's pre-paid sandbox deposits run out, the Review refund page says so and the rest of the copy still works. Copies are removed after two weeks.
 
@@ -208,13 +209,14 @@ Options:
 | `npm run demo:seed -- --tenancy <id>` | Continues that tenancy |
 | `npm run demo:seed -- --until inspect` | Stops before a step, to show it live. Steps: `lease`, `agreement`, `invoice`, `pay`, `move_in_photos`, `notice`, `move_out_date`, `move_out_photos`, `inspect`, `deductions`, `tenant_link` |
 | `npm run demo:seed -- --move-out 2026-09-28` | Sets the move-out date (not in the future). Default: the day the seed runs |
-| `npm run demo:reset -- <tenancyId>` | Removes one tenancy: its rows and its photos, receipts and lease PDF in storage. It refuses the two templates the hosted demo's copies are made from. PayPal sandbox records stay |
+| `npm run demo:seed -- --state TX` | Builds the Texas demo tenancy from `demo/lease-texas.pdf` (2317 Mesquite Bend Dr, Unit 3, Austin): the lease check, the tenants' PayPal account, the deposit paid in the sandbox, move-in photos, and the tenants' notice to leave at the lease end with the tenant link. It stops there, before the forwarding address; a demo copy dates the notice 20 days back, so its tenants move out in 10. One Claude call and one sandbox payment |
+| `npm run demo:reset -- <tenancyId>` | Removes one tenancy: its rows and its photos, receipts and lease PDF in storage. It refuses the templates the hosted demo's copies are made from. PayPal sandbox records stay |
 | `npm run demo:pool -- --status` / `--fill 4` | The hosted demo's pre-paid sandbox deposits: what is ready, or top it up to 4 (one invoice paid as the sandbox tenant each) |
 | `npm run demo:sweep` / `-- --apply` | Lists, then removes, the hosted demo's private copies older than 14 days, with their uploads |
 
 ### The hosted demo's private copies
 
-The hosted demo doesn't show one shared tenancy. Each browser that enters the judges' code gets a copy of two template tenancies made by the seed (one closed out, one stopped before the close-out), copied in one Postgres function with every date moved to the day of the copy. The move-out unit's copy comes with a sandbox deposit paid ahead of time (`npm run demo:pool`), so its refund is a real sandbox refund of its own payment. [docs/DEPLOY.md](docs/DEPLOY.md), section 9, covers the templates, the pool, Start over and the sweep.
+The hosted demo doesn't show one shared tenancy. Each browser that enters the judges' code gets a copy of three template tenancies made by the seed (in California one closed out and one stopped before the close-out; in Texas one stopped at the tenants' notice), copied in one Postgres function with every date moved to the day of the copy. The California move-out unit's copy comes with a sandbox deposit paid ahead of time (`npm run demo:pool`), so its refund is a real sandbox refund of its own payment. The Texas unit takes none: its copies show the template's deposit and never refund it. [docs/DEPLOY.md](docs/DEPLOY.md), section 9, covers the templates, the pool, Start over and the sweep.
 
 ### The demo lease
 
@@ -224,6 +226,8 @@ The hosted demo doesn't show one shared tenancy. Each browser that enters the ju
 - The lease asks a $4,800 deposit plus a $300 "nonrefundable" cleaning fee that "covers professional cleaning at the end of the tenancy". Everything charged at move-in counts as security, so the $5,100 total is $300 over the cap; no part of a deposit may be called nonrefundable (1950.5(n)); and professional cleaning can't be charged regardless of condition (1950.5(e)(2)(C)). The agent flags all three and invoices $4,800.
 - A $120 late fee the lease lets the landlord take from the deposit, which gets a warning.
 - The deposit is paid through PayPal, so the refund has to go back electronically, and by PayPal only with the tenants' written agreement (1950.5(h)(1)(A)). The tenants sign that agreement at move-in, so the written notice of the right to an electronic refund is not owed later, and the page says so.
+
+`demo/lease-texas.pdf` (from `demo/lease-texas.html`) is the Texas unit's lease, by Harbor View Rentals LLC: rent and deposit $1,850, a $300 "nonrefundable" pet fee that secures against pet damage (flagged: it may be a deposit, Tex. Prop. Code 92.102, and stays off the invoice) and a $90 late fee (checked against the 92.019 safe harbor).
 
 The photos in `demo/photos` show a stained carpet and a few nail holes in the bedroom, a hole in the living room wall, and a grimy range and counter in the kitchen (credits in `demo/photos/CREDITS.md`). The inspection sorts what it sees into damage, cleaning and wear and tear; the nail holes come back as wear and tear and are never charged. The seed then deducts the carpet replacement prorated over its useful life ($1,800 invoice, 6 of 10 years used: $720), the drywall repair ($140) and three hours of the landlord's own cleaning of the range ($150), leaving $3,790 to return. Claude's reading varies a little from run to run: on the carpet it may say to try cleaning first, and the deduction then carries a note that spot cleaning did not lift the stain, which goes on the statement with the cost. A planned deduction whose finding the inspection did not make, or marked unclear, is skipped and named in the output, to add by hand. The receipts in `demo/receipts` are made up.
 

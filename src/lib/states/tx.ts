@@ -6,7 +6,7 @@
 // Not yet in code: T4, T7, T23, T30 (docs/rules/README.md, Known gaps).
 
 import { refundableSecurity, type Flag, type LeaseTerms } from "../rules";
-import { addDays, longDate, plural, RECEIVED, usd } from "./common";
+import { addDays, longDate, monthsOfRent, plural, RECEIVED, usd } from "./common";
 import type { ClientPack } from "./types";
 
 const C = (s: string) => `Tex. Prop. Code ${s}`;
@@ -22,8 +22,8 @@ function evaluate(t: LeaseTerms): Flag[] {
   // T3: no cap, shown for information.
   flags.push({
     id: "T3", severity: "info", note: true, title: "No deposit cap in Texas",
-    detail: `Texas sets no limit on the amount of a security deposit and requires no interest on it. The lease's deposit, ${usd(deposit)}${rent ? `, is ${Math.round((deposit / rent) * 100) / 100} months' rent` : ""}; it is shown for information only.`,
-    cite: C("92.102, 92.103"), fact: `${usd(deposit)}${rent ? `, ${Math.round((deposit / rent) * 100) / 100} months' rent` : ""}`,
+    detail: `Texas sets no limit on the amount of a security deposit and requires no interest on it. The lease's deposit, ${usd(deposit)}${rent ? `, is ${monthsOfRent(deposit, rent)}` : ""}; it is shown for information only.`,
+    cite: C("92.102, 92.103"), fact: `${usd(deposit)}${rent ? `, ${monthsOfRent(deposit, rent)}` : ""}`,
   });
 
   // T2: a "nonrefundable" fee that secures performance is a deposit, however it is labeled.
@@ -173,6 +173,8 @@ export const TX: ClientPack = {
     due: (c) => (c.moveOutDate ? addDays(c.moveOutDate, 30) : null),
     tip: { title: "30 days after surrender", cite: C("92.103(a), 92.107(a)"), text: "The refund and the written itemized list of deductions are due on or before the 30th day after the tenants surrender the premises, once they have given a written forwarding address." },
     summary: "30 days after surrender",
+    // In the statute's words (92.103(a), 92.104(c)): the refund, with a written itemized list of the deductions.
+    words: () => ({ due: "Refund and itemized list due", within: "Within the 30 days", title: "30-day deadline" }),
     railText: "The refund and the written itemized list are due on or before the 30th day after the tenants surrender the premises, once they give a written forwarding address. Missing the 30th day is presumed bad faith, which can cost $100, three times the portion wrongfully withheld, and the tenant's reasonable attorney's fees (92.109(a), (d)).",
     clockWord: "the 30-day clock",
     lateWarning: (n) => `The 30th day after surrender passed ${plural(n, "day")} ago. Refund now: missing it is presumed bad faith (Tex. Prop. Code 92.109(d)), a presumption the landlord can still rebut.`,
