@@ -21,7 +21,7 @@ import { loadNegotiation } from "@/lib/negotiation";
 import { dayLabel, daysBetween, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
-import { closedOut, dueLabelOf, dueOf, inspectionExcused, nextStep } from "@/lib/next-step";
+import { closedOut, dueLabelOf, dueOf, inspectionExcused, liveDispute, nextStep } from "@/lib/next-step";
 import { NOTICE_SLUG, describeNoticeGiven, listedRecords, noticeInfoFor, recordsFor, type NoticeKind, type Notices } from "@/lib/notices";
 import { keepUnit, propertyStatus, splitAddress, stepLink, tabHref, TABS, type TabKey } from "@/lib/property-view";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
@@ -29,7 +29,7 @@ import { packFor, refundRecordWords } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
 import { deliveryLine, describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { describeTenantMoveOut, type TenantMoveOut } from "@/lib/tenant";
-import { activeTenantLink } from "@/lib/tenant-links";
+import { activeTenantLink, demoTenantPath } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
 import { currentWorkspace, isTemplate, isUuid, signedUrlsFor, type Workspace } from "@/lib/workspace";
 import { MoneyTimeline } from "./money";
@@ -72,7 +72,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // Move-out, the tenant link on Tenants. The rest (payments, photos, deductions) feeds the record header's status on
   // every tab. Nothing read here is used, refreshed or signed before the tenancy itself is found in the session's
   // workspace (loadTenancy); for any other id the page is the not-found page.
-  const [t, { data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink, dispute, negotiation] = await Promise.all([
+  const [t, { data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink, dispute, negotiation, tenantPath] = await Promise.all([
     loadTenancy(id),
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("*").eq("tenancy_id", id).order("created_at"),
@@ -88,6 +88,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     // and the negotiation over it, on Move-out.
     loadLandlordDispute(id),
     tab === "move-out" ? loadNegotiation(id, "landlord") : Promise.resolve(null),
+    // In a demo copy, where one person plays both sides: the tenants' page, for "Open the tenant's view".
+    tab === "move-out" || tab === "tenants" ? currentWorkspace().then((w) => (w ? demoTenantPath(w, id) : null)) : Promise.resolve(null),
   ]);
   if (!t) notFound();
 
@@ -171,7 +173,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const pack = packFor(prop.state);
   const contacts = (t.tenants ?? []) as { name: string; email: string | null }[];
   // The same summary the Properties page reads: the status, the next step and the dates for the calendar.
-  const summary = summarizeTenancy(t, paymentRows, photos ?? [], deductions);
+  const summary = { ...summarizeTenancy(t, paymentRows, photos ?? [], deductions), dispute: liveDispute(dispute?.status) };
   const today = pacificToday();
   const next = nextStep(summary, today);
   const status = propertyStatus(summary, next);
@@ -426,6 +428,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                 due={money.refund}
                 returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, on: pacificDate(returned.created_at) } : null}
                 run={run ? { status: run.status, error: run.error, at: run.created_at ? pacificDate(run.created_at) : null, pendingAmount } : null}
+                tenantView={tenantPath ? { href: tenantPath, delivered: !!t.statement_delivered_at, disputed: !!dispute } : null}
               />
             </section>
           )}
@@ -501,7 +504,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           )}
 
           <section id="tenant-link" className="scroll-mt-24">
-            <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} />
+            <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} demoHref={tenantPath} />
           </section>
         </div>
       )}

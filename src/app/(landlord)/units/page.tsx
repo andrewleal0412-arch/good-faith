@@ -91,6 +91,9 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   const holding = units.filter((u) => heldNow(u.summary) > 0).length;
   const refunds = lrows.filter((r) => r.effect === "returned" && r.date.startsWith(year));
   const deducted = lrows.filter((r) => r.kind === "deduction" && r.effect === "claimed" && r.date.startsWith(year) && r.amount > 0);
+  // A settled dispute gave part of the deductions back: they count as settled, as the ledger and each unit's Payments
+  // tab count them (ledgerTotals), and the settlement itself is in Refunded.
+  const settled = lrows.filter((r) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending") && r.date.startsWith(year));
   const sum = (xs: { amount: number }[]) => Math.round(xs.reduce((s, r) => s + r.amount, 0) * 100) / 100;
 
   // The rail: a dispute waiting on the landlord first, then open steps, most urgent first (loadUnits sorts them), and
@@ -130,7 +133,8 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
       <FactStrip className="mb-6">
         <Fact label="Deposits held" big value={<Money value={held} cents="small" />} sub={plural(holding, "tenancy", "tenancies")} />
         <Fact label="Refunded this year" big value={<Money value={sum(refunds)} cents="small" />} sub={plural(refunds.length, "refund")} />
-        <Fact label="Deducted this year" big value={<Money value={sum(deducted)} cents="small" />} sub={plural(deducted.length, "item")} />
+        <Fact label="Deducted this year" big value={<Money value={Math.max(0, Math.round((sum(deducted) - sum(settled)) * 100) / 100)} cents="small" />}
+          sub={`${plural(deducted.length, "item")}${settled.length ? `, less ${plural(settled.length, "settlement")}` : ""}`} />
       </FactStrip>
 
       {units.length === 0 ? (

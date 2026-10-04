@@ -108,17 +108,18 @@ function ranges(today: string): Range[] {
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** Status in a word or two. A deposit is Held until a refund or payout went back, then Settled (the statement
- *  accounts for the rest); an invoice is Paid or Unpaid; a deduction keeps its statement status. */
+/** Status in a word or two. A deposit is Held until a refund or payout went back, then Returned (the statement
+ *  accounts for the rest; "Settled" would read as a dispute's settlement, which has rows of its own); an invoice is
+ *  Paid or Unpaid; a deduction keeps its statement status. */
 function statusOf(r: LedgerRow, back: Map<string, "returned" | "pending">): string {
   switch (r.kind) {
     case "payment": {
       const b = back.get(r.tenancyId);
-      return b === "returned" ? "Settled" : b === "pending" ? "Refund pending" : "Held";
+      return b === "returned" ? "Returned" : b === "pending" ? "Refund pending" : "Held";
     }
     case "refund":
     case "payout":
-    case "settlement": return r.effect === "returned" ? "Completed" : r.effect === "failed" ? "Failed" : "Pending";
+    case "settlement": return r.example ? "Demo example" : r.effect === "returned" ? "Completed" : r.effect === "failed" ? "Failed" : "Pending";
     case "deposit_invoice":
     case "damage_invoice": return /^(paid|marked as paid)/.test(r.status) ? "Paid" : r.status === "sent, not paid" ? "Unpaid" : cap(r.status);
     default: return cap(r.status);
@@ -260,7 +261,7 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
     return c;
   }, [rows, passesChips]);
 
-  // A deposit reads Settled once its tenancy's refund or payout went back.
+  // A deposit reads Returned once its tenancy's refund or payout went back.
   const back = useMemo(() => {
     const m = new Map<string, "returned" | "pending">();
     for (const r of rows) {

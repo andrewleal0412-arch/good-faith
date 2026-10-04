@@ -4,7 +4,7 @@ import { db } from "./db";
 import { daysBetween, pacificToday } from "./dates";
 import { tenancyEvents, type CalendarEvent } from "./ics";
 import { paidElectronically, returnFailed } from "./invoice-status";
-import { byUrgency, nextStep, type NextStep, type TenancySummary } from "./next-step";
+import { byUrgency, liveDispute, nextStep, type NextStep, type TenancySummary } from "./next-step";
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
 import { packFor } from "./states/server";
@@ -116,17 +116,23 @@ export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow
   const today = pacificToday();
   const ws = await currentWorkspace();
   if (!ws) return { today, units: [], upcoming: [], owners: [] };
-  const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
+  const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("workspace_id", ws.id).order("created_at"),
     db.from("payments").select("tenancy_id, kind, paypal_id, amount, status, raw, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).order("created_at"),
     db.from("photos").select("tenancy_id, phase, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
     db.from("deductions").select("tenancy_id, category, amount, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
+    // The tenants' disputes still live (a draft stays theirs), for the status chip.
+    db.from("disputes").select("tenancy_id, status, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).in("status", ["open", "negotiating", "agreed"]),
   ]);
+  const disputeOf = new Map(((disputes ?? []) as { tenancy_id: string; status: string }[]).map((d) => [d.tenancy_id, liveDispute(d.status)]));
   const inOrder: UnitRow[] = ((rows ?? []) as TenancyRow[]).map((t) => {
-    const summary = summarizeTenancy(t,
-      ((payments ?? []) as (PaymentRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
-      ((photos ?? []) as (PhotoRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
-      ((deductions ?? []) as (DeductionRow & { tenancy_id: string })[]).filter((d) => d.tenancy_id === t.id));
+    const summary = {
+      ...summarizeTenancy(t,
+        ((payments ?? []) as (PaymentRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
+        ((photos ?? []) as (PhotoRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
+        ((deductions ?? []) as (DeductionRow & { tenancy_id: string })[]).filter((d) => d.tenancy_id === t.id)),
+      dispute: disputeOf.get(t.id) ?? null,
+    };
     return { summary, next: nextStep(summary, today), events: tenancyEvents(summary) };
   });
   // The owners the leases name, oldest tenancy first: a fixed order, so the account the shell shows never depends on

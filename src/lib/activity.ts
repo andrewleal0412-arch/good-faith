@@ -111,7 +111,8 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "settlement_agreed": return `Settlement agreed: ${usd(d?.amount as number)} back to the tenants on top of the statement's refund`;
     case "settlement_accepted": return `${d?.name ?? "The tenants"} accepted the settlement of ${usd(d?.amount as number)} back through the tenant link`;
     case "settlement_approved": return `Approved the settlement of ${usd(d?.amount as number)}`;
-    case "settlement_paid": return Number(d?.amount) > 0
+    case "settlement_paid": return d?.demo_example ? `Settled the dispute: ${usd(d?.amount as number)} back to the tenants, the demo's recorded example (no PayPal money moved)`
+      : Number(d?.amount) > 0
       ? `Sent the settlement of ${usd(d?.amount as number)} through PayPal (${d?.refund_id ? `refund ${d.refund_id}` : `payout ${d?.payout_batch_id}`}, ${String(d?.status).toLowerCase()})`
       : "Settled the dispute with no money moving: the deposit was used in full";
     case "settlement_failed": return `PayPal didn't accept the settlement of ${usd(d?.amount as number)}`;
@@ -210,7 +211,7 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "negotiation_offer": return d?.accept ? "Offer accepted" : `Offer of ${usd(d?.amount_back as number)} made`;
     case "settlement_agreed": return `Settlement of ${usd(d?.amount as number)} agreed`;
     case "settlement_accepted": return `${d?.name ?? "Tenant"} accepted the settlement`;
-    case "settlement_paid": return Number(d?.amount) > 0 ? `Settlement of ${usd(d?.amount as number)} sent by PayPal` : "Dispute settled";
+    case "settlement_paid": return d?.demo_example ? `Settlement of ${usd(d?.amount as number)} recorded` : Number(d?.amount) > 0 ? `Settlement of ${usd(d?.amount as number)} sent by PayPal` : "Dispute settled";
     case "settlement_failed": return "PayPal did not accept the settlement";
     case "settlement_blocked": return "Settlement payment on hold";
     case "settlement_unconfirmed": return "PayPal did not confirm the settlement";

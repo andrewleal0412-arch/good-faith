@@ -7,6 +7,7 @@ import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
+import { TENANT_VIEW_TIP } from "@/lib/copy";
 import { pacificDate, shortDate } from "@/lib/dates";
 
 // The private tenant link: made here, copied once, turned off here. The token is shown the one time it is made,
@@ -18,6 +19,7 @@ export function TenantLinkPanel(p: {
   contacts: { name: string; email: string | null }[];
   active: { id: string; createdAt: string; lastSeenAt: string | null } | null;
   quiet?: boolean; // the record header holds the view's primary button, so this panel's buttons are secondary
+  demoHref?: string | null; // a demo copy's tenants' page, which its own pages may open again (one person plays both sides)
 }) {
   const router = useRouter();
   const [confirm, dialog] = useConfirm();
@@ -108,6 +110,14 @@ export function TenantLinkPanel(p: {
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <StatusChip tone="green">Active</StatusChip>
             <span className="text-ink-3">Since {shortDate(pacificDate(p.active.createdAt))}, {p.active.lastSeenAt ? `last opened ${when(p.active.lastSeenAt)}` : "not opened yet"}</span>
+            {p.demoHref && (
+              <span className="inline-flex items-center gap-1.5">
+                <a href={p.demoHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand hover:underline">
+                  Open the tenant&apos;s view<Icon name="arrow-up-right" className="size-3.5" />
+                </a>
+                <InfoTip align="end" title="The tenants' side">{TENANT_VIEW_TIP}</InfoTip>
+              </span>
+            )}
           </div>
         ) : (
           <p className="text-sm text-ink-3">No link yet</p>

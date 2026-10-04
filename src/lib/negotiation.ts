@@ -1,6 +1,7 @@
 import "server-only";
 import type { LanguageModel } from "ai";
 import { allowedCitations } from "./advocate";
+import { isDemoExample } from "./copy";
 import { audit, db } from "./db";
 import { caseFile, disputeFacts, sentDispute, type DisputeFacts, type DisputeRow, type DisputeStatus } from "./disputes";
 import { claudeNeverAnswered, type Allowance } from "./limits";
@@ -43,6 +44,7 @@ export type SettlementRow = {
   tenant_accepted_at: string | null; tenant_name: string | null; landlord_approved_at: string | null;
   rail: "refund_original_payment" | "payout" | null; paypal_id: string | null; paypal_status: string | null; error: string | null; sent_at: string | null;
   paypal_request_id: string | null; paypal_requested_at: string | null;
+  raw?: unknown; // PayPal's answer; {demo_example: true} for a demo copy's recorded settlement
   created_at: string; updated_at: string;
 };
 
@@ -283,6 +285,7 @@ export type SettlementView = {
   retry: boolean; // PayPal refused, so it may be tried again
   unconfirmed: boolean; // PayPal never confirmed the payment: nothing changes until it is checked
   recheck: boolean; // and "Check with PayPal" may send the same request again
+  example: boolean; // the demo's recorded example (a copy's closed unit): history only, no PayPal money moved
 };
 export type NegotiationView = {
   turns: TurnView[];
@@ -330,6 +333,7 @@ export function negotiationView(d: NegotiationRow, facts: DisputeFacts, turns: T
     retry: s.status === "failed" && s.paypal_status === "REFUSED",
     unconfirmed: unconfirmed(s),
     recheck: recheckable(s),
+    example: isDemoExample(s.raw),
   } : null;
   const outcome = d.negotiation_outcome;
   return {

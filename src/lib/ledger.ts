@@ -55,6 +55,7 @@ export type LedgerRow = {
   tag: string; // California: the Civ. Code 1950.5 subsection, e.g. (b)(2); other states: the full citation
   tagShort: string; // a word or two beside the tag, e.g. "damage"
   tagLabel: string; // what the subsection says, in a sentence
+  example?: boolean; // a demo copy's recorded settlement: history only, no PayPal money moved
 };
 
 export type LedgerTenancy = {
@@ -73,7 +74,7 @@ export type LedgerPayment = {
   amount: number | string;
   status: string;
   created_at: string;
-  raw: { transactions?: { payment_id?: string; payment_date_time?: string; payment_date?: string; method?: string; transaction_status?: string; amount?: { value?: string } }[] } | null;
+  raw: { transactions?: { payment_id?: string; payment_date_time?: string; payment_date?: string; method?: string; transaction_status?: string; amount?: { value?: string } }[]; demo_example?: boolean } | null;
 };
 export type LedgerDeduction = {
   id: string;
@@ -193,6 +194,18 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
       // and the landlord approved it.
       const effect: LedgerEffect = returnCompleted(p.status) ? "returned" : returnFailed(p.status) ? "failed" : "pending";
       const refund = p.kind === "settlement_refund";
+      // A demo copy's recorded settlement (its closed unit's history): counted as the amended statement counts it, but
+      // nothing went through PayPal, and the row says so.
+      if (p.raw?.demo_example === true) {
+        row({
+          id: p.id, date, at: p.created_at, kind: "settlement", amount, signed: -amount, effect: "returned", paypalId: null, method: null, example: true,
+          detail: "Settlement of the tenants' dispute, on top of the statement's refund: the demo's recorded example, so no PayPal money moved for it",
+          summary: "Dispute settled, demo example",
+          status: "demo example",
+          ...pack.ledger.refundTag,
+        });
+        continue;
+      }
       row({
         id: p.id, date, at: p.created_at, kind: "settlement", amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
         detail: `Settlement of the tenants' dispute: ${refund ? "a partial refund of the original PayPal payment" : "a PayPal Payout to the account the tenants designated"}, on top of the statement's refund${timing(t.move_out_date, date, pack)}`,

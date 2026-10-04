@@ -10,6 +10,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Card, CardHead, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
+import { DEMO_EXAMPLE } from "@/lib/copy";
 import { pacificDate, shortDate } from "@/lib/dates";
 import type { LoadedNegotiation } from "@/lib/negotiation";
 
@@ -154,9 +155,16 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3.5" /></span>
               <div className="min-w-0 flex-[1_1_14rem]">
                 <p className="text-sm font-medium">Settled: <Money value={s.amount} /> back{s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}</p>
-                <p className="break-all text-xs text-ink-3">
-                  {s.paypalId ? `PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : "No money moved: the deposit was used in full"}
-                </p>
+                {s.example ? (
+                  <p className="flex items-center gap-1.5 text-xs text-ink-3">
+                    {DEMO_EXAMPLE.short}
+                    <InfoTip title="A recorded example">{DEMO_EXAMPLE.text}</InfoTip>
+                  </p>
+                ) : (
+                  <p className="break-all text-xs text-ink-3">
+                    {s.paypalId ? `PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : "No money moved: the deposit was used in full"}
+                  </p>
+                )}
               </div>
               <Link href={`/tenancy/${tenancyId}/statement`} className="ml-auto text-sm font-medium text-brand hover:underline">Amended statement</Link>
             </div>

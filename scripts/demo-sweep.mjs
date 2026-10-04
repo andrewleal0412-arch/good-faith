@@ -1,7 +1,9 @@
 // Removes the hosted demo's old private copies: every demo workspace made more than 14 days ago (a session lasts 7, so
 // nobody is still in one), with its rows (properties and tenancies, and through them photos, payments, deductions,
-// the audit log, agent runs and tenant links) and its own uploads (everything under ws/<id>/ in the leases, photos and
-// receipts buckets). Also removes upload folders whose workspace no longer exists. A dry run unless --apply.
+// the audit log, agent runs, tenant links, and the tenants' disputes with their negotiation turns and settlements, the
+// closed unit's recorded one included) and its own uploads (everything under ws/<id>/ in the leases, photos and
+// receipts buckets, the tenants' dispute photos among them). Also removes upload folders whose workspace no longer
+// exists. A dry run unless --apply.
 //
 //   npm run demo:sweep                    list what would be removed
 //   npm run demo:sweep -- --apply         remove it
@@ -59,10 +61,12 @@ const totals = { workspaces: 0, tenancies: 0, files: 0, released: 0, orphanFiles
 
 for (const w of targets) {
   const { count } = await db.from("tenancies").select("id", { count: "exact", head: true }).eq("workspace_id", w.id);
+  // Disputes go with their tenancy (on delete cascade), and their turns and settlements with them.
+  const { count: disputes } = await db.from("disputes").select("id", { count: "exact", head: true }).eq("workspace_id", w.id);
   const files = {};
   for (const b of BUCKETS) files[b] = (await listAll(b, `ws/${w.id}`)).filter((p) => p.startsWith(`ws/${w.id}/`));
   const n = Object.values(files).reduce((s, xs) => s + xs.length, 0);
-  console.log(`  ${w.id}  made ${w.created_at.slice(0, 10)}, last seen ${w.last_seen_at?.slice(0, 10) ?? "never"}: ${count ?? 0} tenancies, ${n} uploaded files`);
+  console.log(`  ${w.id}  made ${w.created_at.slice(0, 10)}, last seen ${w.last_seen_at?.slice(0, 10) ?? "never"}: ${count ?? 0} tenancies (${disputes ?? 0} dispute${disputes === 1 ? "" : "s"}), ${n} uploaded files`);
   totals.workspaces++; totals.tenancies += count ?? 0; totals.files += n;
   if (!args.apply) continue;
 

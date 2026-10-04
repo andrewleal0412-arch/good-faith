@@ -10,6 +10,7 @@ import { InfoTip, TipLabel } from "@/components/info-tip";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
+import { DEMO_EXAMPLE } from "@/lib/copy";
 import { pacificDate, shortDate } from "@/lib/dates";
 import type { DisputeLineView, TenantDisputeView } from "@/lib/disputes";
 import type { LoadedNegotiation } from "@/lib/negotiation";
@@ -524,10 +525,11 @@ function Sent({ token, landlord, view, negotiation }: { token: string; landlord:
         <Money value={s.amount} className="mt-0.5 block text-2xl font-medium" />
         <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
           <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3" /></span>
-          {s.amount > 0 ? `Sent by PayPal${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled"}
+          {s.example ? `Settled${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : s.amount > 0 ? `Sent by PayPal${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled"}
         </p>
         <p className="mt-1.5 text-ink-2">
-          {s.amount > 0 ? `Back to you on top of the statement's refund${s.paypalId ? `, PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : ""}.` : "The deposit was used in full, so no money moved; the balance claimed went down."} The amended statement records it.
+          {s.example ? `Back to you on top of the statement's refund. ${DEMO_EXAMPLE.tenant}`
+            : s.amount > 0 ? `Back to you on top of the statement's refund${s.paypalId ? `, PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : ""}.` : "The deposit was used in full, so no money moved; the balance claimed went down."} The amended statement records it.
         </p>
       </>
     );

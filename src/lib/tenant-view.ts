@@ -1,5 +1,5 @@
 import "server-only";
-import { CATEGORY_ORDER } from "./copy";
+import { CATEGORY_ORDER, isDemoExample } from "./copy";
 import { pacificToday, paypalPaidAt } from "./dates";
 import { db } from "./db";
 import { basisWords, chargeTitle, settle, type Performer, type Proration, type Work } from "./deductions";
@@ -46,7 +46,7 @@ export type TenantView = {
   } | null;
   returned: { amount: number; kind: string; status: string; paypalId: string | null; at: string } | null;
   // The settlement of their dispute, once paid: the extra amount back on top of the statement's refund. Absent otherwise.
-  settlement?: { amount: number; kind: "refund" | "payout" | null; status: string | null; paypalId: string | null; at: string };
+  settlement?: { amount: number; kind: "refund" | "payout" | null; status: string | null; paypalId: string | null; at: string; example: boolean };
 };
 
 export type TenantDeduction = {
@@ -119,13 +119,14 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
 
   // A settled dispute: what PayPal sent on top of the statement's refund.
   const { data: settled } = delivered
-    ? await db.from("settlements").select("amount, rail, paypal_status, paypal_id, sent_at").eq("tenancy_id", tenancyId).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle()
+    ? await db.from("settlements").select("amount, rail, paypal_status, paypal_id, sent_at, raw").eq("tenancy_id", tenancyId).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle()
     : { data: null };
 
   return {
     ...(settled ? { settlement: {
       amount: Number(settled.amount), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
       status: (settled.paypal_status as string | null) ?? null, paypalId: (settled.paypal_id as string | null) ?? null, at: settled.sent_at as string,
+      example: isDemoExample(settled.raw),
     } } : {}),
     state: pack.code,
     today,

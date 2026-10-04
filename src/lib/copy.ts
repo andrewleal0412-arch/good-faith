@@ -28,6 +28,18 @@ export const DISCLAIMERS = [
   "Local ordinances may add interest or other duties. Check your city's rent program.",
 ];
 
+/** A settlement the demo copy came with (the closed unit's settled dispute, scripts/demo-history.mjs): history only.
+ *  Its record carries raw.demo_example, no PayPal id, and no money ever moved for it; every page that shows it says so. */
+export const isDemoExample = (raw: unknown) => !!raw && typeof raw === "object" && (raw as { demo_example?: unknown }).demo_example === true;
+export const DEMO_EXAMPLE = {
+  short: "Demo example: no PayPal money moved",
+  text: "This copy of the demo came with this settled dispute as an example. The two agents' turns were written ahead and checked by the same code as a live run, and no PayPal money moved for it. To run one live, dispute the unit that moved out, after its refund.",
+  tenant: "In this demo it is a recorded example, so no PayPal money moved for it.",
+} as const;
+
+/** What "Open the tenant's view" (a demo copy's landlord pages) says it does. */
+export const TENANT_VIEW_TIP = "In the demo you play both sides. This opens the tenants' private page in a new tab, as they see it: the statement, their dispute and their advocate. A real landlord's tenant link is shown once and isn't kept.";
+
 /** An owner's name for the app's chrome (the account, the tenant page's bar): a trailing entity suffix is dropped, as
  *  "Harbor View Rentals LLC" reads "Harbor View Rentals". Documents keep the full legal name. */
 export const displayName = (name: string) => name.replace(/,?\s+(LLC|L\.L\.C\.|Inc\.?|LP|LLP|Corp\.?|Co\.)$/i, "").trim() || name;

@@ -1,6 +1,7 @@
 import "server-only";
 import { PDFDocument, StandardFonts, rgb, type Color, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import sharp from "sharp";
+import { DEMO_EXAMPLE } from "./copy";
 import { db } from "./db";
 import { usd } from "./deductions";
 import { packFor } from "./states/server";
@@ -423,9 +424,10 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.row("Returned in all", usd(st.returnedInAll), { bold: true, size: 11.5 });
     if (st.balanceAfter > 0) w.row("Balance still claimed", usd(st.balanceAfter));
     w.space(4);
-    w.text(st.paypalId
-      ? `${st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : "PayPal refund of the original deposit payment"} (PayPal id ${st.paypalId})${st.sentAt ? `, sent ${longDate(pacificDate(st.sentAt))}` : ""}.`
-      : "No money moved: the deposit was used in full, and the balance claimed went down.", { color: INK2 });
+    w.text(st.example ? `${DEMO_EXAMPLE.short}. ${DEMO_EXAMPLE.text}`
+      : st.paypalId
+        ? `${st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : "PayPal refund of the original deposit payment"} (PayPal id ${st.paypalId})${st.sentAt ? `, sent ${longDate(pacificDate(st.sentAt))}` : ""}.`
+        : "No money moved: the deposit was used in full, and the balance claimed went down.", { color: INK2 });
   }
 
   // 5. Local deposit interest (item 11).

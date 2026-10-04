@@ -1,7 +1,8 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { db } from "./db";
-import { isTemplate } from "./workspace";
+import { gate } from "./session";
+import { isTemplate, type Workspace } from "./workspace";
 
 // Private tenant links. The token (32 random bytes, base64url) is shown to the landlord once and never stored; the
 // table keeps its SHA-256, so a copy of the database opens no tenant page. From outside, an unknown token and a
@@ -25,13 +26,69 @@ export async function activeTenantLink(tenancyId: string): Promise<TenantLink | 
 
 /** Makes a new link and revokes any live one. The token comes back exactly once. The revoke and the insert happen in
  *  one database function that locks the tenancy row, so two creates at once queue up rather than both leaving a link
- *  live; a unique index (tenant_links_one_live_idx) backs that up. */
-export async function createTenantLink(tenancyId: string): Promise<{ token: string; link: TenantLink; replaced: string[] }> {
+ *  live; a unique index (tenant_links_one_live_idx) backs that up. In a demo copy (`demo`) the link's token is then
+ *  re-keyed to its demo token (demoTenantToken), so the copy's own pages can open the tenants' page again. */
+export async function createTenantLink(tenancyId: string, opts: { demo?: boolean } = {}): Promise<{ token: string; link: TenantLink; replaced: string[] }> {
   const token = randomBytes(32).toString("base64url");
   const { data, error } = await db.rpc("create_tenant_link", { p_tenancy: tenancyId, p_token_hash: hashToken(token) });
   if (error || !data) throw new Error(error?.message ?? "Couldn't create the link.");
   const d = data as { id: string; created_at: string; last_seen_at: string | null; replaced: string[] };
+  const demo = opts.demo ? demoTenantToken(d.id) : null;
+  if (demo) {
+    // Only while the link is still the one just made with the random token; otherwise the random token stands.
+    const { data: keyed } = await db.from("tenant_links").update({ token_hash: hashToken(demo) })
+      .eq("id", d.id).eq("token_hash", hashToken(token)).is("revoked_at", null).select("id");
+    if (keyed?.length) return { token: demo, link: row(d), replaced: d.replaced };
+  }
   return { token, link: row(d), replaced: d.replaced };
+}
+
+/* ---------- Demo copies: one person plays both sides ---------- */
+
+// In a demo copy the judge is the landlord and the tenants at once, so the copy's own pages may open its tenants' page
+// at any time ("Open the tenant's view"). Its link's token is derived from a server secret and the link's id instead of
+// drawn at random: the database still holds only the hash, so a copy of the database opens nothing, and only the
+// server, for the session whose copy it is, can make the token again. A real landlord's token is random and shown once.
+
+/** The secret a demo copy's tenant tokens are derived from: the session secret, which only exists while the access
+ *  gate is on. With the gate off every session is the owner's and no demo copy is ever opened, so there is no key and
+ *  no demo token (a copy's links keep their random tokens). Never sent anywhere. */
+function demoLinkKey(): string | null {
+  const g = gate();
+  return g.mode === "on" ? g.secret : null;
+}
+
+/** A demo copy's tenant token for one link: 32 bytes, base64url, like a random one. */
+export function demoTenantToken(linkId: string): string | null {
+  const key = demoLinkKey();
+  return key ? createHmac("sha256", key).update(`gf-demo-tenant-link.${linkId}`).digest("base64url") : null;
+}
+
+/** Re-keys the live tenant links of freshly made demo copies to their demo tokens (createDemoCopy, right after the
+ *  copy). The copy function gives each a random token nobody holds, so nothing that works stops working. Returns how
+ *  many were re-keyed. */
+export async function keyDemoTenantLinks(tenancyIds: string[]): Promise<number> {
+  if (!tenancyIds.length || !demoLinkKey()) return 0;
+  const { data } = await db.from("tenant_links").select("id").in("tenancy_id", tenancyIds).is("revoked_at", null);
+  let n = 0;
+  for (const l of data ?? []) {
+    const token = demoTenantToken(l.id as string);
+    if (!token) continue;
+    const { data: done } = await db.from("tenant_links").update({ token_hash: hashToken(token) }).eq("id", l.id).is("revoked_at", null).select("id");
+    n += done?.length ?? 0;
+  }
+  return n;
+}
+
+/** The tenants' page of a tenancy in a demo copy, when its live link carries the copy's demo token; null for the owner's
+ *  workspace, for a tenancy of another workspace, and for a copy made before demo tokens. */
+export async function demoTenantPath(ws: Workspace, tenancyId: string): Promise<string | null> {
+  if (ws.kind !== "demo") return null;
+  const { data } = await db.from("tenant_links").select("id, token_hash, tenancies!inner(workspace_id)").eq("tenancy_id", tenancyId)
+    .eq("tenancies.workspace_id", ws.id).is("revoked_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!data) return null;
+  const token = demoTenantToken(data.id as string);
+  return token && hashToken(token) === data.token_hash ? `/t/${token}` : null;
 }
 
 /** Revokes every live link of a tenancy. Returns the ids revoked; none when nothing was live. */

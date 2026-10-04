@@ -7,8 +7,10 @@ import { Icon, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Card, CardHead, Fact, FactStrip, Money, StatusChip, type Tone } from "@/components/ui";
 import { shortDate, whenText } from "@/lib/dates";
+import { DEMO_EXAMPLE, TENANT_VIEW_TIP } from "@/lib/copy";
 import { usd } from "@/lib/deductions";
 import { streetLine } from "@/lib/ledger";
+import { demoTenantPath } from "@/lib/tenant-links";
 import { pageTenancy, signedUrlsFor } from "@/lib/workspace";
 import { buildStatement, describeDelivery, longDate, pacificDate, type ChecklistItem, type StatementDeduction, type StatementSettlement } from "@/lib/statement";
 import { packFor } from "@/lib/states/server";
@@ -36,7 +38,7 @@ const CATEGORY: Record<StatementDeduction["category"], { label: string; tone: To
 export default async function StatementPage({ params }: PageProps<"/tenancy/[id]/statement">) {
   const { id } = await params;
   const ws = await pageTenancy(id);
-  const s = await buildStatement(id);
+  const [s, tenantPath] = await Promise.all([buildStatement(id), demoTenantPath(ws, id)]);
   if (!s) notFound();
   const pack = packFor(s.state);
   const sec = pack.statement.sections;
@@ -105,6 +107,15 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
         <div className="print:hidden lg:col-start-2 lg:row-start-1">
           <DeliveryPanel tenancyId={id} state={pack.code} tenants={s.tenantContacts} unitAddress={s.property.address} today={s.today} due={s.statementDue}
             existing={s.delivery} forwarding={s.tenantForwarding} />
+          {/* In a demo copy one person plays both sides: once the statement is out, the tenants' page is a click away. */}
+          {delivered && tenantPath && (
+            <p className="mt-3 flex items-center gap-1.5 px-1 text-sm">
+              <a href={tenantPath} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand hover:underline">
+                Open the tenant&apos;s view<Icon name="arrow-up-right" className="size-3.5" />
+              </a>
+              <InfoTip align="end" title="The tenants' side">{TENANT_VIEW_TIP}</InfoTip>
+            </p>
+          )}
         </div>
 
         <article className="min-w-0 max-lg:order-3 rounded-lg border border-line bg-canvas p-5 shadow-sm sm:p-8 lg:col-start-1 lg:row-span-2 lg:row-start-1 print:rounded-none print:border-0 print:p-0 print:shadow-none">
@@ -265,7 +276,8 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
 
 /** The amended statement: the tenants disputed it, both sides settled, and the extra amount went back by PayPal. */
 function SettlementSection({ n, st, landlord, deducted, refund }: { n: number; st: StatementSettlement; landlord: string; deducted: number; refund: number }) {
-  const how = st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : st.rail ? "PayPal refund of the original deposit payment" : "No money moved: the deposit was used in full";
+  const how = st.example ? DEMO_EXAMPLE.short
+    : st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : st.rail ? "PayPal refund of the original deposit payment" : "No money moved: the deposit was used in full";
   return (
     <Section n={n} title="Settlement" tip="The tenants disputed this statement through their link. Their advocate and the landlord's negotiator, each held to what the law and the record allow, agreed on the figures below; the tenants accepted them and the landlord approved them. This section amends the statement. Not legal advice.">
       <p className="text-ink-2">
@@ -293,7 +305,7 @@ function SettlementSection({ n, st, landlord, deducted, refund }: { n: number; s
       </dl>
       <div className="mt-4 text-sm">
         <Rows rows={[
-          ["Method", how],
+          ["Method", st.example ? <span key="m" className="inline-flex items-center gap-1.5">{how}<span className="inline-flex print:hidden"><InfoTip align="end" title="A recorded example">{DEMO_EXAMPLE.text}</InfoTip></span></span> : how],
           ...(st.paypalId ? [["PayPal ID", <span key="id" className="break-all tabular-nums">{st.paypalId}</span>] as [ReactNode, ReactNode]] : []),
           ...(st.sentAt && st.paypalId ? [["Sent", longDate(pacificDate(st.sentAt))] as [ReactNode, ReactNode]] : []),
         ]} />

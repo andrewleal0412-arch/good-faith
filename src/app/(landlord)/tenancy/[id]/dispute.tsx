@@ -125,7 +125,10 @@ export function DisputeCard({ v, photoUrl, tenantsLabel }: { v: LandlordDisputeV
         </div>
       )}
 
-      <p className="border-t border-line-2 px-5 py-3 text-xs text-ink-3">Nothing changes until a settlement is agreed and you approve it.</p>
+      {/* Settled or closed, the Negotiation card under it says how it ended; the promise only holds while it is live. */}
+      {(v.status === "open" || v.status === "negotiating" || v.status === "agreed") && (
+        <p className="border-t border-line-2 px-5 py-3 text-xs text-ink-3">Nothing changes until a settlement is agreed and you approve it.</p>
+      )}
     </Card>
   );
 }

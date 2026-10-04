@@ -26,7 +26,12 @@ export const moveInOpen = (s: TenancySummary) => {
 };
 
 export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
-  if (closedOut(s)) return { label: "Closed", tone: "gray", group: "closed" };
+  if (closedOut(s)) {
+    // The tenants' dispute of the statement, while it is live; Closed again once it ends.
+    if (s.dispute === "agreed") return { label: "Settlement agreed", tone: "amber", group: "closed" };
+    if (s.dispute) return { label: "Disputed", tone: "amber", group: "closed" };
+    return { label: "Closed", tone: "gray", group: "closed" };
+  }
   const group: StatusGroup = s.moveOutDate || s.statementDeliveredAt || s.noticeGivenOn || s.tenantMoveOut ? "move-out"
     : moveInOpen(s) ? "move-in" : "leased";
   if (n.level === "overdue") return { label: "Overdue", tone: "red", group };

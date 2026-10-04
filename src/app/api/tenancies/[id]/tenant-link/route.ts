@@ -13,7 +13,8 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const { data: t } = await db.from("tenancies").select("id").eq("id", id).maybeSingle();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   try {
-    const { token, link, replaced } = await createTenantLink(id);
+    // In a demo copy the link gets the copy's demo token, so "Open the tenant's view" keeps working after a new link.
+    const { token, link, replaced } = await createTenantLink(id, { demo: ws.kind === "demo" });
     await audit(id, "landlord", "tenant_link_created", { link_id: link.id, replaced });
     return Response.json({ ok: true, path: `/t/${token}`, link });
   } catch (e) {

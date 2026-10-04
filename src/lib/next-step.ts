@@ -10,6 +10,11 @@ import type { StateCode, StatePack, StepHelpers } from "./states/types";
 // requirements (a Washington checklist before the deposit, a Texas forwarding address, a Florida claim notice) come in
 // through the pack as steps of the same kind. Pure: the units page, the tenancy page and the calendar feed all read it.
 
+/** A tenants' dispute the landlord sees that hasn't ended (settled, no agreement and withdrawn have). */
+export type LiveDispute = "open" | "negotiating" | "agreed";
+export const liveDispute = (status: string | null | undefined): LiveDispute | null =>
+  status === "open" || status === "negotiating" || status === "agreed" ? status : null;
+
 /** One tenancy as the home base sees it: what the database holds, no PayPal round trip. */
 export type TenancySummary = {
   id: string;
@@ -38,6 +43,7 @@ export type TenancySummary = {
   notices: Notices;
   refundNotice: RefundNoticeStatus;
   tenantMoveOut: { name: string | null; plannedMoveOut: string; forwardingAddress: string; sentOn: string } | null; // what the tenants sent through their link
+  dispute?: LiveDispute | null; // a dispute the tenants sent that hasn't ended; absent where the caller didn't load it
   landlordUnits?: number | null; // dwelling units the owner rents, from the lease (Florida's holding notice: five or more)
   buildingUnits?: number | null; // dwelling units in the building, from the lease (New York's interest rule: six or more)
 };

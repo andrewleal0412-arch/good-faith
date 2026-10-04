@@ -6,7 +6,7 @@ import { CopyId } from "@/components/copy-id";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money } from "@/components/ui";
-import { displayName, maskEmail } from "@/lib/copy";
+import { DEMO_EXAMPLE, displayName, maskEmail } from "@/lib/copy";
 import { isClosed, tenantDisputeStatus, type TenantDisputeStatus } from "@/lib/disputes";
 import { longDate, pacificDate, shortDate } from "@/lib/dates";
 import { returnCompleted, returnFailed } from "@/lib/invoice-status";
@@ -113,6 +113,15 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
             {st.deductions.length
               ? <ol>{st.deductions.map((d) => <DeductionRow key={d.n} d={d} pack={pack} />)}</ol>
               : <p className="text-ink-3">None. The whole deposit comes back.</p>}
+            {/* The way into the dispute where the charges are, not only at the foot of the page. */}
+            {st.deductions.length > 0 && !disputeSent && (
+              <p className="mt-3 border-t border-line-2 pt-3 text-sm text-ink-3">
+                Disagree with a charge?{" "}
+                <a href={`/t/${token}/dispute`} className="font-medium text-brand hover:underline">
+                  {dispute?.status === "draft" ? "Continue your dispute" : "Dispute it"}
+                </a>
+              </p>
+            )}
           </Section>
         )}
 
@@ -249,7 +258,9 @@ function standing(v: TenantView, pack: StatePack): { label: string; amount: numb
     const r = v.returned, x = v.settlement;
     return {
       label: "Refund amount", amount: Math.round((r.amount + x.amount) * 100) / 100, tone: "green", title: `Settled ${shortDate(pacificDate(x.at))}`,
-      line: `${usdText(r.amount)} with the statement and ${usdText(x.amount)} under the settlement you accepted, both by PayPal.`,
+      line: x.example
+        ? `${usdText(r.amount)} with the statement by PayPal, and ${usdText(x.amount)} under the settlement you accepted. ${DEMO_EXAMPLE.tenant}`
+        : `${usdText(r.amount)} with the statement and ${usdText(x.amount)} under the settlement you accepted, both by PayPal.`,
     };
   }
   if (v.returned) {

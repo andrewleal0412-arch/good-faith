@@ -6,6 +6,7 @@ import { db, signedUrls } from "./db";
 import { copyLimits } from "./limits";
 import { ACCESS_MESSAGES, gate, type Session } from "./session";
 import { currentSession } from "./session-server";
+import { keyDemoTenantLinks } from "./tenant-links";
 
 // Workspaces: the owner's data, and one private copy of the demo landlord per visitor who enters the access code
 // (supabase/migrations/..._workspaces.sql). Properties and tenancies carry a workspace; everything else hangs off a
@@ -186,11 +187,14 @@ export type NewCopy = { ok: true; ws: string; pool: "claimed" | "empty" } | { ok
 /** A new private copy of the demo for one browser: today's copy allowance for its address and in total, then every
  *  template tenancy (the two California units and the Texas one) copied with its dates moved to today and, when the
  *  pool has one, a pre-paid sandbox deposit for the California move-out unit (one transaction in Postgres,
- *  create_demo_copy; the Texas unit never takes one). With `replace`, the browser's previous copy gives back a deposit
- *  it never used; its rows stay until the sweep (scripts/demo-sweep.mjs). */
+ *  create_demo_copy_with_history; the Texas unit never takes one). The closed unit's copy comes with its template's
+ *  settled dispute as history (demo_template_history, scripts/demo-history.mjs), in the same transaction. Then the
+ *  copies' tenant links are re-keyed to demo tokens, so "Open the tenant's view" works (tenant-links.ts). With
+ *  `replace`, the browser's previous copy gives back a deposit it never used; its rows stay until the sweep
+ *  (scripts/demo-sweep.mjs). */
 export async function createDemoCopy(address: string, replace?: string): Promise<NewCopy> {
   const limits = copyLimits();
-  const { data, error } = await db.rpc("create_demo_copy", {
+  const { data, error } = await db.rpc("create_demo_copy_with_history", {
     p_ip_key: addressKey(address),
     p_ip_limit: limits.perAddress,
     p_total_limit: limits.total,
@@ -201,7 +205,10 @@ export async function createDemoCopy(address: string, replace?: string): Promise
     console.error("demo copy failed", error?.message ?? "no answer");
     return { ok: false, message: ACCESS_MESSAGES.copyFailed, status: 503 };
   }
-  const r = data as { allowed: boolean; reason?: string; workspace?: string; pool?: "claimed" | "empty"; released?: number };
+  const r = data as {
+    allowed: boolean; reason?: string; workspace?: string; pool?: "claimed" | "empty"; released?: number; copies?: { role: string; tenancy: string }[];
+    history?: number; history_expected?: number; history_failed?: { role: string; error: string }[];
+  };
   if (!r.allowed || !r.workspace) {
     return r.reason === "global"
       ? { ok: false, message: ACCESS_MESSAGES.copiesTotal, status: 429 }
@@ -210,6 +217,16 @@ export async function createDemoCopy(address: string, replace?: string): Promise
   if (r.pool === "empty") {
     console.warn(`demo copy ${r.workspace} was made without a sandbox deposit: the pool is empty, so its refund can't be sent (npm run demo:pool -- --fill N)`);
   }
+  // A template's settled history that didn't go in leaves the copy working, without that dispute (the database rolls
+  // back only the history); the stored row needs a look (npm run demo:history).
+  const missed = (r.history_expected ?? 0) - (r.history ?? 0);
+  if (missed > 0) {
+    const why = r.history_failed?.length ? r.history_failed.map((f) => `${f.role}: ${f.error}`).join("; ") : "a charge it names isn't on the copy";
+    console.warn(`demo copy ${r.workspace} was made without its settled history (${why}): check the stored row with npm run demo:history`);
+  }
+  // A link that keeps its random token still works as before; it just can't be opened from the copy's pages.
+  await keyDemoTenantLinks((r.copies ?? []).map((c) => c.tenancy).filter(isUuid))
+    .catch((e) => console.error(`demo copy ${r.workspace}: tenant links not re-keyed`, e));
   seen.set(r.workspace, { label: DEMO_ACCOUNT, until: Date.now() + SEEN_MS, touched: Date.now() });
   return { ok: true, ws: r.workspace, pool: r.pool ?? "empty" };
 }

@@ -1,6 +1,6 @@
 import "server-only";
 import { closeOutFacts, type CloseOutFacts } from "./closeout";
-import { CATEGORY_ORDER } from "./copy";
+import { CATEGORY_ORDER, isDemoExample } from "./copy";
 import { db } from "./db";
 import { describeDelivery, type DeliveryRecord } from "./delivery";
 import { missingDocs, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
@@ -112,6 +112,7 @@ export type StatementSettlement = {
   refundSent: boolean; // whether the statement's own refund was sent (settlement.ts sends a settlement only after it)
   returnedInAll: number; // what PayPal sent: the statement's refund, once sent, plus the settlement
   balanceAfter: number; // what is still claimed over the deposit, if anything
+  example: boolean; // the demo's recorded example (a copy's closed unit): no PayPal money moved for it
 };
 
 export const longDate = (iso: string) =>
@@ -249,7 +250,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
   if (facts.standing) s.standing = facts.standing;
   // The amended statement: a settlement of the tenants' dispute that was paid (or needed no money). Only then; one
   // agreed and not yet approved changes nothing here.
-  const { data: settled } = await db.from("settlements").select("amount, terms, tenant_name, tenant_accepted_at, landlord_approved_at, sent_at, rail, paypal_id, paypal_status")
+  const { data: settled } = await db.from("settlements").select("amount, terms, tenant_name, tenant_accepted_at, landlord_approved_at, sent_at, rail, paypal_id, paypal_status, raw")
     .eq("tenancy_id", tenancyId).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle();
   if (settled) {
     const terms = (settled.terms ?? []) as { deduction_id: string; keep: number | string }[];
@@ -266,6 +267,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
       refundSent: refund.state === "sent",
       returnedInAll: Math.round(((refund.state === "sent" ? refund.amount : 0) + amount) * 100) / 100,
       balanceAfter: Math.max(0, Math.round((keptAfter - totals.depositHeld) * 100) / 100),
+      example: isDemoExample(settled.raw),
     };
   }
   // Considered and not charged: every wear-and-tear finding the landlord did not dismiss, so the tenants see it was
