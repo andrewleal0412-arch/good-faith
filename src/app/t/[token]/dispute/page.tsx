@@ -5,6 +5,7 @@ import { Icon } from "@/components/icons";
 import { NOT_LEGAL_ADVICE } from "@/lib/advocate";
 import { displayName } from "@/lib/copy";
 import { loadTenantDispute } from "@/lib/disputes";
+import { loadNegotiation } from "@/lib/negotiation";
 import { streetLine } from "@/lib/ledger";
 import { SANDBOX } from "@/lib/paypal";
 import { keepUnit } from "@/lib/property-view";
@@ -23,7 +24,7 @@ export default async function DisputePage({ params }: PageProps<"/t/[token]/disp
   const { token } = await params;
   const link = await resolveTenantToken(token);
   if (!link) notFound();
-  const v = await loadTenantDispute(link.tenancyId);
+  const [v, negotiation] = await Promise.all([loadTenantDispute(link.tenancyId), loadNegotiation(link.tenancyId, "tenant")]);
   if (!v) notFound();
   const pack = packFor(v.state);
   const landlord = v.landlord ? displayName(v.landlord) : "Your landlord";
@@ -50,7 +51,7 @@ export default async function DisputePage({ params }: PageProps<"/t/[token]/disp
         ) : !v.lines.length ? (
           <p className="mt-6 text-ink-2">Nothing was deducted, so there&apos;s nothing to dispute.</p>
         ) : (
-          <DisputeFlow token={token} landlord={landlord} view={v} stateName={pack.name} notLegalAdvice={NOT_LEGAL_ADVICE} />
+          <DisputeFlow token={token} landlord={landlord} view={v} stateName={pack.name} notLegalAdvice={NOT_LEGAL_ADVICE} negotiation={negotiation} />
         )}
 
         <footer className="mt-10 text-center text-xs text-ink-3">

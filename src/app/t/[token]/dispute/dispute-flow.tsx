@@ -1,16 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, buttonClass } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
+import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
 import { pacificDate, shortDate } from "@/lib/dates";
-import type { DisputeLineView, DisputeStatus, TenantDisputeView } from "@/lib/disputes";
+import type { DisputeLineView, TenantDisputeView } from "@/lib/disputes";
+import type { LoadedNegotiation } from "@/lib/negotiation";
 import { uploadPhotos } from "@/lib/uploads";
 
 // The tenants' dispute, step by step on a phone: pick the charges and say why (with photos if they have them), ask
@@ -27,16 +29,17 @@ const POLL_MS = 4000;
 const POLL_LIMIT = 90;
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** "Harbor View Rentals'", "Elena Marquez's". */
+const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
 const VERDICT: Record<Verdict, { label: string; tone: "gray" | "amber" | "red" }> = {
   solid: { label: "Looks solid", tone: "gray" },
   weak: { label: "Looks weak", tone: "amber" },
   unsupported: { label: "Not supported", tone: "amber" },
   unlawful: { label: "Not allowed", tone: "red" },
 };
-const CLOSED: Partial<Record<DisputeStatus, string>> = { settled: "Settled", no_agreement: "No agreement", withdrawn: "Withdrawn" };
 
-export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice }: {
-  token: string; landlord: string; view: TenantDisputeView; stateName: string; notLegalAdvice: string;
+export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, negotiation }: {
+  token: string; landlord: string; view: TenantDisputeView; stateName: string; notLegalAdvice: string; negotiation: LoadedNegotiation | null;
 }) {
   const router = useRouter();
   const d = view.dispute;
@@ -91,7 +94,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice }
   // The saved draft (or the statement's amounts) changed after the case was written: it can't be sent as it is.
   const serverStale = !pending && !!d?.stale;
 
-  if (d && d.status !== "draft") return <Sent token={token} landlord={landlord} view={view} />;
+  if (d && d.status !== "draft") return <Sent token={token} landlord={landlord} view={view} negotiation={negotiation} />;
 
   const problem = (): string => {
     if (!picked.length) return "Pick at least one charge.";
@@ -416,32 +419,260 @@ function CaseLines({ c, view }: { c: AdvocateCase; view: TenantDisputeView }) {
 
 /* ---------- Sent ---------- */
 
-function Sent({ token, landlord, view }: { token: string; landlord: string; view: TenantDisputeView }) {
+/** The dispute once sent: where it stands (the landlord's answer, the settlement to accept, or no agreement and what the
+ *  state's process is), the negotiation turn by turn, and what the tenants sent. */
+function Sent({ token, landlord, view, negotiation }: { token: string; landlord: string; view: TenantDisputeView; negotiation: LoadedNegotiation | null }) {
+  const router = useRouter();
   const d = view.dispute!;
-  const closed = CLOSED[d.status];
-  return (
-    <>
-      <section aria-label="Where it stands" className="mt-6">
+  const n = negotiation;
+  const s = n?.settlement ?? null;
+  const [name, setName] = useState(d.openedBy ?? (view.tenants.length === 1 ? view.tenants[0] : ""));
+  const [busy, setBusy] = useState<null | "accept" | "offer">(null);
+  const [error, setError] = useState("");
+  const [offerOpen, setOfferOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [message, setMessage] = useState("");
+  const [confirm, dialog] = useConfirm();
+  const seen = useRef({ turns: n?.turns.length ?? 0, status: n?.status ?? null });
+
+  // While the two agents negotiate, the page asks every few seconds and shows each turn as it lands.
+  useEffect(() => {
+    if (!n?.running) return;
+    let k = 0;
+    const t = setInterval(async () => {
+      if (++k > 120) return clearInterval(t);
+      const r = await fetch(`/api/t/${token}/dispute`, { cache: "no-store" }).catch(() => null);
+      const j = r?.ok ? await r.json().catch(() => null) : null;
+      if (!j) return;
+      if (j.turns !== seen.current.turns || j.sentStatus !== seen.current.status || j.negotiationStatus !== "running") {
+        seen.current = { turns: j.turns, status: j.sentStatus };
+        router.refresh();
+        if (j.negotiationStatus !== "running") clearInterval(t);
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [n?.running, token, router]);
+
+  const settled = !!n && (n.status === "settled" || s?.status === "sent");
+  const offered = n?.landlordBack ?? null;
+  const live = !!n && ["open", "negotiating", "no_agreement", "agreed"].includes(n.status) && !n.running && s?.status !== "sending" && !s?.unconfirmed && !settled;
+  const lo = Math.min(offered ?? 0, n?.tenantBack ?? 0), hi = Math.max(offered ?? 0, n?.tenantBack ?? 0);
+  const names = { landlord, tenants: "The tenants" };
+  const pickName = view.tenants.length > 1 && (
+    <FormField label="Your name">
+      <select className={inputClass} value={name} onChange={(e) => setName(e.target.value)}>
+        <option value="">Pick your name</option>
+        {view.tenants.map((t) => <option key={t}>{t}</option>)}
+      </select>
+    </FormField>
+  );
+
+  async function post(path: string, body: unknown): Promise<boolean> {
+    setError("");
+    const r = await fetch(`/api/t/${token}/dispute/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    if (!r?.ok) { setError(j.error ?? "Couldn't send that. Try again."); return false; }
+    return true;
+  }
+
+  async function acceptSettlement() {
+    if (!s) return;
+    if (!name) return setError("Pick your name.");
+    const ok = await confirm({
+      title: `Accept ${usd(s.amount)} back?`,
+      body: `${landlord} then approves it, and the money goes back to you through PayPal, on top of the statement's refund. You can't change it after you accept.`,
+      action: "Accept settlement",
+    });
+    if (!ok) return;
+    setBusy("accept");
+    await post("accept", { name });
+    setBusy(null);
+    router.refresh();
+  }
+
+  async function acceptOffer() {
+    if (offered == null) return;
+    if (!name) return setError("Pick your name.");
+    const ok = await confirm({
+      title: `Accept ${usd(offered)} back?`,
+      body: `That settles your dispute once ${landlord} approves it. The money then goes back to you through PayPal, on top of the statement's refund.`,
+      action: "Accept offer",
+    });
+    if (!ok) return;
+    setBusy("accept");
+    await post("offer", { accept: true, name });
+    setBusy(null);
+    router.refresh();
+  }
+
+  async function counter() {
+    const amt = Number(amount.replace(/[$,\s]/g, ""));
+    if (amount.trim() === "" || !Number.isFinite(amt)) return setError("Enter how much you ask back.");
+    if (!name) return setError("Pick your name.");
+    setBusy("offer");
+    const ok = await post("offer", { amount: amt, message: message.trim() || null, name });
+    setBusy(null);
+    if (ok) { setOfferOpen(false); setAmount(""); setMessage(""); }
+    router.refresh();
+  }
+
+  let hero: ReactNode;
+  if (settled && s) {
+    hero = (
+      <>
+        <p className="text-sm text-ink-3">Settled</p>
+        <Money value={s.amount} className="mt-0.5 block text-2xl font-medium" />
+        <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
+          <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3" /></span>
+          {s.amount > 0 ? `Sent by PayPal${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled"}
+        </p>
+        <p className="mt-1.5 text-ink-2">
+          {s.amount > 0 ? `Back to you on top of the statement's refund${s.paypalId ? `, PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : ""}.` : "The deposit was used in full, so no money moved; the balance claimed went down."} The amended statement records it.
+        </p>
+      </>
+    );
+  } else if (n?.status === "agreed" && s) {
+    hero = (
+      <>
+        <p className="text-sm text-ink-3">{s.tenantAcceptedAt ? "You accepted" : "Settlement offered"}</p>
+        <Money value={s.amount} className="mt-0.5 block text-2xl font-medium" />
+        <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
+          <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-bg text-amber"><Icon name="clock" className="size-3" /></span>
+          {s.unconfirmed || s.status === "sending" ? "PayPal is confirming the payment" : s.tenantAcceptedAt ? `Waiting for ${landlord} to approve` : "Both sides agree"}
+        </p>
+        <p className="mt-1.5 text-ink-2">
+          {s.unconfirmed || s.status === "sending"
+            ? `${landlord} approved it, and the payment through PayPal is being confirmed. This page shows it once PayPal does.`
+            : s.tenantAcceptedAt
+              ? `${s.tenantName ?? "You"} accepted it ${shortDate(pacificDate(s.tenantAcceptedAt))}. It goes back to you through PayPal once ${landlord} approves it.`
+              : `Back to you on top of the statement's refund. Nothing moves until you accept it and ${landlord} approves it.`}
+        </p>
+        {!s.tenantAcceptedAt && (
+          <div className="mt-4 flex flex-col gap-3">
+            {pickName}
+            <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy} onClick={acceptSettlement}>
+              {busy === "accept" ? "Accepting..." : "Accept settlement"}
+            </Button>
+          </div>
+        )}
+      </>
+    );
+  } else if (n?.status === "no_agreement") {
+    hero = (
+      <>
+        <p className="text-sm text-ink-3">No agreement</p>
+        <div className="mt-1 grid grid-cols-2 gap-x-4">
+          <Position label={`${possessive(landlord)} last offer`} value={offered ?? 0} sub="Back to you" />
+          <Position label="Your last ask" value={n.tenantBack} />
+        </div>
+        <div className="mt-4 rounded-lg border border-line-2 bg-surface px-4 py-3.5">
+          <p className="flex items-center gap-1.5 font-medium">
+            What happens next
+            <InfoTip align="end" title={n.forum.name} cite={n.forum.cite}>Not legal advice. This is the state&apos;s process as the law describes it, not a judgment of your case.</InfoTip>
+          </p>
+          <p className="mt-1 text-sm text-ink-2">Either of you can still make an offer here. {n.forum.text}</p>
+          <a href={n.courtsGuide.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
+            {n.courtsGuide.label}<Icon name="arrow-up-right" className="size-3.5" />
+          </a>
+        </div>
+      </>
+    );
+  } else if (offered != null && n) {
+    hero = (
+      <>
+        <p className="text-sm text-ink-3">{landlord} offers back</p>
+        <Money value={offered} className="mt-0.5 block text-2xl font-medium" />
+        <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
+          <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-bg text-amber"><Icon name="clock" className="size-3" /></span>
+          {n.running ? "The agents are negotiating" : `You ask ${usd(n.tenantBack)}`}
+        </p>
+        <p className="mt-1.5 text-ink-2">
+          {n.running ? "Each turn appears below as it is made." : "Accept it, or answer with your own figure. Nothing changes until you both agree."}
+        </p>
+      </>
+    );
+  } else {
+    hero = (
+      <>
         <p className="text-sm text-ink-3">You asked back</p>
         <Money value={d.askedBack ?? 0} className="mt-0.5 block text-2xl font-medium" />
-        {closed ? (
-          <>
-            <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
-              <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-3"><Icon name="check" className="size-3" /></span>
-              Closed: {closed.toLowerCase()}{d.closedAt ? ` ${shortDate(pacificDate(d.closedAt))}` : ""}
-            </p>
-            <p className="mt-1.5 text-ink-2">This dispute is closed, and a statement is disputed here once.</p>
-          </>
-        ) : (
-          <>
-            <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
-              <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-bg text-amber"><Icon name="clock" className="size-3" /></span>
-              Sent to {landlord}{d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}
-            </p>
-            <p className="mt-1.5 text-ink-2">Their answer comes back to this page. Nothing changes until you both agree.</p>
-          </>
-        )}
-      </section>
+        <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
+          <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-bg text-amber"><Icon name="clock" className="size-3" /></span>
+          {d.status === "withdrawn" ? "Withdrawn" : `Sent to ${landlord}${d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}`}
+        </p>
+        <p className="mt-1.5 text-ink-2">
+          {n?.running ? "The agents are negotiating. Each turn appears below as it is made." : "Their answer comes back to this page. Nothing changes until you both agree."}
+        </p>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <section aria-label="Where it stands" className="mt-6">{hero}</section>
+
+      {error && <Notice className="mt-4">{error}</Notice>}
+
+      {live && offered != null && !(n?.status === "agreed") && (
+        <div className="mt-4 flex flex-col gap-3">
+          {!offerOpen && pickName}
+          {!offerOpen ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {offered > 0 && (
+                <Button variant="primary" size="lg" className="h-11 w-full sm:w-auto sm:flex-1" disabled={!!busy} onClick={acceptOffer}>
+                  {busy === "accept" ? "Accepting..." : `Accept ${usd(offered)} back`}
+                </Button>
+              )}
+              <Button variant={offered > 0 ? "secondary" : "primary"} size="lg" className="h-11 w-full sm:w-auto sm:flex-1" disabled={!!busy} onClick={() => setOfferOpen(true)}>Make an offer</Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3 rounded-lg border border-line px-4 py-3.5">
+              <FormField label="You ask back" note={lo === hi ? `Both sides are at ${usd(lo)}.` : `Between ${usd(lo)} and ${usd(hi)}.`}>
+                <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              </FormField>
+              <FormField label={`Message to ${landlord}`} note="Optional.">
+                <textarea className={textareaClass} rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} />
+              </FormField>
+              {pickName}
+              <div className="flex flex-wrap gap-2">
+                <Button variant="primary" disabled={!!busy} onClick={counter}>{busy === "offer" ? "Sending..." : "Send offer"}</Button>
+                <Button variant="link" disabled={!!busy} onClick={() => { setOfferOpen(false); setError(""); }}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {live && n?.status === "agreed" && s && !s.tenantAcceptedAt && (
+        <p className="mt-3 text-center text-sm">
+          <button type="button" className="font-medium text-brand hover:underline" disabled={!!busy} onClick={() => setOfferOpen(true)}>Or make a different offer</button>
+        </p>
+      )}
+      {live && n?.status === "agreed" && offerOpen && (
+        <div className="mt-3 flex flex-col gap-3 rounded-lg border border-line px-4 py-3.5">
+          <FormField label="You ask back" note={`Between ${usd(n.minBack)} and ${usd(n.maxBack)}. Any other figure withdraws from the ${usd(s?.amount ?? 0)} agreed.`}>
+            <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </FormField>
+          <FormField label={`Message to ${landlord}`} note="Optional.">
+            <textarea className={textareaClass} rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} />
+          </FormField>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" disabled={!!busy} onClick={counter}>{busy === "offer" ? "Sending..." : "Send offer"}</Button>
+            <Button variant="link" disabled={!!busy} onClick={() => { setOfferOpen(false); setError(""); }}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {n && n.turns.length > 0 && (
+        <Block title="The negotiation">
+          <p className="mb-1 flex items-center gap-1.5 text-sm text-ink-3">
+            Your advocate and {possessive(landlord)} negotiator, turn by turn
+            <InfoTip align="end" title="Two agents, inside the law">
+              Your advocate, a Claude agent working for you, answers {possessive(landlord)} negotiator, a Claude agent working for them. The app holds every figure to what the law and the record allow, allows three exchanges at most, and nothing takes effect until you accept and {landlord} approves. Not legal advice.
+            </InfoTip>
+          </p>
+          <NegotiationThread turns={n.turns} perspective="tenant" names={names} />
+        </Block>
+      )}
 
       {d.sentWithCase && d.advocate && (
         <Block title="Your case">
@@ -478,9 +709,12 @@ function Sent({ token, landlord, view }: { token: string; landlord: string; view
         {d.message && <p className="mt-3 whitespace-pre-line border-t border-line-2 pt-3 text-sm text-ink-2">{d.message}</p>}
       </Block>
 
-      <p className="mt-6 text-sm text-ink-3">
-        <InfoTip trigger={<TipLabel>If you can&apos;t agree</TipLabel>} title={view.forum.name} cite={view.forum.cite}>{view.forum.text}</InfoTip>
-      </p>
+      {n?.status !== "no_agreement" && !settled && (
+        <p className="mt-6 text-sm text-ink-3">
+          <InfoTip trigger={<TipLabel>If you can&apos;t agree</TipLabel>} title={view.forum.name} cite={view.forum.cite}>{view.forum.text}</InfoTip>
+        </p>
+      )}
+      {dialog}
     </>
   );
 }

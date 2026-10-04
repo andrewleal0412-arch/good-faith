@@ -23,13 +23,17 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
  *  word; each pack names its own statute and checklist, and the citations come only from the facts' "rules". */
 export const systemPrompt = (pack: StatePack) => pack.ai.closeOutSystem;
 
-/** PayPal's Agent Toolkit as an MCP server in this process, with only the actions the close-out uses. */
-async function connectPayPal() {
+/** PayPal's Agent Toolkit as an MCP server in this process, with only the actions the close-out uses. The dispute's
+ *  settlement (src/lib/settlement.ts) sends its refund through the same toolkit, with its own guard (a claim in the
+ *  database, then a plan recomputed from the database and PayPal right before the call) and an idempotency key: with
+ *  `requestId` every call carries PayPal-Request-Id, so the same request sent again returns the first refund instead
+ *  of making a second (PayPal keeps refund keys for 45 days). */
+export async function connectPayPal(o: { requestId?: string } = {}) {
   const server = new PayPalAgentToolkit({
     accessToken: await accessToken(),
     configuration: {
       actions: { invoices: { get: true }, payments: { createRefund: true, getRefunds: true } },
-      context: { sandbox: SANDBOX },
+      context: { sandbox: SANDBOX, ...(o.requestId ? { request_id: o.requestId } : {}) },
     },
   });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -149,7 +153,7 @@ async function advance(runId: string, tenancyId: string, messages: ModelMessage[
 /** The landlord pages sit behind a shared demo access code (src/proxy.ts), and each visitor works in a private copy
  *  of the demo, but that is not a landlord's own login. Until there is one, the agent moves sandbox money only: a LIVE
  *  PayPal environment is refused here, before a run exists. */
-function refuseLiveWithoutSignIn() {
+export function refuseLiveWithoutSignIn() {
   if (!SANDBOX) throw new Error("This build has no landlord sign-in, so it won't move live money. Set PAYPAL_ENVIRONMENT=SANDBOX (docs/DEPLOY.md).");
 }
 

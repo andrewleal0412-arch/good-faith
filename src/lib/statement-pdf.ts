@@ -319,6 +319,11 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     ["From", s.landlord], ["To", s.tenants.join(" and ")],
     ["Moved out", s.moveOutDate ? longDate(s.moveOutDate) : "Not set"], ["Statement date", longDate(s.statementDate)],
     ["Due by", `${s.statementDue ? longDate(s.statementDue) : "Not set"}${dueLine}`], ["Deadline", pack.statement.pdf.deadlineLine],
+    // The amended statement: a settlement of the tenants' dispute, paid.
+    ...(s.settlement ? [
+      ["Amended", s.settlement.sentAt ? longDate(pacificDate(s.settlement.sentAt)) : "By settlement"],
+      ["Settlement", `${usd(s.settlement.amount)} more back to the tenants`],
+    ] as [string, string][] : []),
   ]);
 
   // 1. Security received.
@@ -401,6 +406,27 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   w.text(`${s.refund.method}${s.refund.paypalId ? ` (PayPal id ${s.refund.paypalId})` : ""}${s.refund.sentAt ? `, sent ${longDate(pacificDate(s.refund.sentAt))}` : ""}${s.refund.state === "none" ? "" : "."}`, { color: INK2 });
   if (s.refund.state !== "none") w.text(`Payable to ${s.refund.payees.join(" and ")}${s.refund.paypalEmail ? `, PayPal account ${s.refund.paypalEmail}` : ""}.`, { color: INK2 });
   if (s.refund.note) { w.space(4); w.text(s.refund.note, { size: 9.5, color: INK3 }); }
+
+  // The settlement that amends the statement: who accepted and approved it, each charge it changed, the new totals and
+  // the PayPal record of the extra amount.
+  if (s.settlement) {
+    const st = s.settlement;
+    w.heading(++n, "Settlement (amended statement)");
+    w.text(`The tenants disputed this statement. ${st.acceptedBy ?? "The tenants"} accepted the settlement${st.acceptedAt ? ` on ${longDate(pacificDate(st.acceptedAt))}` : ""}, and ${s.landlord} approved it${st.approvedAt ? ` on ${longDate(pacificDate(st.approvedAt))}` : ""}. It amends the deductions above as follows.`, { color: INK2, after: 6 });
+    for (const l of st.lines) w.row(`Item ${l.n}. ${l.item}: kept ${usd(l.keep)} of ${usd(l.amount)}`, `-${usd(-l.adjustment)}`, { size: 9.5, color: INK2 });
+    w.space(6);
+    w.row("Deductions on the statement", usd(s.totals.deductions));
+    w.row("Agreed adjustment", st.adjustment ? `-${usd(-st.adjustment)}` : usd(0));
+    w.row("Deductions as settled", usd(st.keptAfter));
+    w.row(st.refundSent ? "Refunded with the statement" : "Refund due with the statement, not sent yet", usd(s.refund.amount));
+    w.row("Settlement", usd(st.amount));
+    w.row("Returned in all", usd(st.returnedInAll), { bold: true, size: 11.5 });
+    if (st.balanceAfter > 0) w.row("Balance still claimed", usd(st.balanceAfter));
+    w.space(4);
+    w.text(st.paypalId
+      ? `${st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : "PayPal refund of the original deposit payment"} (PayPal id ${st.paypalId})${st.sentAt ? `, sent ${longDate(pacificDate(st.sentAt))}` : ""}.`
+      : "No money moved: the deposit was used in full, and the balance claimed went down.", { color: INK2 });
+  }
 
   // 5. Local deposit interest (item 11).
   w.heading(++n, pack.statement.interestTitle);
@@ -489,7 +515,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
 
   // The same footer on every page, copied invoices included, so the packet reads as one document.
   const pages = doc.getPages();
-  const left = winAnsi(`${s.property.address}  |  Itemized security deposit statement, ${longDate(s.statementDate)}`);
+  const left = winAnsi(`${s.property.address}  |  Itemized security deposit statement, ${longDate(s.statementDate)}${s.settlement ? " (amended)" : ""}`);
   pages.forEach((p, i) => {
     try {
       const { width } = p.getSize();

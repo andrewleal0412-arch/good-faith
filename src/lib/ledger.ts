@@ -10,7 +10,7 @@ import type { ClientPack } from "./states/types";
 // the grid can filter on it and the CSV can go to an accountant or a small claims clerk as it is. Pure, so the grid
 // (in the browser) and the tenancy page (on the server) read the same rows. The database query is in ledger-load.ts.
 
-export type LedgerKind = "deposit_invoice" | "payment" | "deduction" | "refund" | "payout" | "damage_invoice";
+export type LedgerKind = "deposit_invoice" | "payment" | "deduction" | "refund" | "payout" | "damage_invoice" | "settlement";
 
 export const KIND_LABEL: Record<LedgerKind, string> = {
   deposit_invoice: "Deposit invoice",
@@ -19,6 +19,7 @@ export const KIND_LABEL: Record<LedgerKind, string> = {
   refund: "Refund",
   payout: "Payout",
   damage_invoice: "Balance invoice",
+  settlement: "Settlement",
 };
 
 /** What a row does to the money held for the tenants, which is what the totals add up. The security stays the
@@ -187,6 +188,18 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         status: effect === "returned" ? (p.kind === "refund" ? "completed" : "sent") : words(p.status),
         ...pack.ledger.refundTag,
       });
+    } else if (p.kind === "settlement_refund" || p.kind === "settlement_payout") {
+      // The extra amount a settled dispute sent back, on top of the statement's refund, after the tenants accepted it
+      // and the landlord approved it.
+      const effect: LedgerEffect = returnCompleted(p.status) ? "returned" : returnFailed(p.status) ? "failed" : "pending";
+      const refund = p.kind === "settlement_refund";
+      row({
+        id: p.id, date, at: p.created_at, kind: "settlement", amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
+        detail: `Settlement of the tenants' dispute: ${refund ? "a partial refund of the original PayPal payment" : "a PayPal Payout to the account the tenants designated"}, on top of the statement's refund${timing(t.move_out_date, date, pack)}`,
+        summary: refund ? "Dispute settled, to the original payment" : "Dispute settled, to the tenants' account",
+        status: effect === "returned" ? (refund ? "completed" : "sent") : words(p.status),
+        ...pack.ledger.refundTag,
+      });
     } else if (p.kind === "damage_invoice") {
       row({
         id: p.id, date, at: p.created_at, kind: "damage_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
@@ -238,12 +251,15 @@ export type LedgerTotals = {
  *  never money taken from another unit's. */
 export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
   const sum = (effect: LedgerEffect, xs: LedgerRow[] = rows) => cents(xs.filter((r) => r.effect === effect).reduce((s, r) => s + r.amount, 0));
+  // A settlement's money came out of what the statement deducted: the deductions as settled are that much less, and it
+  // is counted once, as money returned.
+  const settled = (xs: LedgerRow[]) => cents(xs.filter((r) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending")).reduce((s, r) => s + r.amount, 0));
   const byTenancy = new Map<string, LedgerRow[]>();
   for (const r of rows) byTenancy.set(r.tenancyId, [...(byTenancy.get(r.tenancyId) ?? []), r]);
   let held = 0;
-  for (const xs of byTenancy.values()) held += Math.max(0, cents(sum("collected", xs) - sum("claimed", xs) - sum("returned", xs) - sum("pending", xs)));
+  for (const xs of byTenancy.values()) held += Math.max(0, cents(sum("collected", xs) - (sum("claimed", xs) - settled(xs)) - sum("returned", xs) - sum("pending", xs)));
   const claimed = sum("claimed"), drafted = sum("draft");
-  return { collected: sum("collected"), deducted: cents(claimed + drafted), drafted, returned: sum("returned"), pending: sum("pending"), held: cents(held), count: rows.length };
+  return { collected: sum("collected"), deducted: cents(claimed + drafted - settled(rows)), drafted, returned: sum("returned"), pending: sum("pending"), held: cents(held), count: rows.length };
 }
 
 /** What a tenancy's rows say is still owed back to its tenants: the deposit collected less every deduction, drafts

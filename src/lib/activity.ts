@@ -99,15 +99,45 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "dispute_evidence_added": return `The tenants added ${d?.count} photo${d?.count === 1 ? "" : "s"} to their draft dispute`;
     case "dispute_evidence_removed": return "The tenants removed a photo from their draft dispute";
     case "advocate_case_written": return `The tenants' advocate wrote their case: ${usd(d?.amount_back as number)} back proposed${(d?.adjustments as number) ? `, ${d?.adjustments} answer${d?.adjustments === 1 ? "" : "s"} corrected to fit the rules` : ""}`;
+    // The negotiation and the settlement (src/lib/negotiation.ts, src/lib/settlement.ts).
+    case "negotiation_started": {
+      const limit = (d?.policy as { limit?: number | null } | undefined)?.limit;
+      return `Let the negotiator answer the tenants' dispute${limit != null ? `, asking first before giving back more than ${usd(limit)}` : ""}`;
+    }
+    case "negotiation_turn": return `${d?.side === "landlord" ? "The negotiator" : "The tenants' advocate"} ${MOVE_WORD[String(d?.move)] ?? "answered"}: ${usd(d?.amount_back as number)} back`;
+    case "negotiation_ended": return ENDED[String(d?.reason)]?.(d) ?? "The negotiation stopped";
+    case "negotiation_failed": return `The negotiation stopped partway: ${String(d?.error ?? "no reason recorded")}`;
+    case "negotiation_offer": return d?.accept ? `${d?.name ?? "You"} accepted the other side's offer of ${usd(d?.amount_back as number)} back` : `${d?.name ?? "You"} offered ${usd(d?.amount_back as number)} back`;
+    case "settlement_agreed": return `Settlement agreed: ${usd(d?.amount as number)} back to the tenants on top of the statement's refund`;
+    case "settlement_accepted": return `${d?.name ?? "The tenants"} accepted the settlement of ${usd(d?.amount as number)} back through the tenant link`;
+    case "settlement_approved": return `Approved the settlement of ${usd(d?.amount as number)}`;
+    case "settlement_paid": return Number(d?.amount) > 0
+      ? `Sent the settlement of ${usd(d?.amount as number)} through PayPal (${d?.refund_id ? `refund ${d.refund_id}` : `payout ${d?.payout_batch_id}`}, ${String(d?.status).toLowerCase()})`
+      : "Settled the dispute with no money moving: the deposit was used in full";
+    case "settlement_failed": return `PayPal didn't accept the settlement of ${usd(d?.amount as number)}`;
+    case "settlement_blocked": return `Stopped a settlement payment that didn't match the rules: ${d?.reason}`;
+    case "settlement_unconfirmed": return `PayPal didn't confirm the settlement of ${usd(d?.amount as number)}, so it may have gone; checking again sends the same request`;
+    case "settlement_rechecked": return `Checked the settlement of ${usd(d?.amount as number)} with PayPal, with the same request as before`;
     default: return action.replace(/_/g, " ");
   }
 }
+
+const MOVE_WORD: Record<string, string> = { concede: "conceded", accept: "accepted", hold: "held", counter: "countered" };
+const ENDED: Record<string, (d: Record<string, unknown> | null) => string> = {
+  agreed: (d) => `The agents agreed: ${usd(d?.landlord_back as number)} back`,
+  no_movement: (d) => `The agents stopped without agreeing: neither side moved (last offer ${usd(d?.landlord_back as number)}, last ask ${usd(d?.tenant_back as number)})`,
+  exhausted: (d) => `The agents used their three exchanges without agreeing (last offer ${usd(d?.landlord_back as number)}, last ask ${usd(d?.tenant_back as number)})`,
+  limit: () => "The negotiator stopped to ask before giving back more than your limit",
+  stopped: () => "The negotiation moved on before the agents finished",
+};
 
 /** Actions too small for the Properties page's Recent activity (each PDF build, each lease check before a tenancy,
  *  the tenant link's bookkeeping). */
 export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved", "finding_reviewed", "tenant_link_created", "tenant_link_revoked",
   // The tenants' dispute while it is still their draft: theirs until they send it.
-  "dispute_drafted", "dispute_draft_changed", "dispute_evidence_added", "dispute_evidence_removed", "advocate_case_written"];
+  "dispute_drafted", "dispute_draft_changed", "dispute_evidence_added", "dispute_evidence_removed", "advocate_case_written",
+  // The negotiation's own steps: its outcome and the settlement are what the list shows.
+  "negotiation_started", "negotiation_turn", "settlement_approved", "settlement_rechecked"];
 
 /** The same for one tenancy's own Activity, which keeps the lease check, the tenant link and the tenants opening
  *  their statement. */
@@ -175,6 +205,16 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "tenant_moving_out": return `${d?.name ?? "Tenant"} sent a move-out date`;
     case "tenant_moving_out_changed": return `${d?.name ?? "Tenant"} changed the move-out date`;
     case "dispute_opened": return `${d?.name ?? "Tenant"} disputed ${d?.lines} deduction${d?.lines === 1 ? "" : "s"}`;
+    case "negotiation_turn": return d?.side === "landlord" ? "Negotiator answered" : "Tenants' advocate answered";
+    case "negotiation_ended": return d?.reason === "agreed" ? "Agents agreed" : d?.reason === "limit" ? "Negotiator asks for your OK" : d?.reason === "no_movement" || d?.reason === "exhausted" ? "No agreement" : "Negotiation stopped";
+    case "negotiation_offer": return d?.accept ? "Offer accepted" : `Offer of ${usd(d?.amount_back as number)} made`;
+    case "settlement_agreed": return `Settlement of ${usd(d?.amount as number)} agreed`;
+    case "settlement_accepted": return `${d?.name ?? "Tenant"} accepted the settlement`;
+    case "settlement_paid": return Number(d?.amount) > 0 ? `Settlement of ${usd(d?.amount as number)} sent by PayPal` : "Dispute settled";
+    case "settlement_failed": return "PayPal did not accept the settlement";
+    case "settlement_blocked": return "Settlement payment on hold";
+    case "settlement_unconfirmed": return "PayPal did not confirm the settlement";
+    case "settlement_rechecked": return "Settlement checked with PayPal";
     default: {
       const s = describe(action, d);
       return s.length > 60 ? `${s.slice(0, 57).replace(/\s+\S*$/, "")}...` : s;

@@ -7,6 +7,7 @@ import { SANDBOX } from "@/lib/paypal";
 import { canSignOut } from "@/lib/session-server";
 import { stepLink } from "@/lib/property-view";
 import { streetLine } from "@/lib/ledger";
+import { disputeAlerts } from "@/lib/negotiation";
 import { accountName, loadUnits, type UnitRow } from "@/lib/units";
 import { packFor, SUPPORTED } from "@/lib/states";
 import { currentWorkspace, type Workspace } from "@/lib/workspace";
@@ -54,6 +55,15 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
       href: stepLink(u.summary, u.next).href,
       tone: u.next.level === "overdue" ? "red" : "amber",
     }));
+
+  // And the tenants' disputes that wait on the landlord: an answer, an approval, or the negotiator asking first.
+  if (ws) {
+    try {
+      alerts.unshift(...(await disputeAlerts(ws.id)).map((a) => ({ ...a, sub: streetLine(a.sub) })));
+    } catch (e) {
+      console.error("App shell: couldn't load the disputes", e);
+    }
+  }
 
   // Help's deposit-law guide and disclaimer: California's, as always, unless the workspace rents in other states; then
   // one guide per state, and the disclaimer of that state (or a general one across several).

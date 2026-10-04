@@ -7,7 +7,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money } from "@/components/ui";
 import { displayName, maskEmail } from "@/lib/copy";
-import { isClosed, tenantDisputeStatus } from "@/lib/disputes";
+import { isClosed, tenantDisputeStatus, type TenantDisputeStatus } from "@/lib/disputes";
 import { longDate, pacificDate, shortDate } from "@/lib/dates";
 import { returnCompleted, returnFailed } from "@/lib/invoice-status";
 import { streetLine } from "@/lib/ledger";
@@ -116,17 +116,14 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
           </Section>
         )}
 
-        {/* The tenants' dispute once they sent it: where it stands, and the way to their case. */}
+        {/* The tenants' dispute once they sent it: where it stands, and the way to their case, the negotiation and the
+            settlement. */}
         {st && disputeSent && (
           <Section title="Your dispute">
             <a href={`/t/${token}/dispute`} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3.5 hover:bg-surface">
-              <StatusMark tone={disputeClosed ? "gray" : "amber"} />
+              <StatusMark tone={dispute.status === "settled" ? "green" : disputeClosed ? "gray" : "amber"} />
               <span className="min-w-0 flex-1">
-                <span className="block font-medium">
-                  {disputeClosed
-                    ? `Closed: ${CLOSED_WORDS[dispute.status] ?? "closed"}`
-                    : `Sent to ${landlord}${dispute.sentAt ? ` ${shortDate(pacificDate(dispute.sentAt))}` : ""}`}
-                </span>
+                <span className="block font-medium">{disputeLine(dispute, landlord)}</span>
                 <span className="block text-sm text-ink-3">
                   {dispute.lines} charge{dispute.lines === 1 ? "" : "s"} disputed{dispute.askedBack != null ? `, ${usdText(dispute.askedBack)} asked back` : ""}
                 </span>
@@ -228,6 +225,17 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   );
 }
 
+/** The dispute's one line on the main page: where it stands, and what the tenants are asked to do. */
+function disputeLine(d: TenantDisputeStatus, landlord: string): string {
+  const s = d.settlement;
+  if (d.status === "settled") return s && s.amount > 0 ? `Settled: ${usdText(s.amount)} more back${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled";
+  if (d.status === "agreed" && s) return s.accepted ? `You accepted ${usdText(s.amount)} back. Waiting for ${landlord}` : `Settlement offered: ${usdText(s.amount)} back. Waiting on you`;
+  if (d.status === "negotiating") return "Being negotiated";
+  if (d.status === "no_agreement") return "No agreement yet";
+  if (d.status === "withdrawn") return `Closed: ${CLOSED_WORDS.withdrawn}`;
+  return `Sent to ${landlord}${d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}`;
+}
+
 /* ---------- Where things stand ---------- */
 
 type Tone = "green" | "amber" | "red" | "gray";
@@ -236,6 +244,14 @@ type Tone = "green" | "amber" | "red" | "gray";
 function standing(v: TenantView, pack: StatePack): { label: string; amount: number | null; tone: Tone; title: string; line?: ReactNode; pay?: string | null } {
   const st = v.statement;
   const due = (text: string) => withTip(text, <InfoTip align="end" title={pack.tenant.dueTip.title} cite={pack.tenant.dueTip.cite}>{pack.tenant.dueTip.text}</InfoTip>);
+  if (v.returned && v.settlement) {
+    // A settled dispute: the statement's refund and the settlement, both by PayPal.
+    const r = v.returned, x = v.settlement;
+    return {
+      label: "Refund amount", amount: Math.round((r.amount + x.amount) * 100) / 100, tone: "green", title: `Settled ${shortDate(pacificDate(x.at))}`,
+      line: `${usdText(r.amount)} with the statement and ${usdText(x.amount)} under the settlement you accepted, both by PayPal.`,
+    };
+  }
   if (v.returned) {
     const r = v.returned, how = r.kind === "payout" ? "PayPal Payout" : "PayPal refund";
     if (returnFailed(r.status)) return { label: "Refund amount", amount: r.amount, tone: "red", title: `Refund ${words(r.status)}`, line: `PayPal reports the ${how} as ${words(r.status)}. Ask your landlord to send it again.` };
@@ -394,7 +410,7 @@ function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
   if (st) {
     rows.push({ k: st.standing?.label ?? "Deductions", v: st.total ? <Money value={st.total} sign="minus" /> : <Money value={0} /> });
     if (st.balanceClaimed > 0) rows.push({ k: "Balance claimed", v: <Money value={st.balanceClaimed} />, total: true });
-    else rows.push({ k: v.returned ? "Refund" : "Refund due", v: <Money value={v.returned?.amount ?? st.refund} />, total: true });
+    else rows.push({ k: v.returned ? "Refund" : "Refund due", v: <Money value={v.returned?.amount ?? st.refund} />, total: !(v.returned && v.settlement) });
   }
 
   if (v.returned) {
@@ -402,6 +418,12 @@ function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
     rows.push({ k: "Method", v: payout ? "PayPal Payout" : "PayPal refund" });
     rows.push({ k: agreementTip("Sent to"), v: payout ? (masked ? `PayPal, ${masked}` : "PayPal") : "Your original PayPal payment" });
     if (v.returned.paypalId) rows.push({ k: `PayPal ${payout ? "payout" : "refund"} ID`, v: <CopyId text={v.returned.paypalId} label={`Copy the PayPal ${payout ? "payout" : "refund"} ID`} /> });
+    if (v.settlement) {
+      const x = v.settlement;
+      rows.push({ k: "Settlement", v: <Money value={x.amount} /> });
+      if (x.paypalId) rows.push({ k: `Settlement ${x.kind === "payout" ? "payout" : "refund"} ID`, v: <CopyId text={x.paypalId} label="Copy the settlement's PayPal ID" /> });
+      rows.push({ k: "Returned in all", v: <Money value={Math.round((v.returned.amount + x.amount) * 100) / 100} />, total: true });
+    }
     return rows;
   }
 

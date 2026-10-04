@@ -45,6 +45,8 @@ export type TenantView = {
     standing?: { label: string; note: string }; // a claim disputed (Florida) or kept after day 14 (New York); absent otherwise
   } | null;
   returned: { amount: number; kind: string; status: string; paypalId: string | null; at: string } | null;
+  // The settlement of their dispute, once paid: the extra amount back on top of the statement's refund. Absent otherwise.
+  settlement?: { amount: number; kind: "refund" | "payout" | null; status: string | null; paypalId: string | null; at: string };
 };
 
 export type TenantDeduction = {
@@ -115,7 +117,16 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     };
   }
 
+  // A settled dispute: what PayPal sent on top of the statement's refund.
+  const { data: settled } = delivered
+    ? await db.from("settlements").select("amount, rail, paypal_status, paypal_id, sent_at").eq("tenancy_id", tenancyId).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle()
+    : { data: null };
+
   return {
+    ...(settled ? { settlement: {
+      amount: Number(settled.amount), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
+      status: (settled.paypal_status as string | null) ?? null, paypalId: (settled.paypal_id as string | null) ?? null, at: settled.sent_at as string,
+    } } : {}),
     state: pack.code,
     today,
     address: prop?.address ?? "Address not recorded",

@@ -13,10 +13,12 @@ import { dayLabel, daysBetween, pacificDate, shortDate } from "@/lib/dates";
 import { wasPaid } from "@/lib/invoice-status";
 import { loadLedger } from "@/lib/ledger-load";
 import { ledgerTotals } from "@/lib/ledger";
+import { disputeAlerts, type DisputeAlert } from "@/lib/negotiation";
 import { closedOut, dueLabelOf, dueOf, packOf, refundLeft, type TenancySummary } from "@/lib/next-step";
-import { GROUP_LABEL, keepUnit, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup } from "@/lib/property-view";
+import { GROUP_LABEL, keepUnit, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup, type StepLink } from "@/lib/property-view";
 import { packFor } from "@/lib/states/server";
 import { accountName, loadRecentActivity, loadThumbnails, loadUnits, UPCOMING_DAYS } from "@/lib/units";
+import { currentWorkspace } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Properties" };
@@ -48,19 +50,35 @@ function Street({ street, state }: { street: string; state: string }) {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** A tenants' dispute that waits on the landlord comes before the unit's own next step: in the table, the rail and the
+ *  bell alike (the bell's entries, src/lib/negotiation.ts). */
+const DISPUTE_STEP: Record<string, Pick<StepLink, "label" | "icon">> = {
+  "Tenants disputed the statement": { label: "Answer dispute", icon: "doc" },
+  "Approve and pay the settlement": { label: "Approve settlement", icon: "send" },
+  "Check the settlement with PayPal": { label: "Check payment", icon: "send" },
+  "Your negotiator asks for your OK": { label: "Answer negotiator", icon: "pen" },
+};
+const disputeStep = (a: DisputeAlert): StepLink => ({ label: DISPUTE_STEP[a.title]?.label ?? "View dispute", icon: DISPUTE_STEP[a.title]?.icon ?? "doc", title: a.title, href: a.href });
+
 export default async function PropertiesPage({ searchParams }: PageProps<"/units">) {
   const sp = await searchParams;
   const filter = (typeof sp.filter === "string" ? sp.filter : "all") as StatusGroup | "all";
   const q = typeof sp.q === "string" ? sp.q.trim().toLowerCase() : "";
 
   const { today, units, upcoming, owners } = await loadUnits();
-  const [ledger, thumbs, log] = await Promise.all([
+  const ws = await currentWorkspace();
+  const [ledger, thumbs, log, disputes] = await Promise.all([
     loadLedger(),
     loadThumbnails(units.map((u) => u.summary.id)),
     loadRecentActivity(40, QUIET_ACTIONS),
+    ws ? disputeAlerts(ws.id).catch((e) => { console.error("Properties: couldn't load the disputes", e); return [] as DisputeAlert[]; }) : Promise.resolve([] as DisputeAlert[]),
   ]);
+  const disputeOf = new Map(disputes.map((a) => [a.tenancyId, a]));
 
-  const rows = units.map((u) => ({ ...u, status: propertyStatus(u.summary, u.next), step: stepLink(u.summary, u.next), addr: splitAddress(u.summary.address, u.summary.city) }));
+  const rows = units.map((u) => {
+    const a = disputeOf.get(u.summary.id);
+    return { ...u, status: propertyStatus(u.summary, u.next), step: a ? disputeStep(a) : stepLink(u.summary, u.next), dispute: !!a, addr: splitAddress(u.summary.address, u.summary.city) };
+  });
   const searched = q ? rows.filter((r) => `${r.summary.address} ${r.summary.tenants.join(" ")}`.toLowerCase().includes(q)) : rows;
   const groups = (["move-in", "leased", "move-out", "closed"] as StatusGroup[]).map((g) => [g, searched.filter((r) => r.status.group === g).length] as const);
   const shown = filter === "all" ? searched : searched.filter((r) => r.status.group === filter);
@@ -75,8 +93,9 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   const deducted = lrows.filter((r) => r.kind === "deduction" && r.effect === "claimed" && r.date.startsWith(year) && r.amount > 0);
   const sum = (xs: { amount: number }[]) => Math.round(xs.reduce((s, r) => s + r.amount, 0) * 100) / 100;
 
-  // The rail: open steps, most urgent first (loadUnits sorts them), and the nearest running statement clock.
-  const steps = rows.filter((r) => r.next.level !== "done" && r.next.level !== "later").slice(0, 3);
+  // The rail: a dispute waiting on the landlord first, then open steps, most urgent first (loadUnits sorts them), and
+  // the nearest running statement clock.
+  const steps = [...rows.filter((r) => r.dispute), ...rows.filter((r) => !r.dispute && r.next.level !== "done" && r.next.level !== "later")].slice(0, 3);
   const clock = rows.filter((r) => r.summary.moveOutDate && !closedOut(r.summary))
     .map((r) => ({ ...r, due: dueOf(r.summary) ?? r.summary.moveOutDate!, pack: packOf(r.summary) }))
     .sort((a, b) => a.due.localeCompare(b.due))[0];

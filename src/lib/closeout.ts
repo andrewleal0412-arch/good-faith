@@ -6,6 +6,7 @@ import { missingDocs, settle, usd, type StoredDeduction } from "./deductions";
 import { wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
 import { getInvoice, type Invoice } from "./paypal";
+import { railFor, REFUND_WINDOW_DAYS } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { StatePack } from "./states/types";
 import type { TenantMoveOut } from "./tenant";
@@ -18,9 +19,10 @@ import type { TenantMoveOut } from "./tenant";
 // (D16, AB 414); one refund for all adults unless they agreed to split it (D19); deductions over $125 need their
 // documents (D20, D22). Other states add their own blockers (a Texas forwarding address in writing, Florida's claim
 // notice, New York's 14-day forfeiture, Washington's move-in checklist) through the pack.
-// PayPal: a payment can be refunded against itself for 180 days; after that the money goes out as a Payout.
+// PayPal: a payment can be refunded against itself for 180 days; after that the money goes out as a Payout. Which of
+// the two is decided by railFor (refund-rail.ts), the same function a dispute's settlement uses.
 
-export const REFUND_WINDOW_DAYS = 180;
+export { REFUND_WINDOW_DAYS };
 
 export type Rail = "refund_original_payment" | "payout" | "nothing_to_refund" | "blocked";
 
@@ -53,6 +55,18 @@ const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 export const paidAgo = (n: number) => (n <= 0 ? "today" : n === 1 ? "yesterday" : `${days(n)} ago`);
 
 export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
+  return (await closeOutState(tenancyId)).facts;
+}
+
+/** The close-out's facts with what they were read from: the deposit invoice as PayPal returned it just now (null when
+ *  PayPal couldn't be reached or there is none), the tenancy's payments, its workspace and its pack. A dispute's
+ *  settlement (settlement.ts) reads the same facts this way, so both money paths see one picture. */
+export type CloseOutState = {
+  facts: CloseOutFacts; invoice: Invoice | null; workspaceId: string; pack: StatePack;
+  payments: { kind: string; paypal_id: string | null; amount: number | string; status: string }[];
+};
+
+export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   const today = pacificToday();
   const [{ data: t }, { data: payments }, { data: rows }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, state)").eq("id", tenancyId).single(),
@@ -80,10 +94,12 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
   // renders from what the tenancy page last stored, but no money moves on stale facts: the outage is a blocker.
   const inv = (payments ?? []).find((p) => p.kind === "deposit_invoice");
   let deposit: CloseOutFacts["deposit"] = null;
+  let fetched: Invoice | null = null;
   if (inv?.paypal_id) {
     let live: Invoice, isLive = true;
     try {
       live = await getInvoice(inv.paypal_id);
+      fetched = live;
     } catch (e) {
       console.error("PayPal invoice lookup failed; using the stored status", e);
       isLive = false;
@@ -166,7 +182,7 @@ export async function closeOutFacts(tenancyId: string): Promise<CloseOutFacts> {
     blockers.push(pack.refund.noDesignationBlocker);
   }
   facts.plan = plan(facts, pack);
-  return facts;
+  return { facts, invoice: fetched, workspaceId: t.workspace_id as string, pack, payments: payments ?? [] };
 }
 
 function plan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
@@ -177,26 +193,29 @@ function plan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
       why: `Deductions use the whole deposit${f.totals.balanceClaimed ? `, leaving ${usd(f.totals.balanceClaimed)} claimed from the tenants` : ""}. The itemized statement still goes out.` };
   }
   const d = f.deposit!;
+  // The rail is railFor's (refund-rail.ts), shared with a dispute's settlement; the words are the close-out's.
   // No written designation, where the state needs none for a refund of the original payment: back against that
   // payment inside PayPal's window, or not at all (a Payout goes only to an account the tenants named in writing).
   if (!f.refundAgreement) {
-    if (d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS) {
-      return { rail: "refund_original_payment", amount, captureId: d.captureId,
-        why: `Paid ${paidAgo(d.daysSincePaid)} through PayPal, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment, to the account the tenants paid from.` };
+    const c = railFor(d, null);
+    if (c.rail === "refund_original_payment") {
+      return { rail: "refund_original_payment", amount, captureId: c.captureId,
+        why: `Paid ${paidAgo(c.daysSincePaid)} through PayPal, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment, to the account the tenants paid from.` };
     }
     return { rail: "blocked", amount: 0, why: pack.refund.noDesignationBlocker };
   }
   const email = f.refundAgreement.paypalEmail;
-  const sameAccount = !!d.billedTo && d.billedTo.toLowerCase() === email.toLowerCase();
-  if (d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS && sameAccount) {
-    return { rail: "refund_original_payment", amount, captureId: d.captureId, email,
-      why: `Paid ${paidAgo(d.daysSincePaid)} through PayPal from the account the tenants designated, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment.` };
+  const c = railFor(d, email);
+  if (c.rail === "refund_original_payment") {
+    return { rail: "refund_original_payment", amount, captureId: c.captureId, email,
+      why: `Paid ${paidAgo(c.daysSincePaid)} through PayPal from the account the tenants designated, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment.` };
   }
+  const because = c.rail === "payout" ? c.because : "past_window";
   return { rail: "payout", amount, email,
-    why: !d.captureId ? "There's no PayPal payment to refund against, so the money goes out as a Payout to the designated account."
-      : !sameAccount ? `The deposit was billed to ${d.billedTo ?? "another address"}, not the account the tenants designated, so it goes out as a Payout to ${email}.`
-        : d.daysSincePaid == null ? `PayPal has no payment date for the deposit, so it goes out as a Payout to ${email}.`
-          : `The deposit was paid ${days(d.daysSincePaid)} ago, past PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so it goes out as a Payout to ${email}.` };
+    why: because === "no_capture" ? "There's no PayPal payment to refund against, so the money goes out as a Payout to the designated account."
+      : because === "other_account" ? `The deposit was billed to ${d.billedTo ?? "another address"}, not the account the tenants designated, so it goes out as a Payout to ${email}.`
+        : because === "no_date" ? `PayPal has no payment date for the deposit, so it goes out as a Payout to ${email}.`
+          : `The deposit was paid ${days(d.daysSincePaid ?? 0)} ago, past PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so it goes out as a Payout to ${email}.` };
 }
 
 export type RefundIntent = { rail: Rail; amount: string; captureId?: string; email?: string };

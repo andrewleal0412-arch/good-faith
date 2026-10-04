@@ -352,11 +352,23 @@ export function stripBasis(s: StoredCase): AdvocateCase {
   return c as AdvocateCase;
 }
 
+export type TenantDisputeStatus = {
+  status: DisputeStatus; sentAt: string | null; askedBack: number | null; lines: number;
+  settlement: { amount: number; accepted: boolean; sentAt: string | null } | null; // agreed or paid; null otherwise
+};
+
 /** Where the tenants' latest dispute stands, for their main page: a few columns, no facts. */
-export async function tenantDisputeStatus(tenancyId: string): Promise<{ status: DisputeStatus; sentAt: string | null; askedBack: number | null; lines: number } | null> {
-  const { data } = await db.from("disputes").select("status, sent_at, asked_back, deduction_ids").eq("tenancy_id", tenancyId)
+export async function tenantDisputeStatus(tenancyId: string): Promise<TenantDisputeStatus | null> {
+  const { data } = await db.from("disputes").select("id, status, sent_at, asked_back, deduction_ids").eq("tenancy_id", tenancyId)
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
-  return data ? { status: data.status as DisputeStatus, sentAt: data.sent_at as string | null, askedBack: num(data.asked_back), lines: (data.deduction_ids as string[]).length } : null;
+  if (!data) return null;
+  const { data: s } = data.status === "agreed" || data.status === "settled"
+    ? await db.from("settlements").select("amount, status, tenant_accepted_at, sent_at").eq("dispute_id", data.id).neq("status", "cancelled").maybeSingle()
+    : { data: null };
+  return {
+    status: data.status as DisputeStatus, sentAt: data.sent_at as string | null, askedBack: num(data.asked_back), lines: (data.deduction_ids as string[]).length,
+    settlement: s ? { amount: Number(s.amount), accepted: !!s.tenant_accepted_at, sentAt: (s.sent_at as string | null) ?? null } : null,
+  };
 }
 
 /* ---------- What the landlord's page shows ---------- */
@@ -373,14 +385,20 @@ export type LandlordDisputeView = {
   evidence: { id: string; name: string; deductionId: string | null; path: string }[];
   totals: Ranges["totals"];
   late: Ranges["late"];
+  // An agreed settlement, for the banner every tab shows: whether the tenants accepted it, and whether a payment of it
+  // is on its way or waiting on PayPal's confirmation.
+  settlement: { accepted: boolean; acceptedBy: string | null; paying: boolean } | null;
 };
 
 export async function loadLandlordDispute(tenancyId: string): Promise<LandlordDisputeView | null> {
   const d = await sentDispute(tenancyId);
   if (!d) return null;
-  const [facts, { data: turn }] = await Promise.all([
+  const [facts, { data: turn }, { data: s }] = await Promise.all([
     disputeFacts(tenancyId),
     db.from("negotiation_turns").select("actor, proposal, amount_back, checks").eq("dispute_id", d.id).eq("n", 1).maybeSingle(),
+    d.status === "agreed"
+      ? db.from("settlements").select("status, tenant_accepted_at, tenant_name, paypal_status").eq("dispute_id", d.id).neq("status", "cancelled").maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   if (!facts) return null;
   const proposal = ((turn?.proposal ?? []) as { deduction_id: string; keep: number }[]);
@@ -401,5 +419,9 @@ export async function loadLandlordDispute(tenancyId: string): Promise<LandlordDi
     firstTurn: turn ? { actor: turn.actor as string, amountBack: num(turn.amount_back), checks: turn.checks } : null,
     evidence: (d.evidence ?? []).map((e) => ({ id: e.id, name: e.name, deductionId: e.deduction_id, path: e.path })),
     totals: facts.ranges.totals, late: facts.ranges.late,
+    settlement: s ? {
+      accepted: !!s.tenant_accepted_at, acceptedBy: (s.tenant_name as string | null) ?? null,
+      paying: s.status === "sending" || (s.status === "failed" && s.paypal_status === "NO_RESPONSE"),
+    } : null,
   };
 }

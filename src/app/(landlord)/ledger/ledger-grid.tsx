@@ -68,7 +68,7 @@ const theme = themeQuartz.withParams({
 
 type Tab = "all" | "deposits" | "refunds" | "requests" | "deductions";
 const GROUP: Record<LedgerKind, Exclude<Tab, "all">> = {
-  payment: "deposits", refund: "refunds", payout: "refunds", deposit_invoice: "requests", damage_invoice: "requests", deduction: "deductions",
+  payment: "deposits", refund: "refunds", payout: "refunds", deposit_invoice: "requests", damage_invoice: "requests", deduction: "deductions", settlement: "refunds",
 };
 // All is money that moved: deposits in, refunds and payouts out. Invoices are requests, and deductions are what the
 // statement keeps; each has its own tab.
@@ -82,7 +82,7 @@ const TABS: { key: Tab; label: string; has: (k: LedgerKind) => boolean }[] = [
 
 /** The word the table shows for each kind (the deposit received reads "Deposit"; an invoice is a request). */
 const TYPE: Record<LedgerKind, string> = {
-  payment: "Deposit", refund: "Refund", payout: "Payout", deposit_invoice: "Deposit request", damage_invoice: "Balance request", deduction: "Deduction",
+  payment: "Deposit", refund: "Refund", payout: "Payout", deposit_invoice: "Deposit request", damage_invoice: "Balance request", deduction: "Deduction", settlement: "Settlement",
 };
 
 type Range = { key: string; label: string; from?: string; to?: string };
@@ -117,7 +117,8 @@ function statusOf(r: LedgerRow, back: Map<string, "returned" | "pending">): stri
       return b === "returned" ? "Settled" : b === "pending" ? "Refund pending" : "Held";
     }
     case "refund":
-    case "payout": return r.effect === "returned" ? "Completed" : r.effect === "failed" ? "Failed" : "Pending";
+    case "payout":
+    case "settlement": return r.effect === "returned" ? "Completed" : r.effect === "failed" ? "Failed" : "Pending";
     case "deposit_invoice":
     case "damage_invoice": return /^(paid|marked as paid)/.test(r.status) ? "Paid" : r.status === "sent, not paid" ? "Unpaid" : cap(r.status);
     default: return cap(r.status);
@@ -150,7 +151,7 @@ function AmountCell(p: CustomCellRendererProps<LedgerRow, number>) {
   if (!r) return null;
   const m = r.effect === "failed" ? <Money value={r.amount} className="text-ink-3 line-through" />
     : r.kind === "payment" ? <Money value={r.amount} className="text-green" />
-      : r.kind === "refund" || r.kind === "payout" ? <Money value={r.amount} sign="minus" />
+      : r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" ? <Money value={r.amount} sign="minus" />
         : <Money value={r.amount} className="text-ink-2" />;
   return <div className="text-right">{m}</div>;
 }
@@ -181,6 +182,12 @@ function RowMenu(p: CustomCellRendererProps<LedgerRow>) {
     { label: "Open property", href: `/tenancy/${r.tenancyId}?tab=payments`, icon: "arrow-up-right" },
     ...(r.kind === "refund" || r.kind === "payout" ? [{ label: "View receipt", href: `/tenancy/${r.tenancyId}/refund`, icon: "doc" as const }] : []),
     ...(r.kind === "deduction" || r.kind === "refund" || r.kind === "payout" ? [{ label: "Itemized statement", href: `/tenancy/${r.tenancyId}/statement`, icon: "doc" as const }] : []),
+    // A settlement's receipt is the amended statement: the adjusted charges, who accepted and approved it, and the
+    // PayPal id of the money it sent.
+    ...(r.kind === "settlement" ? [
+      { label: "View receipt", href: `/tenancy/${r.tenancyId}/statement`, icon: "doc" as const },
+      { label: "Negotiation", href: `/tenancy/${r.tenancyId}?tab=move-out#negotiation`, icon: "split" as const },
+    ] : []),
     ...(r.paypalId ? [{ label: "Copy PayPal ID", icon: "copy" as const, onSelect: () => { navigator.clipboard?.writeText(r.paypalId!).catch(() => {}); } }] : []),
     { divider: true },
     { label: "Only this property", icon: "building", onSelect: () => ctx.onlyProperty(r.tenancyId) },

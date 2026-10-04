@@ -13,7 +13,8 @@ import { currentSession } from "./session-server";
 //
 // A Claude job is one unit however many calls it makes: an inspection is one call per room (up to
 // GOOD_FAITH_INSPECT_ROOMS), a close-out run up to twelve agent steps plus the steps after the approval, a tenant
-// advocate run up to eight steps. The tenants' own page has no session, so its jobs and uploads count under the tenant
+// advocate run up to eight steps, a negotiation run (the landlord's negotiator and the tenants' advocate taking turns)
+// at most six calls, counted as 'advocate' under the landlord's session. The tenants' own page has no session, so its jobs and uploads count under the tenant
 // link (takeTenantAllowance) with their own per-link limits, toward the same totals. The totals
 // and the Anthropic console's spend limit are the real ceiling; the per-session limits are soft, since a new sign-in
 // is a new session.
@@ -38,7 +39,7 @@ export function dailyLimits() {
       invoice: envInt("GOOD_FAITH_DAILY_INVOICE", 5),
       tenancy: envInt("GOOD_FAITH_DAILY_TENANCY", 10),
       upload_mb: envInt("GOOD_FAITH_DAILY_UPLOAD_MB", 100),
-      advocate: envInt("GOOD_FAITH_DAILY_ADVOCATE", 3), // per tenant link: the tenants' page has no session
+      advocate: envInt("GOOD_FAITH_DAILY_ADVOCATE", 3), // the landlord's negotiator runs (the tenants' advocate counts per link)
     } satisfies Record<UsageKind, number>,
     total: {
       lease: aiTotal,

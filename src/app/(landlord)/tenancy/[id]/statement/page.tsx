@@ -10,7 +10,7 @@ import { shortDate, whenText } from "@/lib/dates";
 import { usd } from "@/lib/deductions";
 import { streetLine } from "@/lib/ledger";
 import { pageTenancy, signedUrlsFor } from "@/lib/workspace";
-import { buildStatement, describeDelivery, longDate, pacificDate, type ChecklistItem, type StatementDeduction } from "@/lib/statement";
+import { buildStatement, describeDelivery, longDate, pacificDate, type ChecklistItem, type StatementDeduction, type StatementSettlement } from "@/lib/statement";
 import { packFor } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
 import { DeliveryPanel } from "./delivery-form";
@@ -70,6 +70,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h1 className="text-xl font-medium">Itemized statement</h1>
             <StatusChip tone={delivered ? "green" : "amber"} size="lg">{delivered ? "Delivered" : "Draft"}</StatusChip>
+            {s.settlement && <StatusChip tone="gray" size="lg">Amended</StatusChip>}
           </div>
           <div className="mt-0.5 text-base text-ink-3">{streetLine(s.property.address)}</div>
         </div>
@@ -85,9 +86,14 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
           sub={s.security?.paid ? (s.security.paidAt ? `Paid ${shortDate(pacificDate(s.security.paidAt))}` : "Paid") : "Not paid"} />
         <Fact label={s.standing?.label ?? "Deductions"} value={<Money value={s.totals.deductions} />} sub={`${s.deductions.length} item${s.deductions.length === 1 ? "" : "s"}`}
           info={s.standing ? <InfoTip title={s.standing.label}>{s.standing.note}</InfoTip> : undefined} />
-        <Fact big label={s.balanceClaimed ? "Balance claimed" : sent ? "Refunded" : "Refund due"}
-          value={<Money value={s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount} cents="small" phoneCents="full" />}
-          sub={sent && s.refund.sentAt ? `By PayPal, ${shortDate(pacificDate(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
+        {s.settlement ? (
+          <Fact big label="Returned in all" value={<Money value={s.settlement.returnedInAll} cents="small" phoneCents="full" />}
+            sub={`Statement and settlement, ${shortDate(pacificDate(s.settlement.sentAt ?? s.today))}`} />
+        ) : (
+          <Fact big label={s.balanceClaimed ? "Balance claimed" : sent ? "Refunded" : "Refund due"}
+            value={<Money value={s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount} cents="small" phoneCents="full" />}
+            sub={sent && s.refund.sentAt ? `By PayPal, ${shortDate(pacificDate(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
+        )}
         <Fact label="Due by"
           info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
           value={s.statementDue ? shortDate(s.statementDue) : "Not set"}
@@ -207,6 +213,8 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             {s.refund.note && <p className="mt-3 hidden text-sm text-ink-2 print:block">{s.refund.note}</p>}
           </Section>
 
+          {s.settlement && <SettlementSection n={next()} st={s.settlement} landlord={s.landlord} deducted={s.totals.deductions} refund={s.refund.amount} />}
+
           <Section n={next()} title={pack.statement.interestTitle} tip={s.interest.note}>
             <p className={s.interest.known ? "text-amber print:text-ink-2" : "text-ink-2"}>
               <span className="print:hidden">
@@ -252,6 +260,45 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
         </div>
       </div>
     </div>
+  );
+}
+
+/** The amended statement: the tenants disputed it, both sides settled, and the extra amount went back by PayPal. */
+function SettlementSection({ n, st, landlord, deducted, refund }: { n: number; st: StatementSettlement; landlord: string; deducted: number; refund: number }) {
+  const how = st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : st.rail ? "PayPal refund of the original deposit payment" : "No money moved: the deposit was used in full";
+  return (
+    <Section n={n} title="Settlement" tip="The tenants disputed this statement through their link. Their advocate and the landlord's negotiator, each held to what the law and the record allow, agreed on the figures below; the tenants accepted them and the landlord approved them. This section amends the statement. Not legal advice.">
+      <p className="text-ink-2">
+        {st.acceptedBy ?? "The tenants"} accepted the settlement{st.acceptedAt ? ` on ${longDate(pacificDate(st.acceptedAt))}` : ""}, and {landlord} approved it{st.approvedAt ? ` on ${longDate(pacificDate(st.approvedAt))}` : ""}.
+      </p>
+      {st.lines.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1.5 text-sm">
+          {st.lines.map((l) => (
+            <li key={l.n} className="flex justify-between gap-4">
+              <span className="min-w-0">Item {l.n}. {l.item}<span className="text-ink-3">: kept {usd(l.keep)} of {usd(l.amount)}</span></span>
+              <Money value={l.adjustment} className="shrink-0" />
+            </li>
+          ))}
+        </ul>
+      )}
+      <dl className="print-block ml-auto mt-4 grid max-w-[340px] grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1.5 border-t border-line pt-4">
+        <dt className="text-ink-3">Deductions on the statement</dt><dd className="text-right tabular-nums">{usd(deducted)}</dd>
+        <dt className="text-ink-3">Agreed adjustment</dt><dd className="text-right"><Money value={st.adjustment} /></dd>
+        <dt className="text-ink-3">Deductions as settled</dt><dd className="text-right tabular-nums">{usd(st.keptAfter)}</dd>
+        <dt className="text-ink-3">{st.refundSent ? "Refunded with the statement" : "Refund due with the statement, not sent yet"}</dt><dd className="text-right tabular-nums">{usd(refund)}</dd>
+        <dt className="text-ink-3">Settlement</dt><dd className="text-right tabular-nums">{usd(st.amount)}</dd>
+        <dt className="mt-1 border-t border-line pt-2 font-medium">Returned in all</dt>
+        <dd className="mt-1 border-t border-line pt-2 text-right text-lg font-medium tabular-nums">{usd(st.returnedInAll)}</dd>
+        {st.balanceAfter > 0 && <><dt className="text-ink-3">Balance still claimed</dt><dd className="text-right tabular-nums">{usd(st.balanceAfter)}</dd></>}
+      </dl>
+      <div className="mt-4 text-sm">
+        <Rows rows={[
+          ["Method", how],
+          ...(st.paypalId ? [["PayPal ID", <span key="id" className="break-all tabular-nums">{st.paypalId}</span>] as [ReactNode, ReactNode]] : []),
+          ...(st.sentAt && st.paypalId ? [["Sent", longDate(pacificDate(st.sentAt))] as [ReactNode, ReactNode]] : []),
+        ]} />
+      </div>
+    </Section>
   );
 }
 

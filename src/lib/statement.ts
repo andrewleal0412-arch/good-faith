@@ -91,6 +91,27 @@ export type Statement = {
   standing?: { label: string; note: string };
   // The wear-and-tear findings, listed at $0 where the state's spec asks for them (Texas, Florida, Washington).
   wear?: { item: string; room: string }[];
+  // The settlement of the tenants' dispute, once paid: the amended statement. Absent otherwise.
+  settlement?: StatementSettlement;
+};
+
+/** A settled dispute as the amended statement records it: who accepted and approved it and when, each charge the
+ *  settlement changed, the new totals and the PayPal record of the extra amount sent back. */
+export type StatementSettlement = {
+  amount: number; // back to the tenants on top of the statement's refund
+  acceptedBy: string | null;
+  acceptedAt: string | null;
+  approvedAt: string | null;
+  sentAt: string | null;
+  rail: "refund_original_payment" | "payout" | null;
+  paypalId: string | null;
+  paypalStatus: string | null;
+  lines: { n: number; item: string; amount: number; keep: number; adjustment: number }[]; // the charges it changed
+  adjustment: number; // what it took off the deductions in all (a negative amount)
+  keptAfter: number; // the deductions as settled
+  refundSent: boolean; // whether the statement's own refund was sent (settlement.ts sends a settlement only after it)
+  returnedInAll: number; // what PayPal sent: the statement's refund, once sent, plus the settlement
+  balanceAfter: number; // what is still claimed over the deposit, if anything
 };
 
 export const longDate = (iso: string) =>
@@ -226,6 +247,27 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     checklist: [],
   };
   if (facts.standing) s.standing = facts.standing;
+  // The amended statement: a settlement of the tenants' dispute that was paid (or needed no money). Only then; one
+  // agreed and not yet approved changes nothing here.
+  const { data: settled } = await db.from("settlements").select("amount, terms, tenant_name, tenant_accepted_at, landlord_approved_at, sent_at, rail, paypal_id, paypal_status")
+    .eq("tenancy_id", tenancyId).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle();
+  if (settled) {
+    const terms = (settled.terms ?? []) as { deduction_id: string; keep: number | string }[];
+    const keepOf = (id: string, amount: number) => { const t = terms.find((x) => x.deduction_id === id); return t ? Number(t.keep) : amount; };
+    const lines = deductions.map((d) => ({ n: d.n, item: d.item, amount: d.amount, keep: keepOf(d.id, d.amount) }))
+      .map((l) => ({ ...l, adjustment: Math.round((l.keep - l.amount) * 100) / 100 })).filter((l) => l.adjustment !== 0);
+    const keptAfter = Math.round(deductions.reduce((t, d) => t + keepOf(d.id, d.amount), 0) * 100) / 100;
+    const amount = Number(settled.amount);
+    s.settlement = {
+      amount, acceptedBy: (settled.tenant_name as string | null) ?? null, acceptedAt: (settled.tenant_accepted_at as string | null) ?? null,
+      approvedAt: (settled.landlord_approved_at as string | null) ?? null, sentAt: (settled.sent_at as string | null) ?? null,
+      rail: (settled.rail as StatementSettlement["rail"]) ?? null, paypalId: (settled.paypal_id as string | null) ?? null, paypalStatus: (settled.paypal_status as string | null) ?? null,
+      lines, adjustment: Math.round(lines.reduce((t, l) => t + l.adjustment, 0) * 100) / 100, keptAfter,
+      refundSent: refund.state === "sent",
+      returnedInAll: Math.round(((refund.state === "sent" ? refund.amount : 0) + amount) * 100) / 100,
+      balanceAfter: Math.max(0, Math.round((keptAfter - totals.depositHeld) * 100) / 100),
+    };
+  }
   // Considered and not charged: every wear-and-tear finding the landlord did not dismiss, so the tenants see it was
   // looked at and excluded.
   if (pack.statement.wearAtZero) {

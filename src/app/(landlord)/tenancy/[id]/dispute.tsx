@@ -4,8 +4,9 @@ import { shortDate, pacificDate } from "@/lib/dates";
 import type { DisputeStatus, LandlordDisputeView } from "@/lib/disputes";
 
 // The tenants' dispute on the property's Move-out tab: what they dispute and why, the case their advocate wrote, each
-// charge's lawful range as the code computed it, and their photos. Read-only for now: nothing changes until a
-// settlement is agreed and approved.
+// charge's lawful range as the code computed it, and their photos. Read-only: the answer, the negotiation and the
+// settlement are in the Negotiation card under it (negotiation.tsx), and nothing changes until a settlement is agreed
+// and approved.
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const VERDICT: Record<string, { label: string; tone: "gray" | "amber" | "red" }> = {
@@ -129,16 +130,25 @@ export function DisputeCard({ v, photoUrl, tenantsLabel }: { v: LandlordDisputeV
   );
 }
 
-/** The banner every tab shows while a dispute waits on the landlord. */
+/** The banner every tab shows while a dispute is live: sent, being negotiated, or agreed and waiting on approval. */
 export function DisputeBanner({ v, href, tenantsLabel }: { v: LandlordDisputeView; href: string; tenantsLabel: string }) {
   const n = v.lines.filter((l) => l.disputed).length;
+  const who = v.openedBy ?? tenantsLabel, one = !!v.openedBy;
+  const s = v.settlement;
+  const [tag, text, link] = v.status === "agreed" && s?.paying
+    ? ["Agreed", "You approved the settlement. PayPal hasn't confirmed the payment yet.", "Check the payment"]
+    : v.status === "agreed" && s?.accepted
+      ? ["Agreed", `${s.acceptedBy ?? who} accepted the settlement. It waits on your approval.`, "Approve and pay"]
+      : v.status === "agreed"
+        ? ["Agreed", `A settlement is agreed. Nothing moves until ${who} accept${one ? "s" : ""} it and you approve it.`, "Review settlement"]
+        : v.status === "negotiating"
+          ? ["Negotiating", `Your negotiator and ${who}'s advocate are negotiating ${n} disputed deduction${n === 1 ? "" : "s"}.`, "View negotiation"]
+          : ["Disputed", `${who} dispute${one ? "s" : ""} ${n} deduction${n === 1 ? "" : "s"} and ask${one ? "s" : ""} for ${usd(v.askedBack ?? 0)} back.`, "View dispute"];
   return (
     <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-line bg-amber-bg px-4 py-3 text-sm">
-      <span className="font-medium text-amber">Disputed</span>
-      <span className="min-w-0 flex-1 text-ink">
-        {v.openedBy ?? tenantsLabel} dispute{v.openedBy ? "s" : ""} {n} deduction{n === 1 ? "" : "s"} and ask{v.openedBy ? "s" : ""} for {usd(v.askedBack ?? 0)} back.
-      </span>
-      <a href={href} className="font-medium text-brand hover:underline">View dispute</a>
+      <span className="font-medium text-amber">{tag}</span>
+      <span className="min-w-0 flex-1 text-ink">{text}</span>
+      <a href={href} className="font-medium text-brand hover:underline">{link}</a>
     </div>
   );
 }
