@@ -34,7 +34,10 @@ export type TenancyRow = {
   tenant_move_out: TenantMoveOut | null;
   properties: { address: string; city: string | null; owner_name: string | null; state?: string | null } | null;
 };
-export type PaymentRow = { kind: string; paypal_id: string | null; amount: number | string; status: string; raw: { transactions?: { method?: string }[] } | null };
+export type PaymentRow = {
+  kind: string; paypal_id: string | null; amount: number | string; status: string;
+  raw: { transactions?: { method?: string }[]; reversal?: unknown } | null; // reversal: PayPal's webhook reversed the payment
+};
 export type PhotoRow = { phase: string };
 export type DeductionRow = { category: string; amount: number | string };
 
@@ -75,7 +78,8 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
     // others never read it, so their summaries stay as they were.
     ...(pack.steps.forfeit ? { statementDeliveredOn: t.statement_delivery?.date ?? null } : {}),
     agreement: !!agreement,
-    deposit: inv ? { amount: Number(inv.amount), status: inv.status, paypalId: inv.paypal_id } : null,
+    // A deposit PayPal reversed (a chargeback, its webhook said so) is no longer held, as the ledger counts it.
+    deposit: inv ? { amount: Number(inv.amount), status: inv.status, paypalId: inv.paypal_id, ...(inv.raw?.reversal ? { reversed: true } : {}) } : null,
     depositElectronic,
     moveInPhotos: photos.filter((p) => p.phase === "move_in").length,
     moveOutPhotos: photos.filter((p) => p.phase === "move_out_before").length,

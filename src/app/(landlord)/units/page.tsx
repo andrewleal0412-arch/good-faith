@@ -29,7 +29,7 @@ export const metadata: Metadata = { title: "Properties" };
 
 /** What the unit holds right now, from the stored PayPal records and the deductions; the ledger counts the same way. */
 function heldNow(s: TenancySummary): number {
-  if (!s.deposit || s.returned || !wasPaid(s.deposit.status)) return 0;
+  if (!s.deposit || s.returned || !wasPaid(s.deposit.status) || s.deposit.reversed) return 0;
   if (s.statementDeliveredAt) return refundLeft(s) ?? s.deposit.amount;
   return s.deposit.amount;
 }
@@ -266,7 +266,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                   <div className="my-3.5 h-px bg-line" />
                   <KV align="right" rows={[
                     ["Moved out", shortDate(s.moveOutDate!)],
-                    ["Deposit held", s.deposit ? <Money key="d" value={heldNow(s) || s.deposit.amount} /> : "None"],
+                    ["Deposit held", !s.deposit ? "None" : s.deposit.reversed ? <span key="d" className="text-red">Reversed</span> : <Money key="d" value={heldNow(s) || s.deposit.amount} />],
                     ["Statement", <span key="s" className={state === "Not started" ? "text-ink-3" : ""}>{state}</span>],
                   ]} />
                 </Card>

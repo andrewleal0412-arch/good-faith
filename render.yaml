@@ -28,6 +28,8 @@ services:
         sync: false
       - key: PAYPAL_CLIENT_SECRET
         sync: false
+      - key: PAYPAL_WEBHOOK_ID # from node scripts/paypal-webhook.mjs --register (docs/DEPLOY.md, section 2.5)
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GOOD_FAITH_ACCESS_CODE # the judges' code: each browser that enters it gets its own copy of the demo

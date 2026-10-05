@@ -1,5 +1,5 @@
 import "server-only";
-import { pacificDate, paypalPaidAt } from "./dates";
+import { pacificDate, paypalPaidAt, shortDate } from "./dates";
 import { db } from "./db";
 import { depositBlock } from "./demo-pool";
 import { missingDocs, settle, usd, type StoredDeduction } from "./deductions";
@@ -45,6 +45,8 @@ export type CloseOutFacts = {
   // The refund is the whole deposit although deductions are on file: they are forfeited (New York after day 14) and a
   // dispute the tenants sent holds them, so they can't be removed first. Absent otherwise.
   wholeDeposit?: boolean;
+  // PayPal reversed the deposit payment (a chargeback or a bank reversal), as its webhook reported. Absent otherwise.
+  reversed?: { at: string | null };
 };
 
 /** The only citations the agent may use: the tenancy's pack's. It cites from this list, never from memory (it once
@@ -98,6 +100,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   const inv = (payments ?? []).find((p) => p.kind === "deposit_invoice");
   let deposit: CloseOutFacts["deposit"] = null;
   let fetched: Invoice | null = null;
+  let reversal: { at?: string | null } | null = null;
   if (inv?.paypal_id) {
     let live: Invoice, isLive = true;
     try {
@@ -120,6 +123,12 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
       live: isLive,
     };
     if (!wasPaid(live.status)) blockers.push(`The deposit invoice is ${live.status.toLowerCase().replace(/_/g, " ")} in PayPal, not paid, so there's nothing to return through PayPal.`);
+    // PayPal reversed the payment (a chargeback, or the bank took it back), as its webhook reported
+    // (paypal-webhook.ts): the landlord no longer holds it, and nothing can go back against it.
+    reversal = (inv.raw as { reversal?: { at?: string | null } } | null)?.reversal ?? null;
+    if (reversal) {
+      blockers.push(`PayPal reversed the deposit payment${reversal.at ? ` on ${shortDate(pacificDate(reversal.at))}` : ""} (a chargeback or a bank reversal), so nothing goes back against it through PayPal. Check the PayPal account before returning any money.`);
+    }
   } else {
     blockers.push("No deposit was collected through PayPal for this tenancy.");
   }
@@ -141,6 +150,14 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   const alreadyReturned = returned
     ? { kind: returned.kind, amount: Number(returned.amount), paypalId: returned.paypal_id, at: returned.created_at }
     : null;
+  // A refund PayPal reports on the deposit payment that this app never recorded: one made in the PayPal dashboard, or
+  // one whose answer never came back and whose plan then changed (a retry of the same refund carries the same
+  // idempotency key and gets the first one back: agent.ts, closeOutRefundKey). Nothing more goes out until a person
+  // has looked.
+  const refundedByPayPal = Number(fetched?.refunds?.refund_amount?.value ?? 0);
+  if (!alreadyReturned && refundedByPayPal > 0.005) {
+    blockers.push(`PayPal shows ${usd(refundedByPayPal)} already refunded on the deposit payment, and this app has no record of it (a refund made in PayPal, or one whose answer was lost). Check the PayPal account before returning any money here.`);
+  }
   // A demo copy refunds only a sandbox deposit of its own (src/lib/demo-pool.ts): one made when the pool was empty, and
   // every copy of the Texas unit, shows the template's deposit, which is never refunded from a copy.
   const demoBlock = !alreadyReturned && inv?.paypal_id ? await depositBlock(t.workspace_id as string, inv.paypal_id) : null;
@@ -186,6 +203,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
     returnedOn: alreadyReturned ? pacificDate(alreadyReturned.at) : null, refundOwed: s.refund > 0,
   });
   if (standing) facts.standing = standing;
+  if (reversal) facts.reversed = { at: reversal.at ?? null };
   // Forfeited deductions a live dispute holds on file: the close-out returns the whole deposit with them (New York's
   // hard block, which otherwise waits for them to be removed). Its settlement then has nothing more to send
   // (settlement.ts).

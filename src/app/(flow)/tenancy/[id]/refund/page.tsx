@@ -348,7 +348,7 @@ function Sent({ v, statute }: { v: RefundView; statute: string }) {
       <Divider />
       <Rows rows={[
         ...(s.paypalId ? [[<><span className="max-sm:hidden">PayPal {s.kind === "payout" ? "payout" : "refund"} ID</span><span className="sm:hidden">{word} ID</span></>, <CopyId key="id" text={s.paypalId} label={`Copy the PayPal ${s.kind} ID`} />] as [ReactNode, ReactNode]] : []),
-        ["Status", <StatusChip key="st" tone={s.tone}>{s.status}</StatusChip>],
+        ["Status", <StatusChip key="st" tone={s.tone}>{s.status}</StatusChip>, s.fromPayPal ? `From PayPal, ${atText(s.fromPayPal)}` : undefined],
         ...partyRows(v),
         ...(s.approvedAt ? [["Approved by", "You", atText(s.approvedAt)] as [ReactNode, ReactNode, ReactNode]] : []),
       ]} />

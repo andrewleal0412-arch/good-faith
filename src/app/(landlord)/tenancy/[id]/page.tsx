@@ -186,6 +186,9 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const thumb = thumbRow ? url(thumbRow.storage_path) : null;
   const inspected = !!t.move_out_inspected_at;
   const held = paid && invoice ? Number(invoice.amount) : null;
+  // PayPal reversed the deposit payment (a chargeback, its webhook said so): paid once, no longer held.
+  const reversal = (invoice?.raw as { reversal?: { at?: string | null } } | null)?.reversal ?? null;
+  const reversedSub = reversal ? `Reversed by PayPal${reversal.at ? `, ${shortDate(pacificDate(reversal.at))}` : ""}` : null;
   const money = settle(held ?? 0, deductions, pack);
   const due = dueOf(summary);
   const delivery = t.statement_delivery ? (t.statement_delivery as DeliveryRecord) : null;
@@ -289,8 +292,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       {tab === "overview" && (
         <>
           <FactStrip cols={4} className="mb-6">
-              <Fact label={returned || closed ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
-                sub={held != null ? (returned ? `Refunded ${shortDate(pacificDate(returned.created_at))}` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested"} />
+              <Fact label={returned || closed || reversal ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
+                sub={reversedSub ?? (held != null ? (returned ? `Refunded ${shortDate(pacificDate(returned.created_at))}` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested")} />
               <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
               <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date) : <span className="text-ink-3">Not stated</span>} sub={t.end_date ? "Fixed term" : undefined} />
               <Fact label="Lease end" value={t.end_date ? shortDate(t.end_date) : "Month to month"} sub={t.move_out_date ? `Moved out ${shortDate(t.move_out_date)}` : t.planned_move_out ? `Moving out ${shortDate(t.planned_move_out)}` : "No notice"} />
@@ -312,7 +315,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                 agreement={agreement}
                 lawful={terms ? lawfulDeposit(terms, pack) : null}
                 invoice={invoice ? { id: invoice.paypal_id, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
-                  payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null } : null}
+                  payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null,
+                  fromPayPal: moneyRows.find((r) => r.kind === "deposit_invoice")?.fromPayPal ?? null, reversed: !!reversal } : null}
                 photos={photoViews}
                 quiet={quiet}
                 locked={!!t.move_out_date || closed}
@@ -376,8 +380,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       {tab === "move-out" && (
         <div className="flex flex-col gap-7">
           <FactStrip cols={4}>
-            <Fact label="Deposit held" info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
-              sub={held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid"} />
+            <Fact label={reversal ? "Deposit" : "Deposit held"} info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
+              sub={reversedSub ?? (held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid")} />
             <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
               info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />
             <Fact label={returned ? "Refunded" : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : "Refund due"} big
@@ -535,7 +539,7 @@ function LogRow({ a, today }: { a: { entry: { actor: string; action: string; det
   const e = a.entry;
   return (
     <ListRow title={a.title} hint={describe(e.action, e.detail)}
-      sub={e.actor === "agent" ? "Agent" : e.actor === "tenant" ? "Tenant" : e.actor === "system" ? "System" : "You"}
+      sub={e.actor === "agent" ? "Agent" : e.actor === "tenant" ? "Tenant" : e.actor === "system" ? (e.detail?.source === "paypal" ? "PayPal" : "System") : "You"}
       right={dayLabel(pacificDate(e.createdAt), today)} />
   );
 }

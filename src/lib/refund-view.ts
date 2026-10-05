@@ -53,6 +53,7 @@ export type RefundView = {
     at: string;
     approvedAt: string | null;
     run: RunView | null;
+    fromPayPal?: string; // when PayPal's webhook reported the status; absent when it didn't
   } | null;
   review: {
     amount: number;
@@ -91,7 +92,13 @@ function rule(text: string | undefined): { cite?: string; body: string } {
 }
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-const statusWords = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, " ");
+const statusWords = (s: string) => (s === "ONHOLD" ? "On hold" : s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, " "));
+
+/** When PayPal's webhook reported a payment row's status (raw.status_from, src/lib/paypal-webhook.ts), or null. */
+const reportedAt = (raw: unknown): string | null => {
+  const s = (raw as { status_from?: { source?: string; at?: string } } | null)?.status_from;
+  return s?.source === "paypal" && typeof s.at === "string" ? s.at : null;
+};
 
 /** The rules engine's answers as one-line checks, each with the rule behind it in a tip. */
 function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean, pack: StatePack, words: { within: string; title: string }): Check[] {
@@ -228,6 +235,7 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
         tone: returnCompleted(status) ? "green" : returnFailed(status) ? "red" : "amber",
         approvedAt: approved?.created_at ?? null,
         run: await runView(run),
+        ...(reportedAt(returned.raw) ? { fromPayPal: reportedAt(returned.raw)! } : {}),
       },
       review: null,
     };

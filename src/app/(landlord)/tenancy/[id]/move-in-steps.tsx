@@ -7,7 +7,7 @@ import { Icon } from "@/components/icons";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
 import { Money, Notice, StatusChip, inputClass, inlineInputClass } from "@/components/ui";
-import { shortDate } from "@/lib/dates";
+import { atText, shortDate } from "@/lib/dates";
 import { wasPaid } from "@/lib/invoice-status";
 import { NOTICE_SLUG, recordsFor, type Notices } from "@/lib/notices";
 import { packFor } from "@/lib/states";
@@ -23,7 +23,9 @@ type Props = {
   flagCounts: { violations: number; warnings: number };
   agreement: { paypal_email: string; signed_by: string[]; signed_at: string } | null;
   lawful: LawfulDeposit | null;
-  invoice: { id: string; amount: number; status: string; payLink: string | null } | null;
+  // fromPayPal: when PayPal's webhook reported the status (src/lib/paypal-webhook.ts)
+  // reversed: PayPal reversed the payment afterwards (a chargeback)
+  invoice: { id: string; amount: number; status: string; payLink: string | null; fromPayPal?: string | null; reversed?: boolean } | null;
   photos: { id: string; phase: string; room: string; url: string | null }[];
   quiet?: boolean; // the record header holds the view's primary button, so the steps' buttons are secondary
   locked?: boolean; // the tenants have moved out: the move-in record is what it was, so no more photos are added
@@ -140,9 +142,10 @@ export function MoveInSteps(p: Props) {
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Money value={p.invoice.amount} className="font-medium" />
-                <StatusChip tone={paid ? "green" : "gray"}>{paid ? "Paid" : p.invoice.status.charAt(0) + p.invoice.status.slice(1).toLowerCase().replace(/_/g, " ")}</StatusChip>
+                <StatusChip tone={p.invoice.reversed ? "red" : paid ? "green" : "gray"}>{p.invoice.reversed ? "Reversed" : paid ? "Paid" : p.invoice.status.charAt(0) + p.invoice.status.slice(1).toLowerCase().replace(/_/g, " ")}</StatusChip>
                 {p.invoice.id && <span className="text-xs text-ink-3">Invoice {p.invoice.id}</span>}
               </div>
+              {p.invoice.fromPayPal && <span className="text-xs text-ink-3">From PayPal, {atText(p.invoice.fromPayPal)}</span>}
               {!paid && p.invoice.payLink && (
                 <a className="inline-flex items-center gap-1 text-sm text-brand hover:underline" href={p.invoice.payLink} target="_blank" rel="noreferrer">
                   Tenant&apos;s pay link<Icon name="arrow-up-right" className="size-3.5" />

@@ -4,13 +4,16 @@ import { REQUEST_LIMIT } from "@/lib/uploads";
 
 // The demo access gate (Next.js 16 Proxy, Node.js runtime). Every page and API route needs the signed session cookie
 // that the access page sets, except the access page and its form, the tenants' own pages (/t/<token> and the
-// /api/t/<token> routes they use, which their token already guards), and the health check. Pages without a session
+// /api/t/<token> routes they use, which their token already guards), the health check, and PayPal's webhook (which
+// PayPal's signature guards). Pages without a session
 // go to /access?next=..., API calls get a 401. With no access code set the gate is off outside production (local dev
 // is the owner) and closed in production, where every gated page says the demo is not configured. The route handlers
 // read the session again for the daily limits (src/lib/limits.ts), so a request that slipped past this file still has
 // no session there.
 
-const PUBLIC_EXACT = new Set(["/access", "/api/access", "/api/access/sign-out", "/api/health"]);
+// The PayPal webhook has no session: PayPal's signature, checked with PayPal on every delivery, authenticates it
+// (src/app/api/paypal/webhook/route.ts).
+const PUBLIC_EXACT = new Set(["/access", "/api/access", "/api/access/sign-out", "/api/health", "/api/paypal/webhook"]);
 const isPublic = (p: string) => PUBLIC_EXACT.has(p) || p.startsWith("/t/") || p.startsWith("/api/t/");
 
 export function proxy(req: NextRequest) {

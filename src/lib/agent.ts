@@ -7,7 +7,8 @@ import { generateText, isStepCount, tool, type ModelMessage, type ToolSet } from
 import { z } from "zod";
 import { closeOutFacts, guardRefund } from "./closeout";
 import { audit, db } from "./db";
-import { accessToken, SANDBOX, sendPayout } from "./paypal";
+import { returnFailed } from "./invoice-status";
+import { accessToken, PayPalRefused, SANDBOX, sendPayout } from "./paypal";
 import { statementChecklist } from "./statement";
 import { tenancyPack } from "./tenancy-pack";
 import type { StatePack } from "./states/types";
@@ -15,7 +16,8 @@ import type { StatePack } from "./states/types";
 // The close-out agent. Claude runs the move-out end to end with PayPal's own Agent Toolkit, served in-process over
 // MCP and limited to the four PayPal actions it needs. Amounts, dates and the refund rail come from the rules engine
 // (lib/closeout.ts); the agent verifies them with PayPal, moves the money, and explains it. Every money tool waits
-// for the landlord's approval, and guardRefund re-checks it against the rules before PayPal is called.
+// for the landlord's approval, guardRefund re-checks it against the rules before PayPal is called, and the call
+// carries an idempotency key from our own records (closeOutRefundKey; a Payout's batch id), so a retry can't pay twice.
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
@@ -48,6 +50,24 @@ export function mcpJson(out: unknown): Record<string, unknown> | null {
   try { return text ? JSON.parse(text) : null; } catch { return null; }
 }
 
+/** The close-out refund's idempotency key (PayPal-Request-Id), from our own records: the tenancy, the amount, and how
+ *  many earlier attempts PayPal refused outright (refund_failed with `refused` in the audit log). A retry after an
+ *  answer that never came (a new run with the same plan) is the same request, so PayPal answers with the refund it
+ *  already made (it keeps refund keys 45 days) instead of making a second; an attempt after a clear refusal, or with
+ *  another amount, is a new request. A refund that went without an answer and a plan that then changed is caught by
+ *  closeOutState instead: PayPal's invoice shows a refund the app has no record of, and that blocks the close-out. */
+export async function closeOutRefundKey(tenancyId: string, amount: string): Promise<string> {
+  const { count } = await db.from("audit_log").select("id", { count: "exact", head: true })
+    .eq("tenancy_id", tenancyId).eq("action", "refund_failed").eq("detail->>refused", "true");
+  const cents = Math.round(Number(amount) * 100);
+  return `closeout-${tenancyId}-${cents}${count ? `-r${count}` : ""}`;
+}
+
+/** A refund PayPal refused (an error answer, or a refund it made and marked failed), as opposed to one it never
+ *  answered, which may have gone. */
+const refusedByPayPal = (r: Record<string, unknown> | null) =>
+  (r?.ok === false && r.code === "PAYPAL_API_HTTP_ERROR") || (!!r?.id && returnFailed(r.status as string | undefined));
+
 function closeOutTools(tenancyId: string, paypal: ToolSet, pack: StatePack): ToolSet {
   const missing = ["get_invoice", "create_refund", "get_refund"].filter((n) => !paypal[n]);
   if (missing.length) throw new Error(`PayPal Agent Toolkit didn't expose ${missing.join(", ")}`);
@@ -77,13 +97,28 @@ function closeOutTools(tenancyId: string, paypal: ToolSet, pack: StatePack): Too
           // Same shape as PayPal's own tool results, so the agent reads it like any other answer.
           return { content: [{ type: "text", text: JSON.stringify({ blocked }) }], isError: true };
         }
-        const out = await createRefund.execute!(input, options);
+        // The toolkit's own create_refund, on a connection that sends this refund's idempotency key with the call.
+        const requestId = await closeOutRefundKey(tenancyId, amount);
+        let out: unknown;
+        const keyed = await connectPayPal({ requestId });
+        try {
+          const create = (await keyed.client.tools()).create_refund;
+          if (!create?.execute) throw new PayPalRefused("PayPal Agent Toolkit didn't expose create_refund");
+          out = await create.execute(input, options);
+        } catch (e) {
+          const refused = e instanceof PayPalRefused;
+          await audit(tenancyId, "agent", "refund_failed", { amount: Number(amount), error: String(e).slice(0, 300), request_id: requestId, ...(refused ? { refused: true } : { unconfirmed: true }) });
+          throw e;
+        } finally {
+          await keyed.close().catch(() => {});
+        }
         const r = mcpJson(out);
         if (r?.id && !r.error) {
-          await db.from("payments").insert({ tenancy_id: tenancyId, kind: "refund", paypal_id: r.id, amount: Number(amount), status: r.status, raw: r });
+          await db.from("payments").insert({ tenancy_id: tenancyId, kind: "refund", paypal_id: r.id, amount: Number(amount), status: r.status, raw: { ...r, request_id: requestId } });
           await audit(tenancyId, "agent", "refund_sent", { amount: Number(amount), refund_id: r.id, status: r.status, capture_id: i.capture_id });
         } else {
-          await audit(tenancyId, "agent", "refund_failed", { amount: Number(amount), error: r?.error ?? r });
+          const refused = refusedByPayPal(r);
+          await audit(tenancyId, "agent", "refund_failed", { amount: Number(amount), error: r?.error ?? r, request_id: requestId, ...(refused ? { refused: true } : { unconfirmed: true }) });
         }
         return out;
       },
@@ -102,7 +137,15 @@ function closeOutTools(tenancyId: string, paypal: ToolSet, pack: StatePack): Too
           await audit(tenancyId, "system", "refund_blocked", { reason: blocked });
           return { blocked };
         }
-        const p = await sendPayout({ email, amount: Number(amount), note, batchId: `deposit-${tenancyId}` });
+        // One batch id per tenancy, as before: PayPal refuses a batch id it has seen in the last 30 days, so a second
+        // close-out Payout can't go out whatever happened to the first (and the same id goes as PayPal-Request-Id).
+        let p: Awaited<ReturnType<typeof sendPayout>>;
+        try {
+          p = await sendPayout({ email, amount: Number(amount), note, batchId: `deposit-${tenancyId}` });
+        } catch (e) {
+          await audit(tenancyId, "agent", "refund_failed", { amount: Number(amount), error: String(e).slice(0, 300), payout: true, ...(e instanceof PayPalRefused ? { refused: true } : { unconfirmed: true }) });
+          throw e;
+        }
         await db.from("payments").insert({ tenancy_id: tenancyId, kind: "payout", paypal_id: p.id, amount: Number(amount), status: p.status, raw: p });
         await audit(tenancyId, "agent", "refund_sent", { amount: Number(amount), payout_batch_id: p.id, status: p.status, email });
         return p;

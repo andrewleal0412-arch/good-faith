@@ -21,8 +21,16 @@ export async function refreshDepositInvoice<T extends DepositInvoiceRow>(invoice
   try {
     const live = await getInvoice(invoice.paypal_id);
     if (live.status === invoice.status) return invoice;
-    const raw = { ...(invoice.raw ?? {}), transactions: live.payments?.transactions ?? [] };
-    if (opts.store !== false) await db.from("payments").update({ status: live.status, raw }).eq("id", invoice.id);
+    // The status now comes from this read, not from a PayPal webhook, so the webhook's mark (status_from) goes.
+    const kept: Record<string, unknown> = { ...(invoice.raw ?? {}) };
+    delete kept.status_from;
+    const transactions = live.payments?.transactions ?? [];
+    const raw = { ...kept, transactions };
+    // Only under the status this page read, and only the keys it changes: a webhook that wrote meanwhile (a reversal,
+    // a capture) keeps what it wrote (merge_payment).
+    if (opts.store !== false) {
+      await db.rpc("merge_payment", { p_id: invoice.id, p_expect: invoice.status, p_status: live.status, p_set: { transactions }, p_unset: ["status_from"] });
+    }
     return { ...invoice, status: live.status, raw };
   } catch {
     return invoice;

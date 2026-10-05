@@ -60,7 +60,10 @@ export function describe(action: string, d: Record<string, unknown> | null): str
       ? `Named in writing the PayPal account for the deposit invoice and its refund (${(d?.signed_by as string[])?.join(", ")})`
       : `Agreed in writing to a PayPal refund (${(d?.signed_by as string[])?.join(", ")})`;
     case "deposit_invoice_sent": return `Sent a PayPal deposit invoice for ${usd(d?.amount as number)}${d?.reason === "lease over the legal cap; invoiced the cap" ? `, not the ${usd(d?.charged_by_lease as number)} the lease asks for (legal cap)` : ""}`;
-    case "deposit_invoice_failed": return "PayPal rejected the deposit invoice";
+    case "deposit_invoice_failed": return d?.unconfirmed
+      ? "PayPal didn't confirm the deposit invoice; sending it again picks up the same invoice, not a second one"
+      : "PayPal rejected the deposit invoice";
+    case "deposit_invoice_unsaved": return `PayPal made the deposit invoice ${d?.paypal_invoice} for ${usd(d?.amount as number)}, but it couldn't be saved here; sending it again picks up that invoice`;
     case "move_out_inspected": return `Compared move-in and move-out photos (${(d?.rooms as string[])?.join(", ")}): ${d?.damage} damage, ${d?.cleaning} cleaning, ${d?.wear_and_tear} wear and tear (not chargeable)${(d?.unclear as number) ? `, ${d?.unclear} unclear` : ""}`;
     case "finding_added": return `Added a finding by hand: ${String(d?.item).toLowerCase()} (${String(d?.classification).replace(/_/g, " ")}), ${d?.room}`;
     case "finding_reviewed": return d?.status === "accepted" ? `Accepted ${String(d?.item).toLowerCase()} as ordinary wear and tear, not charged`
@@ -75,8 +78,17 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "refund_declined": return `Declined the ${usd(d?.amount as number)} refund`;
     case "refund_blocked": return `Stopped a refund that didn't match the rules: ${d?.reason}`;
     case "refund_sent": return `Returned ${usd(d?.amount as number)} through PayPal (${d?.refund_id ? `refund ${d.refund_id}` : `payout ${d?.payout_batch_id}`}, ${String(d?.status).toLowerCase()})`;
-    case "refund_failed": return `PayPal didn't accept the ${usd(d?.amount as number)} refund`;
+    case "refund_failed": return d?.unconfirmed
+      ? `PayPal didn't answer about the ${usd(d?.amount as number)} ${d?.payout ? "Payout" : "refund"}, so it may have gone; the same request sent again can't pay twice`
+      : `PayPal didn't accept the ${usd(d?.amount as number)} ${d?.payout ? "Payout" : "refund"}`;
     case "close_out_finished": return "Finished the close-out";
+    // PayPal's own reports, from its webhook (src/lib/paypal-webhook.ts).
+    case "deposit_paid": return `PayPal reported the ${d?.kind === "damage_invoice" ? "balance invoice" : "deposit"} paid: ${usd(d?.amount as number)}${d?.method ? ` by ${String(d.method).toLowerCase().replace(/_/g, " ")}` : ""}${d?.capture_id ? ` (payment ${d.capture_id})` : ""}`;
+    case "refund_status": return `PayPal reported the ${d?.kind === "settlement_refund" ? "settlement's refund" : "refund"} ${d?.refund_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
+    case "payout_status": return `PayPal reported the ${d?.kind === "settlement_payout" ? "settlement's Payout" : "Payout"} ${d?.payout_batch_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
+    case "paypal_refund_unrecorded": return `PayPal reported a ${usd(d?.amount as number)} refund of the deposit payment${d?.refund_id ? ` (refund ${d.refund_id})` : ""} that wasn't sent from here, or whose answer never came back; the close-out waits until it is checked in PayPal`;
+    case "deposit_reversed": return `PayPal reversed the deposit payment${d?.capture_id ? ` ${d.capture_id}` : ""} (${usd(d?.amount as number)}), a chargeback or a bank reversal; nothing goes back through PayPal against it`;
+    case "paypal_dispute": return `PayPal dispute ${d?.dispute_id} ${d?.event === "created" ? "opened" : d?.event === "resolved" ? "resolved" : "updated"} on the deposit payment${d?.reason ? `: ${String(d.reason).toLowerCase().replace(/_/g, " ")}` : ""}${d?.status ? `, ${String(d.status).toLowerCase().replace(/_/g, " ")}` : ""}${d?.outcome ? `, ${String(d.outcome).toLowerCase().replace(/_/g, " ")}` : ""}`;
     // A big selection arrives in several requests, each logged; "of N" is the whole selection.
     case "photos_added": return `Added ${d?.count}${d?.total ? ` of ${d.total}` : ""} ${String(d?.phase).replace(/_/g, " ")} photo${d?.count === 1 && !d?.total ? "" : "s"}: ${d?.room}`;
     case "statement_delivered": return `Delivered the itemized statement by ${describeDelivery(d as unknown as DeliveryRecord)}`;
@@ -124,6 +136,9 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     default: return action.replace(/_/g, " ");
   }
 }
+
+/** A PayPal status in words: "partially refunded", and a payout item PayPal holds ("ONHOLD") as "on hold". */
+const statusWords = (s: unknown) => (s === "ONHOLD" ? "on hold" : String(s).toLowerCase().replace(/_/g, " "));
 
 const MOVE_WORD: Record<string, string> = { concede: "conceded", accept: "accepted", hold: "held", counter: "countered" };
 const ENDED: Record<string, (d: Record<string, unknown> | null) => string> = {
@@ -191,7 +206,15 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "refund_declined": return "Refund declined";
     case "refund_blocked": return "Refund stopped by the rules check";
     case "refund_sent": return `Refund of ${usd(d?.amount as number)} sent by PayPal`;
-    case "refund_failed": return "PayPal did not accept the refund";
+    case "refund_failed": return d?.unconfirmed ? "PayPal did not confirm the refund" : "PayPal did not accept the refund";
+    case "deposit_paid": return `${d?.kind === "damage_invoice" ? "Balance" : "Deposit"} of ${usd(d?.amount as number)} paid`;
+    case "deposit_invoice_failed": return d?.unconfirmed ? "PayPal did not confirm the deposit invoice" : "PayPal rejected the deposit invoice";
+    case "deposit_invoice_unsaved": return "Deposit invoice not saved";
+    case "refund_status": return `Refund ${statusWords(d?.status)} in PayPal`;
+    case "payout_status": return `Payout ${statusWords(d?.status)} in PayPal`;
+    case "paypal_refund_unrecorded": return "Refund made outside Good Faith";
+    case "deposit_reversed": return "Deposit payment reversed";
+    case "paypal_dispute": return d?.event === "created" ? "PayPal dispute opened" : d?.event === "resolved" ? "PayPal dispute resolved" : "PayPal dispute updated";
     case "photos_added": return `${String(d?.phase).startsWith("move_out") ? "Move-out" : String(d?.phase) === "after_repair" ? "After-repair" : "Move-in"} photos added, ${String(d?.room ?? "").toLowerCase() || "one room"}`;
     case "statement_delivered": {
       const m = (d as { method?: string } | null)?.method;

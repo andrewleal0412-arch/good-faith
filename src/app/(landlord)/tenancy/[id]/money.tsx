@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, EmptyState, Fact, FactStrip, Money, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
-import { shortDate } from "@/lib/dates";
+import { atText, pacificDate, shortDate } from "@/lib/dates";
 import { ledgerTotals, tagCite, type LedgerRow } from "@/lib/ledger";
 import type { Tip } from "@/lib/states/types";
 
@@ -35,7 +35,7 @@ export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string;
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{r.type}</div>
                 <div className="flex items-center gap-1.5 text-xs text-ink-3">
-                  {shortDate(r.date)}, {r.effect === "failed" ? <StatusChip tone="red" size="sm">Failed</StatusChip> : r.status}
+                  {shortDate(r.date)}, {r.effect === "failed" ? <StatusChip tone="red" size="sm">{failedWord(r)}</StatusChip> : r.status}{r.fromPayPal ? ", from PayPal" : ""}
                 </div>
               </div>
               <Money value={r.amount} sign={r.signed < 0 ? "minus" : r.signed > 0 ? "plus" : undefined}
@@ -67,7 +67,8 @@ export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string;
                   {r.paypalId && <span className="block text-xs text-ink-3">{r.paypalId}</span>}
                 </Td>
                 <Td className="whitespace-nowrap">
-                  {r.effect === "failed" ? <StatusChip tone="red">Failed</StatusChip> : <span className="text-ink-2">{r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span>}
+                  {r.effect === "failed" ? <StatusChip tone="red">{failedWord(r)}</StatusChip> : <span className="text-ink-2">{r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span>}
+                  {r.fromPayPal && <span className="block text-xs text-ink-3" title={`PayPal reported this status ${atText(r.fromPayPal)}`}>From PayPal, {shortDate(pacificDate(r.fromPayPal))}</span>}
                 </Td>
                 <Td last align="right" className={r.signed > 0 ? "text-green" : r.signed === 0 ? "text-ink-3" : ""}>
                   <Money value={r.amount} sign={r.signed < 0 ? "minus" : r.signed > 0 ? "plus" : undefined} />
@@ -81,5 +82,8 @@ export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string;
     </div>
   );
 }
+
+/** A deposit payment PayPal reversed reads Reversed; a refund or payout that didn't go through, Failed. */
+const failedWord = (r: LedgerRow) => (r.kind === "payment" ? "Reversed" : "Failed");
 
 const shortMoney = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

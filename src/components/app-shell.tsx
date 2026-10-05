@@ -12,13 +12,14 @@ import { Avatar, Notice, Wordmark } from "./ui";
 // PayPal's connection and the account at its foot; a 56px top bar with search, the Test mode switch (the only place
 // the sandbox shows), notifications, help and the avatar. At phone width the sidebar becomes a drawer.
 
-export type ShellAlert = { title: string; sub: string; href: string; tone: "red" | "amber" };
+export type ShellAlert = { title: string; sub: string; href: string; tone: "red" | "amber" | "green" };
 export type ShellData = {
   account: string; // a demo copy's "Harbor View Rentals"; the owner's GOOD_FAITH_ACCOUNT or oldest tenancy's owner (accountName)
   initials: string;
   owners: string[]; // every owner on file, for the account card
   sandbox: boolean;
   alerts: ShellAlert[];
+  paypal: ShellAlert[]; // what PayPal reported lately through its webhook: payments, refunds, payouts, disputes
   disclaimer: string;
   rules: { label: string; href: string }[]; // the Help menu's deposit-law guides, one per state the workspace rents in
   signOut: boolean; // the demo access gate is on, so there is a session to end (src/proxy.ts)
@@ -101,17 +102,16 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
               <span className="sr-only">{data.sandbox ? "on" : "off"}</span>
             </span>
             <Menu label="Notifications" width={320} buttonClass="relative inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface"
-              trigger={<><Icon name="bell" />{data.alerts.length > 0 && <span className="absolute right-[9px] top-2 size-1.5 rounded-full bg-brand ring-2 ring-white" />}</>}>
+              trigger={<><Icon name="bell" />{data.alerts.length + data.paypal.length > 0 && <span className="absolute right-[9px] top-2 size-1.5 rounded-full bg-brand ring-2 ring-white" />}</>}>
               <div className="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-3">Needs you</div>
-              {data.alerts.length ? data.alerts.map((a, i) => (
-                <Link key={i} href={a.href} className="flex items-start gap-2.5 rounded-sm px-2.5 py-2 hover:bg-surface">
-                  <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${a.tone === "red" ? "bg-red-dot" : "bg-amber-dot"}`} />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-ink">{a.title}</span>
-                    <span className="block truncate text-xs text-ink-3">{a.sub}</span>
-                  </span>
-                </Link>
-              )) : <p className="px-2.5 pb-2.5 text-sm text-ink-3">Nothing needs you right now.</p>}
+              {data.alerts.length ? data.alerts.map((a, i) => <AlertRow key={i} a={a} />)
+                : <p className="px-2.5 pb-2.5 text-sm text-ink-3">Nothing needs you right now.</p>}
+              {data.paypal.length > 0 && (
+                <>
+                  <div className="mt-1 flex items-center gap-1.5 border-t border-line-2 px-2.5 pb-1 pt-2.5 text-xs font-medium text-ink-3"><PayPalMark size={12} />From PayPal</div>
+                  {data.paypal.map((a, i) => <AlertRow key={i} a={a} />)}
+                </>
+              )}
             </Menu>
             <Menu label="Help" width={300} buttonClass="hidden size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface md:inline-flex"
               trigger={<Icon name="help" />}
@@ -136,6 +136,19 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
 
 /** The question behind the account menu's Start over: a fresh copy of the demo for this browser. It lives outside the
  *  menu, which closes when an item is chosen, and opens on the gf:start-over event. */
+/** One line in the bell: a status dot, the title, the property under it. */
+function AlertRow({ a }: { a: ShellAlert }) {
+  return (
+    <Link href={a.href} className="flex items-start gap-2.5 rounded-sm px-2.5 py-2 hover:bg-surface">
+      <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${a.tone === "red" ? "bg-red-dot" : a.tone === "green" ? "bg-green-dot" : "bg-amber-dot"}`} />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-ink">{a.title}</span>
+        <span className="block truncate text-xs text-ink-3">{a.sub}</span>
+      </span>
+    </Link>
+  );
+}
+
 function StartOver() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);

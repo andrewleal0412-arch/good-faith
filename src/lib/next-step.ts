@@ -35,7 +35,8 @@ export type TenancySummary = {
   statementDeliveredAt: string | null;
   statementDeliveredOn?: string | null; // the delivery record's own date, where the caller read it (New York's day 14)
   agreement: boolean; // the tenants' written refund-method agreement is on file (California's AB 414)
-  deposit: { amount: number; status: string; paypalId: string | null } | null; // the deposit invoice as last stored
+  // the deposit invoice as last stored; reversed: PayPal reversed the payment (a chargeback, its webhook said so)
+  deposit: { amount: number; status: string; paypalId: string | null; reversed?: boolean } | null;
   depositElectronic: boolean; // the deposit reached the landlord electronically, which is what makes California's (h)(1)(A) apply
   moveInPhotos: number;
   moveOutPhotos: number;
@@ -48,6 +49,9 @@ export type TenancySummary = {
   landlordUnits?: number | null; // dwelling units the owner rents, from the lease (Florida's holding notice: five or more)
   buildingUnits?: number | null; // dwelling units in the building, from the lease (New York's interest rule: six or more)
 };
+
+/** The step a deposit PayPal reversed asks for while the tenancy is under way. */
+export const REVERSED_STEP = "Deposit payment reversed";
 
 export type Level = "overdue" | "urgent" | "soon" | "later" | "done";
 
@@ -77,7 +81,8 @@ export const CHECK_IN_DAYS_BEFORE_END = 60;
 /** The date the tenancy ends, best known: the actual move-out, else the one planned at notice, else the lease end. */
 export const tenancyEnds = (t: TenancySummary) => t.moveOutDate ?? t.plannedMoveOut ?? t.endDate;
 
-const depositPaid = (t: TenancySummary) => !!t.deposit && wasPaid(t.deposit.status);
+/** The landlord holds the deposit: PayPal says it was paid, and PayPal hasn't reversed the payment since. */
+const depositPaid = (t: TenancySummary) => !!t.deposit && wasPaid(t.deposit.status) && !t.deposit.reversed;
 
 /** The tenancy's pack. */
 export const packOf = (t: Pick<TenancySummary, "state">): StatePack => packFor(t.state);
@@ -135,6 +140,7 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
   const openMoveIn: string[] = [];
   if (!t.agreement && pack.refund.agreementRequired) openMoveIn.push("no written refund agreement on file");
   if (!t.deposit) openMoveIn.push("no deposit invoice sent");
+  else if (t.deposit.reversed) openMoveIn.push("deposit payment reversed in PayPal");
   else if (!paid) openMoveIn.push(`deposit invoice ${t.deposit.status.toLowerCase().replace(/_/g, " ")}, not paid`);
   if (!t.moveInPhotos && started && photosFrom && t.startDate && t.startDate >= photosFrom) openMoveIn.push("no move-in photos");
   openMoveIn.push(...pack.steps.openMoveIn(t));
@@ -150,6 +156,7 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
     if (forfeit) return forfeit;
     if (closedOut(t)) {
       const how = t.returned ? `; ${usd(t.returned.amount)} returned by PayPal`
+        : t.deposit?.reversed ? "; PayPal reversed the deposit payment, so nothing went back through PayPal"
         : !paid ? "; no deposit was paid through PayPal, so there was nothing to return"
           : "; the deductions used the whole deposit, so nothing was left to return";
       return { label: "Done", detail: `Statement delivered ${delivered}${how}.`,
@@ -229,6 +236,10 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
   const extra = pack.steps.moveIn(t, today, h);
   if (extra?.beforeInvoice) return extra.step;
   if (!t.deposit) return undated("Send the PayPal deposit invoice", flow.invoice.detail, flow.invoice.cite, started ? "urgent" : "soon");
+  if (t.deposit.reversed) {
+    return undated(REVERSED_STEP, `PayPal reversed the tenants' ${usd(t.deposit.amount)} deposit payment (a chargeback or a bank reversal), so it is not held. Check the PayPal account.`,
+      null, "urgent");
+  }
   if (!paid) {
     return undated("Deposit invoice unpaid", `The PayPal invoice for ${usd(t.deposit.amount)} is ${t.deposit.status.toLowerCase().replace(/_/g, " ")}. Nothing to do until the tenants pay.`,
       flow.unpaidCite, "soon");

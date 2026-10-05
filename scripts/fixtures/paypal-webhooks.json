@@ -1,0 +1,350 @@
+{
+  "_about": "One recorded sample per PayPal webhook event the app handles, in the shapes PayPal documents for them (Webhooks event names, the Invoicing v2, Payments v2, Payouts and Disputes resources). The ids are placeholders scripts/paypal-webhook-check.mjs matches to its own fixture tenancies; nothing here is a real PayPal record.",
+  "INVOICING.INVOICE.PAID": {
+    "id": "WH-1JE41837WM2730510-0K0938361C537811S",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T18:12:44.917Z",
+    "resource_type": "invoices",
+    "event_type": "INVOICING.INVOICE.PAID",
+    "summary": "An invoice was paid",
+    "resource": {
+      "invoice": {
+        "id": "INV2-BBBB-BBBB-BBBB-BBBB",
+        "status": "PAID",
+        "detail": {
+          "reference": "",
+          "currency_code": "USD",
+          "note": "Security deposit, held and returned under California Civil Code 1950.5.",
+          "invoice_number": "0042",
+          "invoice_date": "2026-10-05",
+          "payment_term": { "term_type": "DUE_ON_RECEIPT" },
+          "metadata": { "create_time": "2026-10-05T17:58:02Z", "last_update_time": "2026-10-05T18:12:41Z" }
+        },
+        "invoicer": { "business_name": "Harbor View Rentals" },
+        "primary_recipients": [{ "billing_info": { "email_address": "tenant-b@example.com" } }],
+        "items": [{ "name": "Security deposit: 12 Test St", "quantity": "1", "unit_amount": { "currency_code": "USD", "value": "2000.00" } }],
+        "amount": { "currency_code": "USD", "value": "2000.00" },
+        "due_amount": { "currency_code": "USD", "value": "0.00" },
+        "payments": {
+          "paid_amount": { "currency_code": "USD", "value": "2000.00" },
+          "transactions": [
+            {
+              "payment_id": "CAP-B-0000000000001",
+              "type": "PAYPAL",
+              "payment_date": "2026-10-05",
+              "payment_date_time": "2026-10-05T11:12:38Z",
+              "transaction_status": "SUCCESS",
+              "transaction_type": "SALE",
+              "method": "PAYPAL",
+              "amount": { "currency_code": "USD", "value": "2000.00" }
+            }
+          ]
+        },
+        "links": [
+          { "href": "https://api.sandbox.paypal.com/v2/invoicing/invoices/INV2-BBBB-BBBB-BBBB-BBBB", "rel": "self", "method": "GET" }
+        ]
+      }
+    },
+    "links": [
+      { "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-1JE41837WM2730510-0K0938361C537811S", "rel": "self", "method": "GET" },
+      { "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-1JE41837WM2730510-0K0938361C537811S/resend", "rel": "resend", "method": "POST" }
+    ]
+  },
+  "PAYMENT.CAPTURE.COMPLETED": {
+    "id": "WH-58D329510W468432D-8HN650336L201105X",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T18:12:40.112Z",
+    "resource_type": "capture",
+    "resource_version": "2.0",
+    "event_type": "PAYMENT.CAPTURE.COMPLETED",
+    "summary": "Payment completed for $ 4800.0 USD",
+    "resource": {
+      "amount": { "value": "4800.00", "currency_code": "USD" },
+      "seller_protection": { "status": "ELIGIBLE", "dispute_categories": ["ITEM_NOT_RECEIVED", "UNAUTHORIZED_TRANSACTION"] },
+      "supplementary_data": { "related_ids": { "order_id": "1AB23456CD789012E" } },
+      "update_time": "2026-10-05T18:12:38Z",
+      "create_time": "2026-10-05T18:12:38Z",
+      "final_capture": true,
+      "seller_receivable_breakdown": {
+        "gross_amount": { "value": "4800.00", "currency_code": "USD" },
+        "paypal_fee": { "value": "168.01", "currency_code": "USD" },
+        "net_amount": { "value": "4631.99", "currency_code": "USD" }
+      },
+      "links": [
+        { "href": "https://api.sandbox.paypal.com/v2/payments/captures/CAP-A-0000000000001", "rel": "self", "method": "GET" },
+        { "href": "https://api.sandbox.paypal.com/v2/payments/captures/CAP-A-0000000000001/refund", "rel": "refund", "method": "POST" },
+        { "href": "https://api.sandbox.paypal.com/v2/checkout/orders/1AB23456CD789012E", "rel": "up", "method": "GET" }
+      ],
+      "id": "CAP-A-0000000000001",
+      "status": "COMPLETED"
+    },
+    "links": [
+      { "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-58D329510W468432D-8HN650336L201105X", "rel": "self", "method": "GET" }
+    ]
+  },
+  "PAYMENT.CAPTURE.REFUNDED": {
+    "id": "WH-1GE84257G0350133W-6RW800890C634293G",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T19:14:04.543Z",
+    "resource_type": "refund",
+    "resource_version": "2.0",
+    "event_type": "PAYMENT.CAPTURE.REFUNDED",
+    "summary": "A $ 3790.0 USD capture payment was refunded",
+    "resource": {
+      "seller_payable_breakdown": {
+        "gross_amount": { "value": "3790.00", "currency_code": "USD" },
+        "paypal_fee": { "value": "0.00", "currency_code": "USD" },
+        "net_amount": { "value": "3790.00", "currency_code": "USD" },
+        "total_refunded_amount": { "value": "3790.00", "currency_code": "USD" }
+      },
+      "amount": { "value": "3790.00", "currency_code": "USD" },
+      "update_time": "2026-10-05T12:13:29-07:00",
+      "create_time": "2026-10-05T12:13:29-07:00",
+      "links": [
+        { "href": "https://api.sandbox.paypal.com/v2/payments/refunds/REF-A-0000000000001", "rel": "self", "method": "GET" },
+        { "href": "https://api.sandbox.paypal.com/v2/payments/captures/CAP-A-0000000000001", "rel": "up", "method": "GET" }
+      ],
+      "id": "REF-A-0000000000001",
+      "status": "COMPLETED"
+    },
+    "links": [
+      { "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-1GE84257G0350133W-6RW800890C634293G", "rel": "self", "method": "GET" }
+    ]
+  },
+  "PAYMENT.CAPTURE.REVERSED": {
+    "id": "WH-6F207351SC284371F-0KX52201050121307",
+    "event_version": "1.0",
+    "create_time": "2026-10-06T21:30:35.780Z",
+    "resource_type": "refund",
+    "resource_version": "2.0",
+    "event_type": "PAYMENT.CAPTURE.REVERSED",
+    "summary": "A $ 4800.0 USD capture payment was reversed",
+    "resource": {
+      "seller_payable_breakdown": {
+        "gross_amount": { "value": "4800.00", "currency_code": "USD" },
+        "net_amount": { "value": "4800.00", "currency_code": "USD" },
+        "total_refunded_amount": { "value": "4800.00", "currency_code": "USD" }
+      },
+      "amount": { "value": "4800.00", "currency_code": "USD" },
+      "update_time": "2026-10-06T14:30:10-07:00",
+      "create_time": "2026-10-06T14:30:10-07:00",
+      "links": [
+        { "href": "https://api.sandbox.paypal.com/v2/payments/refunds/REV-A-0000000000001", "rel": "self", "method": "GET" },
+        { "href": "https://api.sandbox.paypal.com/v2/payments/captures/CAP-A-0000000000001", "rel": "up", "method": "GET" }
+      ],
+      "id": "REV-A-0000000000001",
+      "status": "COMPLETED",
+      "note_to_payer": "Payment reversed"
+    },
+    "links": [
+      { "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-6F207351SC284371F-0KX52201050121307", "rel": "self", "method": "GET" }
+    ]
+  },
+  "PAYMENT.PAYOUTSBATCH.SUCCESS": {
+    "id": "WH-0G2756385H040842W-5Y612302CV158622M",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T20:01:10.000Z",
+    "resource_type": "payouts",
+    "event_type": "PAYMENT.PAYOUTSBATCH.SUCCESS",
+    "summary": "Payouts batch completed successfully.",
+    "resource": {
+      "batch_header": {
+        "payout_batch_id": "BATCH-F-000000001",
+        "batch_status": "SUCCESS",
+        "time_created": "2026-10-05T20:00:51Z",
+        "time_completed": "2026-10-05T20:01:06Z",
+        "sender_batch_header": { "sender_batch_id": "deposit-tf", "email_subject": "Your security deposit refund" },
+        "amount": { "currency": "USD", "value": "1500.00" },
+        "fees": { "currency": "USD", "value": "0.25" },
+        "payments": 1
+      },
+      "links": [
+        { "href": "https://api.sandbox.paypal.com/v1/payments/payouts/BATCH-F-000000001", "rel": "self", "method": "GET" }
+      ]
+    },
+    "links": [
+      { "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-0G2756385H040842W-5Y612302CV158622M", "rel": "self", "method": "GET" }
+    ]
+  },
+  "PAYMENT.PAYOUTSBATCH.DENIED": {
+    "id": "WH-3ND53296VD9213917-2T815437HE4419430",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T20:05:10.000Z",
+    "resource_type": "payouts",
+    "event_type": "PAYMENT.PAYOUTSBATCH.DENIED",
+    "summary": "Payouts batch got denied.",
+    "resource": {
+      "batch_header": {
+        "payout_batch_id": "BATCH-S-000000001",
+        "batch_status": "DENIED",
+        "time_created": "2026-10-05T20:04:51Z",
+        "sender_batch_header": { "sender_batch_id": "settlement-s" },
+        "amount": { "currency": "USD", "value": "270.00" },
+        "fees": { "currency": "USD", "value": "0.00" }
+      },
+      "links": [
+        { "href": "https://api.sandbox.paypal.com/v1/payments/payouts/BATCH-S-000000001", "rel": "self", "method": "GET" }
+      ]
+    },
+    "links": []
+  },
+  "PAYMENT.PAYOUTS-ITEM.SUCCEEDED": {
+    "id": "WH-2N242548W9943490U-1JU23391CS4765624",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T20:01:05.000Z",
+    "resource_type": "payouts_item",
+    "event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED",
+    "summary": "A payout item has succeeded",
+    "resource": {
+      "payout_item_id": "ITEM-F-000000001",
+      "transaction_id": "TXN-F-000000001",
+      "transaction_status": "SUCCESS",
+      "payout_item_fee": { "currency": "USD", "value": "0.25" },
+      "payout_batch_id": "BATCH-F-000000001",
+      "payout_item": {
+        "recipient_type": "EMAIL",
+        "amount": { "currency": "USD", "value": "1500.00" },
+        "note": "Your security deposit refund",
+        "receiver": "tenant-f@example.com",
+        "sender_item_id": "deposit-tf"
+      },
+      "time_processed": "2026-10-05T20:01:05Z",
+      "links": [
+        { "href": "https://api.sandbox.paypal.com/v1/payments/payouts-item/ITEM-F-000000001", "rel": "item", "method": "GET" },
+        { "href": "https://api.sandbox.paypal.com/v1/payments/payouts/BATCH-F-000000001", "rel": "batch", "method": "GET" }
+      ]
+    },
+    "links": []
+  },
+  "PAYMENT.PAYOUTS-ITEM.UNCLAIMED": {
+    "id": "WH-6NK66398VS8743417-4AD99376Y5718574W",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T20:01:04.000Z",
+    "resource_type": "payouts_item",
+    "event_type": "PAYMENT.PAYOUTS-ITEM.UNCLAIMED",
+    "summary": "A payout item is unclaimed",
+    "resource": {
+      "payout_item_id": "ITEM-F-000000001",
+      "transaction_id": "TXN-F-000000001",
+      "transaction_status": "UNCLAIMED",
+      "payout_batch_id": "BATCH-F-000000001",
+      "payout_item": {
+        "recipient_type": "EMAIL",
+        "amount": { "currency": "USD", "value": "1500.00" },
+        "receiver": "tenant-f@example.com",
+        "sender_item_id": "deposit-tf"
+      },
+      "time_processed": "2026-10-05T20:01:04Z",
+      "errors": { "name": "RECEIVER_UNREGISTERED", "message": "Receiver is unregistered" },
+      "links": []
+    },
+    "links": []
+  },
+  "PAYMENT.PAYOUTS-ITEM.RETURNED": {
+    "id": "WH-9TN27384VP4475421-7CT87654KL0293846",
+    "event_version": "1.0",
+    "create_time": "2026-11-04T20:01:04.000Z",
+    "resource_type": "payouts_item",
+    "event_type": "PAYMENT.PAYOUTS-ITEM.RETURNED",
+    "summary": "A payout item is returned",
+    "resource": {
+      "payout_item_id": "ITEM-F-000000001",
+      "transaction_id": "TXN-F-000000001",
+      "transaction_status": "RETURNED",
+      "payout_batch_id": "BATCH-F-000000001",
+      "payout_item": {
+        "recipient_type": "EMAIL",
+        "amount": { "currency": "USD", "value": "1500.00" },
+        "receiver": "tenant-f@example.com",
+        "sender_item_id": "deposit-tf"
+      },
+      "time_processed": "2026-11-04T20:01:04Z",
+      "links": []
+    },
+    "links": []
+  },
+  "CUSTOMER.DISPUTE.CREATED": {
+    "id": "WH-4M0448861G563140B-9EX36365822141321",
+    "event_version": "1.0",
+    "create_time": "2026-10-07T16:01:12.000Z",
+    "resource_type": "dispute",
+    "event_type": "CUSTOMER.DISPUTE.CREATED",
+    "summary": "A new dispute opened with Case # PP-D-27803",
+    "resource": {
+      "dispute_id": "PP-D-27803",
+      "create_time": "2026-10-07T16:00:59.000Z",
+      "update_time": "2026-10-07T16:01:00.000Z",
+      "disputed_transactions": [
+        {
+          "seller_transaction_id": "CAP-A-0000000000001",
+          "seller": { "merchant_id": "MERCHANT-1" },
+          "items": [],
+          "seller_protection_eligible": true
+        }
+      ],
+      "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+      "status": "OPEN",
+      "dispute_amount": { "currency_code": "USD", "value": "4800.00" },
+      "dispute_life_cycle_stage": "INQUIRY",
+      "dispute_channel": "INTERNAL",
+      "messages": [{ "posted_by": "BUYER", "time_posted": "2026-10-07T16:00:59.000Z", "content": "Where is my deposit?" }],
+      "links": [
+        { "href": "https://api.sandbox.paypal.com/v1/customer/disputes/PP-D-27803", "rel": "self", "method": "GET" }
+      ]
+    },
+    "links": []
+  },
+  "CUSTOMER.DISPUTE.UPDATED": {
+    "id": "WH-82D41383TF0838415-5BD45212RH9025219",
+    "event_version": "1.0",
+    "create_time": "2026-10-08T09:30:00.000Z",
+    "resource_type": "dispute",
+    "event_type": "CUSTOMER.DISPUTE.UPDATED",
+    "summary": "A dispute was updated with Case # PP-D-27803",
+    "resource": {
+      "dispute_id": "PP-D-27803",
+      "create_time": "2026-10-07T16:00:59.000Z",
+      "update_time": "2026-10-08T09:29:51.000Z",
+      "disputed_transactions": [{ "seller_transaction_id": "CAP-A-0000000000001" }],
+      "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+      "status": "WAITING_FOR_SELLER_RESPONSE",
+      "dispute_amount": { "currency_code": "USD", "value": "4800.00" },
+      "dispute_life_cycle_stage": "INQUIRY",
+      "dispute_channel": "INTERNAL",
+      "links": []
+    },
+    "links": []
+  },
+  "CUSTOMER.DISPUTE.RESOLVED": {
+    "id": "WH-7Y3105793H2183625-2KL24680QP7519531",
+    "event_version": "1.0",
+    "create_time": "2026-10-12T11:00:00.000Z",
+    "resource_type": "dispute",
+    "event_type": "CUSTOMER.DISPUTE.RESOLVED",
+    "summary": "A dispute was resolved with case # PP-D-27803",
+    "resource": {
+      "dispute_id": "PP-D-27803",
+      "create_time": "2026-10-07T16:00:59.000Z",
+      "update_time": "2026-10-12T10:59:41.000Z",
+      "disputed_transactions": [{ "seller_transaction_id": "CAP-A-0000000000001" }],
+      "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+      "status": "RESOLVED",
+      "dispute_amount": { "currency_code": "USD", "value": "4800.00" },
+      "dispute_outcome": { "outcome_code": "RESOLVED_SELLER_FAVOUR" },
+      "dispute_life_cycle_stage": "INQUIRY",
+      "dispute_channel": "INTERNAL",
+      "links": []
+    },
+    "links": []
+  },
+  "BILLING.SUBSCRIPTION.CREATED": {
+    "id": "WH-77687562XN25889J8-8Y6T55435R66168T6",
+    "event_version": "1.0",
+    "create_time": "2026-10-05T18:00:00.000Z",
+    "resource_type": "subscription",
+    "event_type": "BILLING.SUBSCRIPTION.CREATED",
+    "summary": "Subscription created",
+    "resource": { "id": "I-BW452GLLEP1G", "status": "APPROVAL_PENDING" },
+    "links": []
+  }
+}

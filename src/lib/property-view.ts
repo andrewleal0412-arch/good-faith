@@ -1,6 +1,6 @@
 import { wasPaid } from "./invoice-status";
 import { streetLine } from "./ledger";
-import { closedOut, packOf, type NextStep, type StepIcon, type TenancySummary } from "./next-step";
+import { closedOut, packOf, REVERSED_STEP, type NextStep, type StepIcon, type TenancySummary } from "./next-step";
 
 // How a tenancy reads in the app's chrome: one status chip (one color per status), the filter group it belongs to,
 // and the one verb its next step links to. Pure: the Properties table, the record header and the Move-outs list
@@ -12,7 +12,8 @@ export type PropertyStatus = { label: string; tone: ChipTone; group: StatusGroup
 
 export const GROUP_LABEL: Record<StatusGroup, string> = { "move-in": "Move-in", leased: "Leased", "move-out": "Move-out", closed: "Closed" };
 
-const paid = (s: TenancySummary) => !!s.deposit && wasPaid(s.deposit.status);
+/** Paid and still held: a payment PayPal reversed (a chargeback) is not. */
+const paid = (s: TenancySummary) => !!s.deposit && wasPaid(s.deposit.status) && !s.deposit.reversed;
 
 /** Move-in is finished once the refund agreement (where the state's pack requires one), the paid deposit, the move-in
  *  photos (where required: California, for a tenancy from July 2025 on) and the state's own move-in records are on
@@ -34,6 +35,8 @@ export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
   }
   const group: StatusGroup = s.moveOutDate || s.statementDeliveredAt || s.noticeGivenOn || s.tenantMoveOut ? "move-out"
     : moveInOpen(s) ? "move-in" : "leased";
+  // PayPal reversed the deposit payment: before anything else, until the tenancy is closed out.
+  if (s.deposit?.reversed) return { label: "Payment reversed", tone: "red", group };
   if (n.level === "overdue") return { label: "Overdue", tone: "red", group };
   if (group === "move-out") {
     if (s.statementDeliveredAt) return { label: "Refund due", tone: "amber", group };
@@ -75,6 +78,7 @@ const TITLE: Record<string, string> = {
   "Record notice": "Record the move-out notice",
   "Check refund notice": "Check the refund notice",
   "View invoice": "Deposit invoice unpaid",
+  "Check PayPal": REVERSED_STEP,
   "Check in": "Check in before the lease ends",
 };
 
@@ -106,6 +110,7 @@ function step(s: TenancySummary, n: NextStep): Omit<StepLink, "title"> {
   if (L === "Record the tenants' refund agreement") return { label: "Record agreement", href: tabHref(id, "overview", "move-in"), icon: "file-check" };
   if (L === "Send the PayPal deposit invoice") return { label: "Request deposit", href: tabHref(id, "overview", "move-in"), icon: "receive" };
   if (L === "Deposit invoice unpaid") return { label: "View invoice", href: tabHref(id, "payments"), icon: "card" };
+  if (L === REVERSED_STEP) return { label: "Check PayPal", href: tabHref(id, "payments"), icon: "card" };
   if (L === "Take move-in photos" || L === "Add move-in condition evidence") return { label: "Add move-in photos", href: tabHref(id, "overview", "move-in"), icon: "camera" };
   if (L.startsWith("Lease ended")) return { label: "Update lease", href: tabHref(id, "move-out", "notice"), icon: "calendar" };
   if (L === "Lease ends") return { label: "Check in", href: tabHref(id, "move-out", "notice"), icon: "calendar" };

@@ -1,4 +1,4 @@
-import { pacificDate, paypalPaidAt, shortDate } from "./dates";
+import { atText, pacificDate, paypalPaidAt, shortDate } from "./dates";
 import { usd } from "./deductions";
 import { paidElectronically, returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 import { lawfulDeposit, type LeaseTerms } from "./rules";
@@ -56,6 +56,7 @@ export type LedgerRow = {
   tagShort: string; // a word or two beside the tag, e.g. "damage"
   tagLabel: string; // what the subsection says, in a sentence
   example?: boolean; // a demo copy's recorded settlement: history only, no PayPal money moved
+  fromPayPal?: string; // when PayPal itself reported this status (its webhook, src/lib/paypal-webhook.ts)
 };
 
 export type LedgerTenancy = {
@@ -74,7 +75,12 @@ export type LedgerPayment = {
   amount: number | string;
   status: string;
   created_at: string;
-  raw: { transactions?: { payment_id?: string; payment_date_time?: string; payment_date?: string; method?: string; transaction_status?: string; amount?: { value?: string } }[]; demo_example?: boolean } | null;
+  raw: {
+    transactions?: { payment_id?: string; payment_date_time?: string; payment_date?: string; method?: string; transaction_status?: string; amount?: { value?: string } }[];
+    demo_example?: boolean;
+    status_from?: { source?: string; at?: string }; // a status PayPal's webhook sent
+    reversal?: { at?: string | null }; // the deposit payment reversed by PayPal (a chargeback)
+  } | null;
 };
 export type LedgerDeduction = {
   id: string;
@@ -86,7 +92,8 @@ export type LedgerDeduction = {
   created_at: string;
 };
 
-const words = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/_/g, " ");
+/** A PayPal status in words; a payout item PayPal holds ("ONHOLD", its own word) reads "on hold". */
+const words = (s: string | null | undefined) => (s === "ONHOLD" ? "on hold" : (s ?? "").toLowerCase().replace(/_/g, " "));
 const cents = (n: number) => Math.round(n * 100) / 100;
 const ms = (ts: string) => Date.parse(ts);
 
@@ -134,6 +141,14 @@ function timing(moveOut: string | null, date: string, pack: ClientPack): string 
   return `, ${n} day${n === 1 ? "" : "s"} after the ${shortDate(moveOut)} move-out${allowed == null ? "" : n > allowed ? ` and past the ${allowed} allowed` : ` (${allowed} allowed)`}`;
 }
 
+/** When PayPal's webhook reported a row's status: the moment, for the row's mark and its sentence. Absent otherwise,
+ *  so a row nothing reported reads exactly as before. */
+function reported(raw: LedgerPayment["raw"]): { fromPayPal?: string } {
+  const s = raw?.status_from;
+  return s?.source === "paypal" && typeof s.at === "string" && !Number.isNaN(Date.parse(s.at)) ? { fromPayPal: s.at } : {};
+}
+const withMark = (detail: string, mark: { fromPayPal?: string }) => (mark.fromPayPal ? `${detail}; status from PayPal, ${atText(mark.fromPayPal)}` : detail);
+
 /** Every ledger row for one tenancy, oldest first. */
 export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductions: LedgerDeduction[]): LedgerRow[] {
   const address = t.properties?.address ?? t.lease_terms?.propertyAddress ?? "Address not recorded";
@@ -151,13 +166,14 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
     if (p.kind === "deposit_invoice") {
       // The cap the invoice was held to (California: two months only for the small natural-person owner, D3, D4).
       const cap = pack.ledger.capTag(lawful, rent);
+      const mark = reported(p.raw);
       row({
         id: p.id, date, at: p.created_at, kind: "deposit_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
-        detail: lawful && lawful.charged > lawful.amount
+        detail: withMark(lawful && lawful.charged > lawful.amount
           ? `PayPal invoice for the lawful amount; the lease asked ${usd(lawful.charged)}`
-          : "PayPal invoice for the security deposit",
+          : "PayPal invoice for the security deposit", mark),
         summary: lawful && lawful.charged > lawful.amount ? "Capped at the lawful amount" : "Security deposit",
-        status: invoiceWords(p.status), ...cap,
+        status: invoiceWords(p.status), ...cap, ...mark,
       });
       // The tenants' payment, from the invoice's transaction record: PayPal's own id, date and method. It is dated as
       // PayPal dates it (the statement says the same) and ordered after its invoice even when PayPal's clock puts the
@@ -170,24 +186,29 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         const electronic = paidElectronically(p.status, txn?.method);
         const method = methodWords(txn?.method) || "a method PayPal did not record";
         const onInvoice = p.paypal_id ? ` on invoice ${p.paypal_id}` : "";
+        // PayPal reversed the payment (a chargeback): the money left the landlord again, so it no longer counts as held.
+        const reversed = !!p.raw?.reversal;
+        const mark = reported(p.raw);
         row({
           id: `${p.id}:paid`, date: pacificDate(paidAt), at: new Date(Math.max(ms(paidAt), ms(p.created_at))).toISOString(),
-          kind: "payment", amount: paid, signed: paid, effect: "collected", paypalId: txn?.payment_id ?? p.paypal_id, method: methodLabel(txn?.method),
-          detail: !txn ? `Deposit paid${onInvoice}; PayPal recorded no transaction detail`
-            : electronic ? `Deposit paid by ${method}${onInvoice}` : `Deposit recorded as paid by ${method}${onInvoice}`,
-          summary: txn ? `Paid by ${method}` : "Paid",
-          status: "received",
-          ...pack.ledger.paymentTag(electronic),
+          kind: "payment", amount: paid, signed: reversed ? 0 : paid, effect: reversed ? "failed" : "collected", paypalId: txn?.payment_id ?? p.paypal_id, method: methodLabel(txn?.method),
+          detail: withMark((!txn ? `Deposit paid${onInvoice}; PayPal recorded no transaction detail`
+            : electronic ? `Deposit paid by ${method}${onInvoice}` : `Deposit recorded as paid by ${method}${onInvoice}`)
+            + (reversed ? `; PayPal reversed the payment${p.raw?.reversal?.at ? ` on ${shortDate(pacificDate(p.raw.reversal.at))}` : ""}` : ""), mark),
+          summary: reversed ? "Reversed by PayPal" : txn ? `Paid by ${method}` : "Paid",
+          status: reversed ? "reversed" : "received",
+          ...pack.ledger.paymentTag(electronic), ...mark,
         });
       }
     } else if (p.kind === "refund" || p.kind === "payout") {
       const effect: LedgerEffect = returnCompleted(p.status) ? "returned" : returnFailed(p.status) ? "failed" : "pending";
+      const mark = reported(p.raw);
       row({
         id: p.id, date, at: p.created_at, kind: p.kind, amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
-        detail: (p.kind === "refund" ? "Refund of the original PayPal payment" : "PayPal Payout to the account the tenants designated") + timing(t.move_out_date, date, pack),
+        detail: withMark((p.kind === "refund" ? "Refund of the original PayPal payment" : "PayPal Payout to the account the tenants designated") + timing(t.move_out_date, date, pack), mark),
         summary: [p.kind === "refund" ? "To the original payment" : "To the tenants' account", timingShort(t.move_out_date, date, pack)].filter(Boolean).join(", "),
         status: effect === "returned" ? (p.kind === "refund" ? "completed" : "sent") : words(p.status),
-        ...pack.ledger.refundTag,
+        ...pack.ledger.refundTag, ...mark,
       });
     } else if (p.kind === "settlement_refund" || p.kind === "settlement_payout") {
       // The extra amount a settled dispute sent back, on top of the statement's refund, after the tenants accepted it
@@ -206,12 +227,13 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         });
         continue;
       }
+      const mark = reported(p.raw);
       row({
         id: p.id, date, at: p.created_at, kind: "settlement", amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
-        detail: `Settlement of the tenants' dispute: ${refund ? "a partial refund of the original PayPal payment" : "a PayPal Payout to the account the tenants designated"}, on top of the statement's refund${timing(t.move_out_date, date, pack)}`,
+        detail: withMark(`Settlement of the tenants' dispute: ${refund ? "a partial refund of the original PayPal payment" : "a PayPal Payout to the account the tenants designated"}, on top of the statement's refund${timing(t.move_out_date, date, pack)}`, mark),
         summary: refund ? "Dispute settled, to the original payment" : "Dispute settled, to the tenants' account",
         status: effect === "returned" ? (refund ? "completed" : "sent") : words(p.status),
-        ...pack.ledger.refundTag,
+        ...pack.ledger.refundTag, ...mark,
       });
     } else if (p.kind === "damage_invoice") {
       row({

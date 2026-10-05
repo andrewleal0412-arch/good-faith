@@ -8,6 +8,7 @@ import { canSignOut } from "@/lib/session-server";
 import { stepLink } from "@/lib/property-view";
 import { streetLine } from "@/lib/ledger";
 import { disputeAlerts } from "@/lib/negotiation";
+import { paypalAlerts } from "@/lib/paypal-webhook-store";
 import { accountName, loadUnits, type UnitRow } from "@/lib/units";
 import { packFor, SUPPORTED } from "@/lib/states";
 import { currentWorkspace, type Workspace } from "@/lib/workspace";
@@ -65,6 +66,17 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
     }
   }
 
+  // What PayPal reported lately through its webhook (src/lib/paypal-webhook.ts): a deposit paid, a refund or Payout
+  // that finished or came back, a reversal, a PayPal dispute.
+  let paypal: ShellAlert[] = [];
+  if (ws) {
+    try {
+      paypal = (await paypalAlerts(ws.id)).map((a) => ({ title: a.title, sub: streetLine(a.sub), href: a.href, tone: a.tone }));
+    } catch (e) {
+      console.error("App shell: couldn't load PayPal's reports", e);
+    }
+  }
+
   // Help's deposit-law guide and disclaimer: California's, as always, unless the workspace rents in other states; then
   // one guide per state, and the disclaimer of that state (or a general one across several).
   const states = SUPPORTED.filter((c) => units.some((u) => u.summary.state === c));
@@ -75,7 +87,7 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
     : "This tool organizes your records and fills in templates based on each property's state deposit law and published state guidance. It does not give legal advice, does not evaluate your specific situation, and is not a substitute for an attorney where the property is.";
 
   const data: ShellData = {
-    account, initials: initialsOf(account), owners, sandbox: SANDBOX, alerts, disclaimer, rules, signOut: canSignOut(),
+    account, initials: initialsOf(account), owners, sandbox: SANDBOX, alerts, paypal, disclaimer, rules, signOut: canSignOut(),
     startOver: canSignOut() && ws?.kind === "demo",
   };
   return <AppShell data={data}>{children}</AppShell>;

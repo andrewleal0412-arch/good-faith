@@ -65,6 +65,9 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
 
   if (!f.deposit.live || !invoice) return { blocked: "PayPal couldn't be reached, so nothing was sent. Try again in a minute." };
   if (!wasPaid(f.deposit.status)) return { blocked: `The deposit invoice is ${f.deposit.status.toLowerCase().replace(/_/g, " ")} in PayPal, not paid, so nothing goes back through PayPal.` };
+  // PayPal reversed the deposit payment (its webhook said so): nothing can go back against it, and the landlord no
+  // longer holds it.
+  if (f.reversed) return { blocked: "PayPal reversed the deposit payment (a chargeback or a bank reversal), so nothing goes back through PayPal. Check the PayPal account first." };
   if (!f.refundAgreement && pack.refund.agreementRequired) return { blocked: pack.refund.noAgreementBlocker };
   // The settlement goes back on top of the statement's refund, so that refund goes first: the amended statement then
   // records two payments that were both sent. Where the deductions are forfeited and a live dispute holds them (New

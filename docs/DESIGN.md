@@ -13,6 +13,7 @@ Zillow Rental Manager's structure with Mercury's calm: a white canvas, neutral g
 - Empty values are words ("Not set", "Not paid", "None"), never a dash.
 - The sandbox shows only as the Test mode switch in the top bar (and the plain word "Sandbox" in the tenant page's bar).
 - Dates on screen are short ("Oct 1, 2026"); long dates ("October 1, 2026") are for the printed notices and the statement.
+- A status PayPal reported through its webhook carries "From PayPal" under it in `text-xs` `ink-3` (with the moment where there is room, or in the row's tooltip); the bell lists PayPal's reports under their own "From PayPal" heading, with a green, amber or red dot by what happened.
 
 ## Tokens
 

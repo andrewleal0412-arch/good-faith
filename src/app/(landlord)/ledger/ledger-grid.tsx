@@ -114,6 +114,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 function statusOf(r: LedgerRow, back: Map<string, "returned" | "pending">): string {
   switch (r.kind) {
     case "payment": {
+      if (r.effect === "failed") return "Reversed";
       const b = back.get(r.tenancyId);
       return b === "returned" ? "Returned" : b === "pending" ? "Refund pending" : "Held";
     }
@@ -141,9 +142,16 @@ function MethodCell(p: CustomCellRendererProps<LedgerRow, string | null>) {
   return <span className="inline-flex items-center gap-[7px]"><PayPalMark size={14} />{p.value === "PayPal" ? "PayPal" : `${p.value}, PayPal`}</span>;
 }
 
+/** The status, with "From PayPal" under it when PayPal's webhook reported it (the moment is in the row's tooltip). */
 function StatusCell(p: CustomCellRendererProps<LedgerRow, string>) {
-  if (p.value === "Failed") return <StatusChip tone="red">Failed</StatusChip>;
-  return <span className="text-ink-3">{p.value}</span>;
+  const status = p.value === "Failed" || p.value === "Reversed" ? <StatusChip tone="red">{p.value}</StatusChip> : <span className="text-ink-3">{p.value}</span>;
+  if (!p.data?.fromPayPal) return status;
+  return (
+    <div className="flex h-full flex-col justify-center gap-0.5 leading-tight">
+      <span>{status}</span>
+      <span className="truncate text-xs text-ink-3">From PayPal</span>
+    </div>
+  );
 }
 
 /** Money in is green, money out ink with a minus; a request or a deduction moved nothing and stays plain. */
@@ -169,7 +177,7 @@ function WhoCell(p: CustomCellRendererProps<LedgerRow, string>) {
         ? <Link href={`/tenancy/${r.tenancyId}?tab=payments`} className="truncate font-medium hover:underline">{r.tenants}</Link>
         : <span className="truncate font-medium">{r.tenants}</span>}
       <span className="mt-1 truncate text-xs text-ink-3">
-        {TYPE[r.kind]}, {dayLabel(r.date, ctx.today)}{r.effect === "failed" ? ", failed" : ""}
+        {TYPE[r.kind]}, {dayLabel(r.date, ctx.today)}{r.effect === "failed" ? (r.kind === "payment" ? ", reversed" : ", failed") : ""}{r.fromPayPal ? ", from PayPal" : ""}
       </span>
     </div>
   );
@@ -472,7 +480,7 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
           ) : (
             <span className="tabular-nums">{shown} result{shown === 1 ? "" : "s"}</span>
           )}
-          <span className="ml-auto" title={`Opening a property refreshes its deposit from PayPal. Hover a type for the part of ${allCa ? "Civil Code 1950.5" : "each property's state law"} behind it; the export lists it for every row.`}>
+          <span className="ml-auto" title={`PayPal reports payments, refunds and payouts as they happen ("From PayPal" under a status), and opening a property refreshes its deposit. Hover a type for the part of ${allCa ? "Civil Code 1950.5" : "each property's state law"} behind it; the export lists it for every row.`}>
             Statuses as last checked
           </span>
         </div>
