@@ -78,7 +78,9 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   // What PayPal already returned through the tenants' PayPal dispute counts toward that refund (refundStillOwed).
   const owed = refundStillOwed(f);
   if (owed > 0 && !f.alreadyReturned) {
-    return { blocked: `Send the statement's refund of ${usd(owed)} first (Review refund): the settlement goes back on top of it.` };
+    return { blocked: f.wholeDeposit
+      ? `Send the statement's refund of the whole deposit, ${usd(owed)}, first (Review refund): it already gives back every charge, so the settlement then moves no money.`
+      : `Send the statement's refund of ${usd(owed)} first (Review refund): the settlement goes back on top of it.` };
   }
 
   // Once the whole deposit went back (the close-out's refund of the whole deposit, when its deductions were forfeited

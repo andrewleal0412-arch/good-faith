@@ -3,7 +3,7 @@ import type { LanguageModel } from "ai";
 import { allowedCitations } from "./advocate";
 import { isDemoExample } from "./copy";
 import { audit, db } from "./db";
-import { caseFile, disputeFacts, sentDispute, type DisputeFacts, type DisputeRow, type DisputeStatus } from "./disputes";
+import { caseFile, disputeFacts, sentDispute, wholeDepositFirst, type DisputeFacts, type DisputeRow, type DisputeStatus } from "./disputes";
 import { claudeNeverAnswered, type Allowance } from "./limits";
 import {
   agentTurns, agreed, cleanPolicy, effectiveLimit, keepsOf, latestOf, MAX_AGENT_TURNS, MAX_TURNS, offerTurn, runNegotiation,
@@ -305,6 +305,9 @@ export type NegotiationView = {
   minBack: number;
   maxBack: number;
   settlement: SettlementView | null;
+  // The statement's refund, not sent yet, is the whole deposit (New York's forfeited deductions under this live dispute,
+  // refund-rail.ts): whatever is agreed is already inside it, so the pages don't call it money on top of that refund.
+  wholeOwed: boolean;
   forum: StatePack["dispute"]["forum"];
   courtsGuide: StatePack["courtsGuide"];
 };
@@ -358,6 +361,7 @@ export function negotiationView(d: NegotiationRow, facts: DisputeFacts, turns: T
     minBack: facts.ranges.totals.minBack,
     maxBack: facts.ranges.totals.maxBack,
     settlement,
+    wholeOwed: wholeDepositFirst(d.status, facts),
     forum: facts.pack.dispute.forum,
     courtsGuide: facts.pack.courtsGuide,
   };

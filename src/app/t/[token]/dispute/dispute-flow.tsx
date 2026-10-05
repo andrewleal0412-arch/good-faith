@@ -478,6 +478,11 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
   const offered = n?.landlordBack ?? null;
   const live = !!n && ["open", "negotiating", "no_agreement", "agreed"].includes(n.status) && !n.running && s?.status !== "sending" && !s?.unconfirmed && !settled;
   const lo = Math.min(offered ?? 0, n?.tenantBack ?? 0), hi = Math.max(offered ?? 0, n?.tenantBack ?? 0);
+  // New York after day 14: the statement's refund is the whole deposit, so what is agreed is already inside it.
+  const inWhole = s?.wholeBack ? "The whole deposit already went back to you with the statement's refund"
+    : n?.wholeOwed ? "The statement's refund to you is the whole deposit" : null;
+  // A lawful range of one figure (New York after day 14: every charge $0) leaves no other offer once both are at it.
+  const noOtherOffer = !!n && n.maxBack - n.minBack < 0.005;
   const names = { landlord, tenants: "The tenants" };
   const pickName = view.tenants.length > 1 && (
     <FormField label="Your name">
@@ -501,7 +506,9 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
     if (!name) return setError("Pick your name.");
     const ok = await confirm({
       title: `Accept ${usd(s.amount)} back?`,
-      body: `${landlord} then approves it, and the money goes back to you through PayPal, on top of the statement's refund. You can't change it after you accept.`,
+      body: inWhole
+        ? `${inWhole}, so this moves no more money: it records that the charges were given back. ${landlord} then approves it. You can't change it after you accept.`
+        : `${landlord} then approves it, and the money goes back to you through PayPal, on top of the statement's refund. You can't change it after you accept.`,
       action: "Accept settlement",
     });
     if (!ok) return;
@@ -516,7 +523,9 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
     if (!name) return setError("Pick your name.");
     const ok = await confirm({
       title: `Accept ${usd(offered)} back?`,
-      body: `That settles your dispute once ${landlord} approves it. The money then goes back to you through PayPal, on top of the statement's refund.`,
+      body: inWhole
+        ? `That settles your dispute once ${landlord} approves it. ${inWhole}, so no more money moves.`
+        : `That settles your dispute once ${landlord} approves it. The money then goes back to you through PayPal, on top of the statement's refund.`,
       action: "Accept offer",
     });
     if (!ok) return;
@@ -594,8 +603,8 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
           {s.unconfirmed || s.status === "sending"
             ? `${landlord} approved it, and the payment through PayPal is being confirmed. This page shows it once PayPal does.`
             : s.tenantAcceptedAt
-              ? `${s.tenantName ?? "You"} accepted it ${shortDate(pacificDate(s.tenantAcceptedAt))}. It goes back to you through PayPal once ${landlord} approves it.`
-              : s.wholeBack ? `The whole deposit already went back to you with the statement's refund, so this moves no more money: it records that the charges were given back.`
+              ? `${s.tenantName ?? "You"} accepted it ${shortDate(pacificDate(s.tenantAcceptedAt))}. ${inWhole ? `${inWhole}, so no more money moves; ${landlord} approves it to settle the dispute.` : `It goes back to you through PayPal once ${landlord} approves it.`}`
+              : inWhole ? `${inWhole}, so this moves no more money: it records that the charges were given back. Nothing changes until you accept it and ${landlord} approves it.`
                 : `Back to you on top of the statement's refund. Nothing moves until you accept it and ${landlord} approves it.`}
         </p>
         {!s.tenantAcceptedAt && (
@@ -693,7 +702,7 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
           )}
         </div>
       )}
-      {live && n?.status === "agreed" && s && !s.tenantAcceptedAt && (
+      {live && n?.status === "agreed" && s && !s.tenantAcceptedAt && !noOtherOffer && (
         <p className="mt-3 text-center text-sm">
           <button type="button" className="font-medium text-brand hover:underline" disabled={!!busy} onClick={() => setOfferOpen(true)}>Or make a different offer</button>
         </p>

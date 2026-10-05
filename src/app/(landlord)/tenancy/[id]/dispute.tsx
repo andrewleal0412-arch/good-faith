@@ -140,6 +140,8 @@ export function DisputeBanner({ v, href, tenantsLabel }: { v: LandlordDisputeVie
   const s = v.settlement;
   const [tag, text, link] = v.status === "agreed" && s?.paying
     ? ["Agreed", "You approved the settlement. PayPal hasn't confirmed the payment yet.", "Check the payment"]
+    : v.status === "agreed" && s?.accepted && s.wholeFirst
+      ? ["Agreed", `${s.acceptedBy ?? who} accepted the settlement. Send the refund of the whole deposit first: it already holds the settlement, which then moves no money.`, "Review settlement"]
     : v.status === "agreed" && s?.accepted
       ? ["Agreed", `${s.acceptedBy ?? who} accepted the settlement. It waits on your approval.`, "Approve and pay"]
       : v.status === "agreed"

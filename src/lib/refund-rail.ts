@@ -5,6 +5,7 @@
 // callers read the facts from the database and PayPal, and word the reasons for their own page.
 
 import { returnFailed } from "./invoice-status";
+import type { Standing, StandingInput } from "./states/types";
 
 /** PayPal policy, not law: a payment can be refunded against itself for 180 days; after that the money goes out as a
  *  Payout. */
@@ -57,6 +58,18 @@ export function settlementRoom(o: { amount: number; depositHeld: number; returne
  *  refund until the landlord removes them, and the close-out never sends less than the whole deposit either way. */
 export const wholeDepositOwed = (o: { forfeits: boolean; disputeLive: boolean; alreadyReturned: boolean; depositHeld: number }) =>
   o.forfeits && o.disputeLive && !o.alreadyReturned && o.depositHeld > 0;
+
+/** Before the statement's refund goes: whether it will be the whole deposit (wholeDepositOwed), with the forfeiture read
+ *  from the pack's own standing as the close-out reads it (New York after day 14). A settlement's agreed amount is then
+ *  already inside that refund and moves no money, so the dispute pages don't call it money on top of the refund
+ *  (negotiation.ts, wholeOwed). */
+export function wholeOwedBeforeRefund(o: {
+  standing: ((c: StandingInput) => Standing | null) | undefined; input: StandingInput;
+  disputeLive: boolean; refunded: boolean; depositHeld: number;
+}): boolean {
+  if (o.refunded || !o.disputeLive) return false;
+  return wholeDepositOwed({ forfeits: !!o.standing?.(o.input)?.forfeits, disputeLive: true, alreadyReturned: false, depositHeld: o.depositHeld });
+}
 
 /** What the close-out returns: the deposit less the deductions, or the whole deposit when wholeDepositOwed. The
  *  settlement reads the same figure for the refund that must go before it. */

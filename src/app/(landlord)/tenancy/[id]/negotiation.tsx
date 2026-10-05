@@ -69,6 +69,8 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
   // Once both sides are at the same figure, an offer withdraws from the agreement: anywhere in the lawful range.
   const withdraw = v.landlordBack != null && Math.abs(v.landlordBack - v.tenantBack) < 0.005;
   const lo = withdraw ? v.minBack : Math.min(ownBack, v.tenantBack), hi = withdraw ? v.maxBack : Math.max(ownBack, v.tenantBack);
+  // A lawful range of one figure (New York after day 14: every charge $0) leaves no other offer once both are at it.
+  const noOtherOffer = withdraw && v.maxBack - v.minBack < 0.005;
 
   async function run() {
     setError("");
@@ -176,7 +178,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
           ) : (
             <>
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-                <Position label="Agreed back" value={s.amount} sub={s.wholeBack ? "Already back with the whole deposit" : "On top of the statement's refund"} />
+                <Position label="Agreed back" value={s.amount} sub={s.wholeBack ? "Already back with the whole deposit" : v.wholeOwed ? "Part of the whole deposit owed back" : "On top of the statement's refund"} />
                 <div className="min-w-0">
                   <p className="text-xs text-ink-3">{tenantsLabel}</p>
                   <p className="mt-0.5 text-lg font-medium">{s.tenantAcceptedAt ? "Accepted" : "Not yet"}</p>
@@ -190,7 +192,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
                   <p className="mt-0.5 text-xs text-ink-3">
                     {s.unconfirmed ? "PayPal didn't confirm the payment"
                       : s.status === "failed" ? "PayPal refused it; nothing was sent"
-                        : s.tenantAcceptedAt ? "Approve and pay below" : "Approve once they accept"}
+                        : s.tenantAcceptedAt ? (v.wholeOwed ? "Send the refund, then approve" : "Approve and pay below") : "Approve once they accept"}
                   </p>
                 </div>
               </div>
@@ -209,8 +211,8 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
                     <Icon name="search" />{busy === "pay" ? "Checking..." : "Check with PayPal"}
                   </Button>
                 ) : (
-                  <Button variant={quiet ? "secondary" : "primary"} disabled={!s.tenantAcceptedAt || !!busy || s.status === "sending" || !!v.payBlock} onClick={pay}>
-                    <Icon name="send" />{busy === "pay" ? "Sending..." : s.wholeBack ? "Approve" : s.retry ? `Try again: pay ${usd(s.amount)}` : `Approve and pay ${usd(s.amount)}`}
+                  <Button variant={quiet ? "secondary" : "primary"} disabled={!s.tenantAcceptedAt || !!busy || s.status === "sending" || !!v.payBlock || v.wholeOwed} onClick={pay}>
+                    <Icon name="send" />{busy === "pay" ? "Sending..." : s.wholeBack || v.wholeOwed ? "Approve" : s.retry ? `Try again: pay ${usd(s.amount)}` : `Approve and pay ${usd(s.amount)}`}
                   </Button>
                 )}
                 {!s.tenantAcceptedAt && <span className="text-xs text-ink-3">Waiting for {tenantsLabel} to accept.</span>}
@@ -289,7 +291,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
         <NegotiationThread turns={v.turns} perspective="landlord" names={names} />
       </div>
 
-      {canOffer && (
+      {canOffer && !noOtherOffer && (
         <div className="border-t border-line-2 px-5 py-3.5">
           {!offerOpen ? (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -304,7 +306,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
             <div className="flex flex-col gap-3">
               <FormField label="Back to the tenants" note={withdraw
                 ? `Both sides are at ${usd(ownBack)}. An offer between ${usd(lo)} and ${usd(hi)} withdraws that agreement${s?.tenantAcceptedAt ? `, which ${s.tenantName ?? tenantsLabel} accepted` : ""}.`
-                : `Between ${usd(lo)} and ${usd(hi)}, on top of the statement's refund.`}>
+                : `Between ${usd(lo)} and ${usd(hi)}, ${v.wholeOwed ? "already part of the whole deposit owed back" : "on top of the statement's refund"}.`}>
                 <input className={`${inputClass} sm:max-w-[220px]`} inputMode="decimal" placeholder={withdraw ? "Amount" : usd(Math.round(((lo + hi) / 2) * 100) / 100)} value={amount} onChange={(e) => setAmount(e.target.value)} />
               </FormField>
               <FormField label={`Message to ${tenantsLabel}`} note="Optional.">

@@ -255,6 +255,16 @@ const CITES = (file, pack) => new Set(advocate.allowedCitations(pack, file.range
   eq("settled extra: nothing once the whole deposit went back", rail.settledExtra({ agreed: 400, depositHeld: 2000, refunded: 2000 }), 0);
   eq("settled extra: the demo's $270 on a $2,800 deposit is unchanged", rail.settledExtra({ agreed: 270, depositHeld: 2800, refunded: 1790 }), 270);
   eq("settled extra: no refund yet (the deductions used the deposit)", rail.settledExtra({ agreed: 500, depositHeld: 2000, refunded: 0 }), 500);
+  // Before that refund goes (2026-10-05): the dispute pages read whether it will be the whole deposit, by the pack's own
+  // standing, so an agreed amount isn't shown as money on top of it. Move-out September 10, day 14 September 24.
+  const owedFirst = (pack, { input, ...o } = {}) => rail.wholeOwedBeforeRefund({
+    standing: pack.close.standing, disputeLive: true, refunded: false, depositHeld: 2000, ...o,
+    input: { today: "2026-10-05", notices: {}, claimed: 440, statementDue: "2026-09-24", deliveredOn: "2026-09-28", returnedOn: null, refundOwed: true, ...input },
+  });
+  check("whole deposit before the refund: New York, statement on day 18", owedFirst(NY));
+  check("whole deposit before the refund: not on day 14", !owedFirst(NY, { input: { deliveredOn: "2026-09-24", today: "2026-09-24" } }));
+  check("whole deposit before the refund: not once a refund went, nor with no live dispute", !owedFirst(NY, { refunded: true }) && !owedFirst(NY, { disputeLive: false }));
+  check("whole deposit before the refund: not in California (late is evidence, not a forfeiture)", !owedFirst(CA, { input: { statementDue: "2026-10-01", deliveredOn: "2026-10-04" } }));
   // The settlement's ceiling (2026-10-05 audit): what the deposit still holds after every return, a PayPal dispute
   // refund included. $4,800 deposit, the $3,790 statement refund and a $500 PayPal dispute refund leave $510, so an
   // agreed $800 doesn't go; the demo's $270 after its $1,790 refund on $2,800 does.

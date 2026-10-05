@@ -9,10 +9,10 @@ import { basisWords, chargeTitle, settle } from "./deductions";
 import type { DeliveryRecord } from "./delivery";
 import { findingTitle, type StoredFinding } from "./findings";
 import { returnFailed, wasPaid } from "./invoice-status";
-import { deductionsLock, LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
+import { deductionsLock, LIVE_STATUSES, SENT_LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
 import { checkProposal, lawfulRanges, statementOrder, type FindingSnapshot, type RangeDeduction, type RangeInput, type Ranges, type Standing } from "./lawful-range";
 import type { Notices } from "./notices";
-import { settledExtra } from "./refund-rail";
+import { settledExtra, wholeOwedBeforeRefund } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { StateCode, StatePack } from "./states/types";
 import { resolveTenantToken, tokenNotFound } from "./tenant-links";
@@ -132,6 +132,18 @@ export async function disputeFacts(tenancyId: string): Promise<DisputeFacts | nu
     statementRefund: settle(depositHeld, deductions, pack).refund,
   };
 }
+
+/** Whether the statement's refund still to go is the whole deposit: the pack forfeits the deductions (New York after
+ *  day 14, by the same standing the close-out reads) and a dispute the tenants sent, still live, holds them on file.
+ *  The close-out then returns the whole deposit (closeout.ts, wholeDeposit), so what a settlement agreed is already
+ *  inside that refund and the settlement moves no money (settlement.ts). */
+export const wholeDepositFirst = (status: DisputeStatus, facts: DisputeFacts) => wholeOwedBeforeRefund({
+  standing: facts.pack.close.standing, disputeLive: SENT_LIVE_STATUSES.includes(status), refunded: !!facts.refunded, depositHeld: facts.depositHeld,
+  input: {
+    today: facts.today, notices: facts.rangeInput.notices, claimed: facts.deductions.reduce((s, x) => s + x.amount, 0),
+    statementDue: facts.statementDue, deliveredOn: facts.delivery?.date ?? null, returnedOn: null, refundOwed: facts.statementRefund > 0,
+  },
+});
 
 /* ---------- Rows ---------- */
 
@@ -411,9 +423,10 @@ export type LandlordDisputeView = {
   evidence: { id: string; name: string; deductionId: string | null; path: string }[];
   totals: Ranges["totals"];
   late: Ranges["late"];
-  // An agreed settlement, for the banner every tab shows: whether the tenants accepted it, and whether a payment of it
-  // is on its way or waiting on PayPal's confirmation.
-  settlement: { accepted: boolean; acceptedBy: string | null; paying: boolean } | null;
+  // An agreed settlement, for the banner every tab shows: whether the tenants accepted it, whether a payment of it is
+  // on its way or waiting on PayPal's confirmation, and whether the statement's refund of the whole deposit goes first
+  // and already holds it (wholeDepositFirst).
+  settlement: { accepted: boolean; acceptedBy: string | null; paying: boolean; wholeFirst: boolean } | null;
 };
 
 export async function loadLandlordDispute(tenancyId: string): Promise<LandlordDisputeView | null> {
@@ -448,6 +461,7 @@ export async function loadLandlordDispute(tenancyId: string): Promise<LandlordDi
     settlement: s ? {
       accepted: !!s.tenant_accepted_at, acceptedBy: (s.tenant_name as string | null) ?? null,
       paying: s.status === "sending" || (s.status === "failed" && s.paypal_status === "NO_RESPONSE"),
+      wholeFirst: wholeDepositFirst(d.status, facts),
     } : null,
   };
 }
