@@ -27,6 +27,7 @@ export type TenancyRow = {
   move_out_date: string | null;
   move_out_inspected_at: string | null;
   statement_delivered_at: string | null;
+  statement_delivery?: { date?: string | null } | null;
   refund_agreement: { paypal_email: string; signed_by: string[]; signed_at: string } | null;
   lease_terms: LeaseTerms | null;
   notices: Notices | null;
@@ -70,6 +71,9 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
     moveOutDate: t.move_out_date,
     moveOutInspectedAt: t.move_out_inspected_at,
     statementDeliveredAt: t.statement_delivered_at,
+    // The delivery record's own date, for a state whose deadline forfeits the deductions (New York's day 14); the
+    // others never read it, so their summaries stay as they were.
+    ...(pack.steps.forfeit ? { statementDeliveredOn: t.statement_delivery?.date ?? null } : {}),
     agreement: !!agreement,
     deposit: inv ? { amount: Number(inv.amount), status: inv.status, paypalId: inv.paypal_id } : null,
     depositElectronic,
@@ -91,16 +95,22 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
 }
 
 /** One tenancy's summary, for the calendar feed and the notice drafts. Callers check the tenancy is in the session's
- *  workspace first (pageTenancy, routeTenancy). */
+ *  workspace first (pageTenancy, routeTenancy). Its live dispute is read as the units page reads it, so the next step
+ *  agrees with the tenancy page (New York's day-14 step changes under a dispute). */
 export async function loadUnit(id: string): Promise<TenancySummary | null> {
-  const [{ data: t }, { data: payments }, { data: photos }, { data: deductions }] = await Promise.all([
+  const [{ data: t }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("id", id).single(),
     db.from("payments").select("kind, paypal_id, amount, status, raw").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("phase").eq("tenancy_id", id),
     db.from("deductions").select("category, amount").eq("tenancy_id", id),
+    db.from("disputes").select("status").eq("tenancy_id", id).in("status", ["open", "negotiating", "agreed"]).limit(1),
   ]);
   if (!t) return null;
-  return summarizeTenancy(t as TenancyRow, (payments ?? []) as PaymentRow[], (photos ?? []) as PhotoRow[], (deductions ?? []) as DeductionRow[]);
+  const dispute = liveDispute((disputes as { status: string }[] | null)?.[0]?.status);
+  return {
+    ...summarizeTenancy(t as TenancyRow, (payments ?? []) as PaymentRow[], (photos ?? []) as PhotoRow[], (deductions ?? []) as DeductionRow[]),
+    ...(dispute ? { dispute } : {}),
+  };
 }
 
 export type UnitRow = { summary: TenancySummary; next: NextStep; events: CalendarEvent[] };

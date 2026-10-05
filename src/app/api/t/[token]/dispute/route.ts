@@ -1,5 +1,5 @@
 import { audit, db } from "@/lib/db";
-import { bad, disputeFacts, isClosed, latestDispute, liveDispute, MESSAGE_MAX, REASON_MAX, REASON_MIN, stripBasis, tenantWrite } from "@/lib/disputes";
+import { bad, disputeFacts, draftAction, latestDispute, liveDispute, MESSAGE_MAX, REASON_MAX, REASON_MIN, stripBasis, tenantWrite } from "@/lib/disputes";
 import { runningNow, type NegotiationRow } from "@/lib/negotiation";
 import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
 
@@ -40,7 +40,9 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/t/[token]/dispu
 
 // The tenants' dispute while they write it: which deductions, why, and anything else for the landlord. Saved as a
 // draft that only their link sees (the landlord's pages list a dispute once it is sent); sending it again changes the
-// draft. Opens only after the itemized statement went out. Authorized by the link token alone, audited as the tenant.
+// draft. Opens only after the itemized statement went out. After a dispute the tenants withdrew, the first save opens
+// a new one of the same statement; a settled dispute, or one with no agreement, stays closed. Authorized by the link
+// token alone, audited as the tenant.
 export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispute">) {
   const { token } = await ctx.params;
   const link = await tenantWrite(token);
@@ -78,9 +80,12 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
 
   const now = new Date().toISOString();
   const fields = { opened_by: name, deduction_ids: Object.keys(reasons), reasons, message: message || null, updated_at: now };
-  const existing = await latestDispute(link.tenancyId);
-  if (existing && isClosed(existing.status)) return bad("Your dispute of this statement is closed, so a new one can't be opened here.", 409);
-  if (existing && existing.status !== "draft") return bad("Your dispute is already with your landlord, so it can't be changed here.", 409);
+  const latest = await latestDispute(link.tenancyId);
+  // A withdrawn dispute is history: this save opens a new one beside it (draftAction, dispute-status.ts).
+  const act = draftAction(latest?.status ?? null);
+  if (act === "closed") return bad("Your dispute of this statement is closed, so a new one can't be opened here.", 409);
+  if (act === "sent") return bad("Your dispute is already with your landlord, so it can't be changed here.", 409);
+  const existing = act === "update" ? latest : null;
   if (existing) {
     const { data, error } = await db.from("disputes").update(fields).eq("id", existing.id).eq("status", "draft").select("id");
     if (error) {
@@ -103,6 +108,6 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
     console.error("dispute draft insert failed", error.message);
     return bad(error.code === "23505" ? "Your dispute was saved a moment ago. Save it again to keep this version." : "Couldn't save that. Try again.", error.code === "23505" ? 409 : 500);
   }
-  await audit(link.tenancyId, "tenant", "dispute_drafted", { lines: fields.deduction_ids.length, link_id: link.linkId });
+  await audit(link.tenancyId, "tenant", latest ? "dispute_reopened" : "dispute_drafted", { lines: fields.deduction_ids.length, link_id: link.linkId, ...(latest ? { after: latest.id } : {}) });
   return Response.json({ ok: true });
 }

@@ -9,8 +9,10 @@ import { basisWords, chargeTitle, settle } from "./deductions";
 import type { DeliveryRecord } from "./delivery";
 import { findingTitle, type StoredFinding } from "./findings";
 import { returnFailed, wasPaid } from "./invoice-status";
+import { LIVE_STATUSES, SENT_LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
 import { checkProposal, lawfulRanges, statementOrder, type FindingSnapshot, type RangeDeduction, type Ranges, type Standing } from "./lawful-range";
 import type { Notices } from "./notices";
+import { settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { StateCode, StatePack } from "./states/types";
 import { resolveTenantToken, tokenNotFound } from "./tenant-links";
@@ -22,12 +24,9 @@ import { isTemplate } from "./workspace";
 // (routeTenancy, pageTenancy), the tenants' through their link token (resolveTenantToken). Storage paths stay on the
 // server; the tenants' page gets line numbers, deduction ids and photo ids only.
 
-export type DisputeStatus = "draft" | "open" | "negotiating" | "agreed" | "settled" | "no_agreement" | "withdrawn";
-export const LIVE_STATUSES: DisputeStatus[] = ["draft", "open", "negotiating", "agreed"];
-/** Sent to the landlord and not yet closed: the statement's deductions stay as they are (deductionsFrozen). */
-export const SENT_LIVE_STATUSES: DisputeStatus[] = ["open", "negotiating", "agreed"];
-/** One dispute per statement: once closed (settled, no agreement or withdrawn), no new one opens from the tenant link. */
-export const isClosed = (s: DisputeStatus) => !LIVE_STATUSES.includes(s);
+// The statuses and what each allows (reopening a withdrawn dispute, withdrawing a sent one) are pure, in
+// dispute-status.ts, so the pages and the check scripts read the same rules.
+export { canWithdraw, draftAction, isClosed, LIVE_STATUSES, reopens, SENT_LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
 
 /** A photo the tenants added to their dispute, in the photos bucket under the workspace's prefix. */
 export type Evidence = { id: string; path: string; name: string; type: string; bytes: number; deduction_id: string | null; added_at: string };
@@ -362,12 +361,21 @@ export async function tenantDisputeStatus(tenancyId: string): Promise<TenantDisp
   const { data } = await db.from("disputes").select("id, status, sent_at, asked_back, deduction_ids").eq("tenancy_id", tenancyId)
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (!data) return null;
-  const { data: s } = data.status === "agreed" || data.status === "settled"
-    ? await db.from("settlements").select("amount, status, tenant_accepted_at, sent_at").eq("dispute_id", data.id).neq("status", "cancelled").maybeSingle()
-    : { data: null };
+  const [{ data: s }, { data: payments }] = data.status === "agreed" || data.status === "settled"
+    ? await Promise.all([
+      db.from("settlements").select("amount, status, tenant_accepted_at, sent_at").eq("dispute_id", data.id).neq("status", "cancelled").maybeSingle(),
+      db.from("payments").select("kind, amount, status").eq("tenancy_id", tenancyId).order("created_at"),
+    ])
+    : [{ data: null }, { data: null }];
+  // A settled dispute adds what it moved: nothing when the statement's refund was already the whole deposit.
+  const inv = (payments ?? []).find((p) => p.kind === "deposit_invoice");
+  const ret = (payments ?? []).find((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status as string));
+  const amount = s ? (data.status === "settled" && inv
+    ? settledExtra({ agreed: Number(s.amount), depositHeld: Number(inv.amount), refunded: ret ? Number(ret.amount) : 0 })
+    : Number(s.amount)) : 0;
   return {
     status: data.status as DisputeStatus, sentAt: data.sent_at as string | null, askedBack: num(data.asked_back), lines: (data.deduction_ids as string[]).length,
-    settlement: s ? { amount: Number(s.amount), accepted: !!s.tenant_accepted_at, sentAt: (s.sent_at as string | null) ?? null } : null,
+    settlement: s ? { amount, accepted: !!s.tenant_accepted_at, sentAt: (s.sent_at as string | null) ?? null } : null,
   };
 }
 

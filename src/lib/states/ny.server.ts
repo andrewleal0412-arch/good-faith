@@ -1,29 +1,23 @@
 // New York: the half of the pack only the server reads (the statement checklist, the close-out agent's rules and
 // prompt, the next-step hooks, the calendar, the tenant page). The rest is in ny.ts, which client components load.
 
+import { pacificDate } from "../dates";
 import { wasPaid } from "../invoice-status";
 import { addDays, daysBetween, longDate, usd } from "./common";
 import {
   checklistTool, claim, closeOutSystem, delivered, disclaimer, estimates, evidence, factsTool, grade, inspectionGuide, lines,
   parties, refund, security, shortOf, type ItemSpec,
 } from "./common.server";
-import { nyLastDay } from "./ny";
-import type { ServerPart, StandingInput } from "./types";
+import { nyLate } from "./ny";
+import type { ServerPart } from "./types";
 
 const G = (s: string) => `N.Y. GOL ${s}`;
 
-/** Day 14 and, when General Construction Law 25-a moves it, the next business day after it. */
-const day14 = (statementDue: string) => ({ due: statementDue, last: nyLastDay(statementDue) });
 const runTo = (d: { due: string; last: string }) => (d.last !== d.due ? `, run to ${longDate(d.last)} by General Construction Law 25-a` : "");
-
-/** N21: deductions the landlord keeps after day 14 under a recorded acknowledgment. */
-function keptLate(c: StandingInput) {
-  const ack = c.notices.late_acknowledgment;
-  if (!ack || !c.claimed || !c.statementDue) return null;
-  const d = day14(c.statementDue);
-  if (c.today <= d.last) return null;
-  return { d, ack };
-}
+/** What missed day 14, in words. */
+const missedWords = (d: { missed: "statement" | "refund" | null }) =>
+  d.missed === "refund" ? "the rest of the deposit went back" : "the itemized statement went out";
+const FORFEIT = G("7-108(1-a)(e)");
 
 const ITEMS: ItemSpec[] = [
   { n: 1, title: "Tenant names, unit address, vacate date, statement date and the day-14 date", short: "Parties, dates and day 14", cite: G("7-108(1-a)(e)"), grade: (s) => parties(s) },
@@ -79,29 +73,43 @@ export const NY_SERVER: ServerPart = {
       usefulLife: "Useful-life proration and the paint schedule are common practice, not New York law.",
       refundWindow: "PayPal policy, not law: a payment can be refunded against itself for 180 days; after that the money goes out as a Payout.",
     },
-    // N20, N21: blocked only after the day General Construction Law 25-a allows, and then only until the landlord either
-    // removes the deductions or records why they stay (the spec's W with a recorded acknowledgment).
+    // N19 to N21, a hard block (Andrew, 2026-10-04): once day 14 has passed, as General Construction Law 25-a runs it,
+    // without both the statement and the rest of the deposit, nothing may be kept, and nothing the landlord records
+    // changes that. With no dispute open, the close-out refunds nothing until every deduction is removed. While a dispute
+    // the tenants sent is open its deductions can't be removed, so the close-out returns the whole deposit instead, with
+    // the deductions still on file (closeout.ts, wholeDeposit), and the dispute's settlement has no more money to send.
+    // Either way the close-out never sends less than the whole deposit after day 14. A statement that went out on time
+    // and left nothing to refund is not late.
     extraBlockers: (f, ctx) => {
-      if (!f.deductions.length || f.alreadyReturned || !f.tenancy.statementDue) return [];
-      const d = day14(f.tenancy.statementDue);
-      if (ctx.today <= d.last || ctx.notices.late_acknowledgment) return [];
-      return [`Day 14 after the move-out (${longDate(d.due)}${runTo(d)}) has passed, so the landlord forfeits any right to keep any part of the deposit (N.Y. GOL 7-108(1-a)(e)). Remove the deductions to refund it in full, or record why they stay on the late-deduction acknowledgment; a claim beyond the deposit is a separate matter.`];
+      if (!f.deductions.length || f.alreadyReturned || ctx.disputeLive) return [];
+      const d = nyLate({ due: f.tenancy.statementDue, today: ctx.today, deliveredOn: ctx.deliveredOn ?? null, returnedOn: null, refundOwed: f.totals.refund > 0 });
+      if (!d?.late) return [];
+      return [`Day 14 after the move-out (${longDate(d.due)}${runTo(d)}) passed before ${missedWords(d)}, so the landlord forfeits any right to keep any part of the deposit (${FORFEIT}). Nothing can be kept from it now: remove the deductions, and the whole deposit goes back.`];
     },
     extraWarnings: (f, ctx) => {
-      const late = keptLate({ today: ctx.today, notices: ctx.notices, claimed: f.totals.deductions, statementDue: f.tenancy.statementDue });
+      const d = f.deductions.length && !f.alreadyReturned && ctx.disputeLive
+        ? nyLate({ due: f.tenancy.statementDue, today: ctx.today, deliveredOn: ctx.deliveredOn ?? null, returnedOn: null, refundOwed: f.totals.refund > 0 })
+        : null;
       return [
-        ...(late ? [`Day 14 (${longDate(late.d.due)}${runTo(late.d)}) has passed, and on ${longDate(late.ack.date)} the landlord recorded why the deductions stay: "${late.ack.detail ?? ""}". New York forfeits any right to keep any part of the deposit after day 14 (N.Y. GOL 7-108(1-a)(e)); the tenants may recover it, and a willful violation can cost up to twice the deposit (7-108(1-a)(g)).`] : []),
+        ...(d?.late ? [`Day 14 after the move-out (${longDate(d.due)}${runTo(d)}) passed before ${missedWords(d)}, so the landlord forfeits any right to keep any part of the deposit (${FORFEIT}). The tenants disputed the statement, so its deductions stay on it while the dispute is open, but none of them may be kept: this refund returns the whole deposit, and the dispute's settlement then has no more money to send.`] : []),
         ...(!ctx.notices.deposit_account && f.deposit
           ? ["No record of where the deposit is held: it is held in trust and not mingled with the landlord's own money (N.Y. GOL 7-103(1)); in a building of six or more units, in a New York interest-bearing account whose interest, less 1 percent a year, is the tenant's (7-103(2-a))."]
           : []),
       ];
     },
     standing: (c) => {
-      const late = keptLate(c);
-      return late ? {
-        label: "Kept after day 14",
-        note: `The statement and the rest of the deposit were due by ${longDate(late.d.last)}. After that the landlord forfeits any right to retain any portion of the deposit (N.Y. GOL 7-108(1-a)(e)); on ${longDate(late.ack.date)} the landlord recorded that these deductions stay${late.ack.detail ? `: ${late.ack.detail}` : ""}. The tenants may recover them, and a willful violation can cost up to twice the deposit (7-108(1-a)(g)).`,
-      } : null;
+      if (!c.claimed) return null;
+      const d = nyLate({ due: c.statementDue, today: c.today, deliveredOn: c.deliveredOn ?? null, returnedOn: c.returnedOn ?? null, refundOwed: !!c.refundOwed });
+      if (!d?.late) return null;
+      const on = d.missed === "refund" ? c.returnedOn : c.deliveredOn;
+      const what = d.missed === "refund"
+        ? (on ? `the rest of the deposit went back on ${longDate(on)}` : "the rest of the deposit has not gone back")
+        : (on ? `the statement went out on ${longDate(on)}` : "the statement has not gone out");
+      return {
+        label: "Forfeited after day 14",
+        note: `The statement and the rest of the deposit were due by ${longDate(d.last)}${runTo(d)}, and ${what}. A landlord who misses it forfeits any right to retain any portion of the deposit (${FORFEIT}), so none of these deductions may be kept: the whole deposit is owed back to the tenants.`,
+        forfeits: true,
+      };
     },
   },
 
@@ -140,14 +148,25 @@ export const NY_SERVER: ServerPart = {
       }
       return null;
     },
-    // N21: after the day 25-a allows, the deductions wait for the landlord's choice: remove them, or record why they stay.
-    afterInspection: (t, today, h) => {
-      if (!t.moveOutDate || !t.deductions.length || t.returned || t.notices.late_acknowledgment) return null;
-      const d = day14(addDays(t.moveOutDate, 14));
-      if (today <= d.last) return null;
-      return {
-        ...h.undated("Day 14 has passed: refund in full", "New York forfeits any right to keep any part of the deposit after day 14. Remove the deductions and refund all of it, or record why they stay.", G("7-108(1-a)(e)"), "overdue"),
-        action: { label: "Review", path: "notices/late-acknowledgment", icon: "pen" },
+    afterInspection: () => null,
+    // N21, the hard block: from the comparison on, once day 14 passed before the statement and the rest of the deposit
+    // went out, the step is the full refund, before the statement is delivered or after. While a dispute the tenants
+    // sent is open its deductions can't be removed, so the step goes straight to the refund of the whole deposit.
+    forfeit: (t, today, h) => {
+      if (!t.moveOutDate || !t.deductions.length || t.returned) return null;
+      const deposit = t.deposit && wasPaid(t.deposit.status) ? t.deposit.amount : 0;
+      if (!deposit) return null; // nothing came in through PayPal, so there is nothing to refund
+      const kept = t.deductions.reduce((s, x) => s + x.amount, 0);
+      const delivered = t.statementDeliveredAt ? t.statementDeliveredOn ?? pacificDate(t.statementDeliveredAt) : null;
+      const d = nyLate({ due: addDays(t.moveOutDate, 14), today, deliveredOn: delivered, returnedOn: null, refundOwed: deposit - kept > 0.005 });
+      if (!d?.late) return null;
+      const lead = `New York forfeits any right to keep any part of the deposit once day 14 passes before ${missedWords(d)}.`;
+      return t.dispute ? {
+        ...h.undated("Day 14 has passed: refund in full", `${lead} The tenants' dispute holds the deductions, so the refund returns the whole deposit, ${usd(deposit)}, with them still on file.`, FORFEIT, "overdue"),
+        action: { label: "Send refund", path: "refund", icon: "send" },
+      } : {
+        ...h.undated("Day 14 has passed: refund in full", `${lead} Nothing can be kept: remove the deductions and refund all of it.`, FORFEIT, "overdue"),
+        action: { label: "Remove deductions", path: "?tab=move-out", icon: "pen" },
       };
     },
     openMoveIn: (t) => [
@@ -246,15 +265,20 @@ export const NY_SERVER: ServerPart = {
     checklistToolDescription: checklistTool(13, "New York General Obligations Law 7-103 and 7-108"),
   },
 
-  // NY spec N19, N21, N22 and section F: the statement and the refund both by day 14 (as General Construction Law 25-a
-  // runs it), or the landlord forfeits the right to keep any of it.
+  // NY spec N19, N21, N22 and section F: the statement and the rest of the deposit both by day 14 (as General
+  // Construction Law 25-a runs it), or the landlord forfeits the right to keep any of it. The close-out's rule (nyLate):
+  // a refund still owed and not sent once the last day is behind counts as late too.
   dispute: {
     late: {
       effect: "forfeit",
-      text: "The statement or the refund went out after day 14, so the landlord forfeits any right to keep any part of the deposit.",
-      cite: G("7-108(1-a)(e)"),
+      text: "Day 14 passed before both the statement and the rest of the deposit went out, so the landlord forfeits any right to keep any part of the deposit.",
+      cite: FORFEIT,
+      noDefense: true, // 7-108(1-a)(e) names none, so the landlord's side concedes in code (negotiator.ts, forfeitTurn)
     },
-    isLate: (c) => ({ late: c.moveOutDate && c.sentOn ? c.sentOn > nyLastDay(addDays(c.moveOutDate, 14)) : null }),
+    isLate: (c) => {
+      const d = nyLate({ due: c.moveOutDate ? addDays(c.moveOutDate, 14) : null, today: c.today, deliveredOn: c.deliveredOn, returnedOn: c.refundedOn, refundOwed: c.refundOwed });
+      return { late: d ? d.late : null };
+    },
     evidence: { text: "The landlord bears the burden of proof as to the reasonableness of the amount kept.", cite: G("7-108(1-a)(f)") },
     forum: {
       name: "Small claims court", limit: 10000,

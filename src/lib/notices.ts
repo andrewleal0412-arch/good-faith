@@ -5,8 +5,7 @@ import type { ClientPack, RecordDef, RecordKind } from "./states/types";
 // tenancy has comes from its state pack (src/lib/states/): California's initial-inspection notice (docs/LEGAL_RULES.md
 // D11, Civ. Code 1950.5(f)(1)) and electronic-refund notice (D17, (h)(1)(A)(ii)(II)); New York's inspection-rights
 // notice and move-in inspection offer; the account the deposit is held in (New York, Florida, Washington); Florida's
-// holding and claim notices; Washington's signed move-in checklist; a Texas tenant's written forwarding address; New
-// York's acknowledgment for deductions kept after day 14.
+// holding and claim notices; Washington's signed move-in checklist; a Texas tenant's written forwarding address.
 // Pure: the pages render the drafts, the API routes record them.
 
 export type NoticeKind = RecordKind;
@@ -25,9 +24,9 @@ export const NOTICE_KINDS: NoticeKind[] = ["inspection", "electronic_refund"];
 export const recordsFor = (pack: ClientPack, phase?: RecordDef["phase"]) => pack.records.filter((r) => !phase || r.phase === phase);
 
 /** The pack's records a tenancy's pages list: one that follows another (Florida's objection, after the claim notice)
- *  waits for it, and one made only on request (New York's late acknowledgment) is listed once it exists. */
+ *  waits for it. */
 export const listedRecords = (pack: ClientPack, phase: RecordDef["phase"] | undefined, notices: Notices) =>
-  recordsFor(pack, phase).filter((r) => (!r.after || !!notices[r.after]) && (!r.hiddenUntilRecorded || !!notices[r.kind]));
+  recordsFor(pack, phase).filter((r) => !r.after || !!notices[r.after]);
 
 /** The kinds of the pack's notices given once either side gives notice to end the tenancy. */
 export const noticeKindsFor = (pack: ClientPack): NoticeKind[] => recordsFor(pack, "notice").map((r) => r.kind);
@@ -43,7 +42,7 @@ export const recordFor = (pack: ClientPack, kind: NoticeKind) => pack.records.fi
 export const NOTICE_SLUG: Record<NoticeKind, string> = {
   inspection: "inspection", electronic_refund: "electronic-refund", move_in_inspection: "move-in-inspection", deposit_account: "deposit-account",
   holding_notice: "holding-notice", move_in_checklist: "move-in-checklist", forwarding_address: "forwarding-address",
-  claim_notice: "claim-notice", claim_objection: "claim-objection", late_acknowledgment: "late-acknowledgment",
+  claim_notice: "claim-notice", claim_objection: "claim-objection",
 };
 
 /** The kind behind a slug, among the pack's own records only: a Texas tenancy has no inspection notice page. */
@@ -56,7 +55,6 @@ export const RECORD_SHORT: Record<NoticeKind, string> = {
   inspection: "initial-inspection notice", electronic_refund: "electronic-refund notice", move_in_inspection: "move-in inspection offer",
   deposit_account: "deposit account notice", holding_notice: "deposit holding notice", move_in_checklist: "move-in checklist",
   forwarding_address: "forwarding address", claim_notice: "claim notice", claim_objection: "tenant's objection",
-  late_acknowledgment: "late-deduction acknowledgment",
 };
 
 /** The kinds set_notice records (California's two); every other kind goes through set_state_notice. */

@@ -6,7 +6,7 @@ import { depositBlock } from "./demo-pool";
 import { usd } from "./deductions";
 import { returnFailed, wasPaid } from "./invoice-status";
 import { PayPalRefused, SANDBOX, sendPayout, type Invoice } from "./paypal";
-import { railFor, REFUND_WINDOW_DAYS } from "./refund-rail";
+import { railFor, refundOwed, REFUND_WINDOW_DAYS } from "./refund-rail";
 
 // The settlement's money: once the tenants accepted and the landlord approved, the amount agreed on top of the
 // statement's refund goes back through PayPal. The rail is the close-out's own rule (railFor, refund-rail.ts, read
@@ -20,7 +20,8 @@ import { railFor, REFUND_WINDOW_DAYS } from "./refund-rail";
 // settlementPlan, recomputed from the database and PayPal's live state right before PayPal is called, refuses a deposit
 // this workspace doesn't own (a demo copy's shared template payment), a live PayPal environment without a landlord
 // sign-in, PayPal unreachable, an unpaid deposit, a missing written agreement where the state needs one, a statement
-// whose own refund hasn't gone yet, and an amount the payment can't cover. The close-out's other blockers (a charge
+// whose own refund hasn't gone yet, and an amount the payment can't cover; and once the whole deposit went back (New
+// York's forfeited deductions under a live dispute, refund-rail.ts), it moves no money at all. The close-out's other blockers (a charge
 // missing its documents, and the pack's own: Washington's move-in checklist, Florida's claim notice, New York's day 14,
 // Texas's forwarding address) limit what a landlord may keep, or when the statement's refund is owed; a settlement
 // only gives back more, to tenants who accepted it, and the lawful range already gave those charges back, so they
@@ -66,9 +67,19 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   if (!wasPaid(f.deposit.status)) return { blocked: `The deposit invoice is ${f.deposit.status.toLowerCase().replace(/_/g, " ")} in PayPal, not paid, so nothing goes back through PayPal.` };
   if (!f.refundAgreement && pack.refund.agreementRequired) return { blocked: pack.refund.noAgreementBlocker };
   // The settlement goes back on top of the statement's refund, so that refund goes first: the amended statement then
-  // records two payments that were both sent.
-  if (f.totals.refund > 0 && !f.alreadyReturned) {
-    return { blocked: `Send the statement's refund of ${usd(f.totals.refund)} first (Review refund): the settlement goes back on top of it.` };
+  // records two payments that were both sent. Where the deductions are forfeited and a live dispute holds them (New
+  // York after day 14), that refund is the whole deposit (refund-rail.ts, refundOwed).
+  const owed = refundOwed(f);
+  if (owed > 0 && !f.alreadyReturned) {
+    return { blocked: `Send the statement's refund of ${usd(owed)} first (Review refund): the settlement goes back on top of it.` };
+  }
+
+  // Once the whole deposit went back (the close-out's refund of the whole deposit, when its deductions were forfeited
+  // under a live dispute), the settlement has nothing left to send: it records what was agreed and moves no money.
+  const back = cents(payments.filter((p) => ["refund", "payout", "settlement_refund", "settlement_payout"].includes(p.kind) && !returnFailed(p.status))
+    .reduce((s, p) => s + Number(p.amount), 0));
+  if (f.totals.depositHeld - back <= 0.005) {
+    return { rail: "none", amount: 0, why: `The whole deposit, ${usd(f.totals.depositHeld)}, already went back to the tenants, so the settlement moves no more money.` };
   }
 
   // What is left of the payment to refund: PayPal's own count, and ours (the statement's refund and any earlier

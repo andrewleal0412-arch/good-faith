@@ -144,7 +144,6 @@ export const TX: ClientPack = {
     securityTotal: refundableSecurity,
     securityCharge: (c) => c.refundable !== false, // a charge the lease labels nonrefundable is flagged, not invoiced
     chargeWord: "charge",
-    confirmState: true,
     capTip: {
       title: "No deposit cap", cite: C("92.102"),
       text: "Texas sets no limit on a security deposit. A deposit is any advance of money, other than an application deposit or advance rent, intended primarily to secure performance under the lease; a fee labeled nonrefundable may still be one.",

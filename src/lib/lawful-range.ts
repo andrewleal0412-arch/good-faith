@@ -120,6 +120,7 @@ export function lawfulRanges(input: RangeInput, pack: StatePack): Ranges {
   const lateness = pack.dispute.isLate({
     today: input.today, moveOutDate: input.moveOutDate, endDate: input.endDate, plannedMoveOut: input.plannedMoveOut,
     notices: input.notices, deliveredOn: input.deliveredOn, refundedOn: input.refundedOn, sentOn, claimed: rows.length > 0,
+    refundOwed: s.refund > 0.005,
   });
   const doubt = lateness.late ? lateness.doubt ?? null : null;
   const late: Ranges["late"] = {

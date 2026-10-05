@@ -8,8 +8,9 @@ import { findingTitle, type StoredFinding } from "./findings";
 import { paidElectronically, wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
 import { lawfulDeposit, type LeaseTerms } from "./rules";
+import { settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
-import type { StateCode } from "./states/types";
+import type { Standing, StateCode } from "./states/types";
 import { tenantMoveOutUpdatedOn, type TenantMoveOut } from "./tenant";
 
 // The itemized security deposit statement: everything the document needs, from the database and PayPal's live state,
@@ -86,9 +87,9 @@ export type Statement = {
   deliveredAt: string | null;
   tenantForwarding: { address: string; name: string | null; date: string } | null; // given by the tenants through their link, for (h)(6)
   checklist: ChecklistItem[];
-  // How the claimed amounts stand when they are not plain deductions (Florida: disputed; New York: kept after day 14).
-  // Absent otherwise, and always in California.
-  standing?: { label: string; note: string };
+  // How the claimed amounts stand when they are not plain deductions (Florida: disputed; New York: forfeited after day
+  // 14). Absent otherwise, and always in California.
+  standing?: Standing;
   // The wear-and-tear findings, listed at $0 where the state's spec asks for them (Texas, Florida, Washington).
   wear?: { item: string; room: string }[];
   // The settlement of the tenants' dispute, once paid: the amended statement. Absent otherwise.
@@ -215,12 +216,13 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     };
   } else if (totals.depositHeld === 0) {
     refund = { ...base, amount: 0, state: "none", paypalId: null, sentAt: null, method: "No security was received through PayPal, so there is nothing to refund.", note: "" };
-  } else if (totals.refund <= 0) {
+  } else if (totals.refund <= 0 && !facts.standing?.forfeits) {
     refund = { ...base, amount: 0, state: "none", paypalId: null, sentAt: null, method: "No refund is due: the deductions use the whole security.", note: "" };
   } else {
+    // Forfeited deductions (New York after day 14) leave the whole security owed back, whatever they come to.
     const plan = facts.plan;
     refund = {
-      ...base, amount: totals.refund, state: "due", paypalId: null, sentAt: null,
+      ...base, amount: facts.standing?.forfeits ? totals.depositHeld : totals.refund, state: "due", paypalId: null, sentAt: null,
       method: plan.rail === "payout" ? `PayPal Payout to ${plan.email}, to be sent`
         : plan.rail === "refund_original_payment" ? "PayPal refund of the original deposit payment, to be sent"
           : pack.statement.refundDueMethod({ electronic: !!security?.electronic, paypalEmail }),
@@ -258,7 +260,8 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     const lines = deductions.map((d) => ({ n: d.n, item: d.item, amount: d.amount, keep: keepOf(d.id, d.amount) }))
       .map((l) => ({ ...l, adjustment: Math.round((l.keep - l.amount) * 100) / 100 })).filter((l) => l.adjustment !== 0);
     const keptAfter = Math.round(deductions.reduce((t, d) => t + keepOf(d.id, d.amount), 0) * 100) / 100;
-    const amount = Number(settled.amount);
+    // What it added to the money back: nothing when the statement's refund was already the whole deposit.
+    const amount = settledExtra({ agreed: Number(settled.amount), depositHeld: facts.deposit?.amount ?? Infinity, refunded: refund.state === "sent" ? refund.amount : 0 });
     s.settlement = {
       amount, acceptedBy: (settled.tenant_name as string | null) ?? null, acceptedAt: (settled.tenant_accepted_at as string | null) ?? null,
       approvedAt: (settled.landlord_approved_at as string | null) ?? null, sentAt: (settled.sent_at as string | null) ?? null,

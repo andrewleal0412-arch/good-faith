@@ -23,6 +23,7 @@ export function Settlement(p: {
   numbers: Record<string, number>; // finding id to its number on the page
   wear: WearRow[];
   returned: { amount: number; kind: string; id: string; at: string } | null;
+  forfeited?: { label: string; note: string } | null; // New York after day 14: the deductions come back off, the whole deposit is owed
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -143,15 +144,24 @@ export function Settlement(p: {
         <dl className="grid grid-cols-[auto_120px] gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[auto_140px]">
           <dt className="text-right text-ink-3">Deposit held</dt><dd className="text-right">{p.depositHeld == null ? <span className="text-ink-3">Not paid</span> : <Money value={p.depositHeld} />}</dd>
           <dt className="text-right text-ink-3">Deductions</dt><dd className="text-right"><Money value={s.total} sign={s.total ? "minus" : undefined} /></dd>
+          {p.forfeited && (
+            <>
+              <dt className="flex items-center justify-end gap-1.5 text-right text-ink-3">{p.forfeited.label}<InfoTip align="end" title={p.forfeited.label}>{p.forfeited.note}</InfoTip></dt>
+              <dd className="text-right"><Money value={s.total} sign="plus" /></dd>
+            </>
+          )}
           <dt className="mt-0.5 border-t border-line pt-2 text-right font-medium leading-6 text-ink">
-            {s.balanceClaimed > 0 ? "Balance claimed" : p.returned ? "Refunded" : "Refund due"}
+            {s.balanceClaimed > 0 && !p.forfeited ? "Balance claimed" : p.returned ? "Refunded" : p.forfeited ? "Owed back" : "Refund due"}
           </dt>
           <dd className="mt-0.5 border-t border-line pt-2 text-right text-lg font-medium">
-            <Money value={s.balanceClaimed > 0 ? s.balanceClaimed : p.returned ? p.returned.amount : s.refund} />
+            <Money value={s.balanceClaimed > 0 && !p.forfeited ? s.balanceClaimed : p.returned ? p.returned.amount : p.forfeited ? p.depositHeld ?? 0 : s.refund} />
           </dd>
+          {p.forfeited && p.returned && (p.depositHeld ?? 0) - p.returned.amount > 0.005 && (
+            <><dt className="text-right text-ink-3">Still owed</dt><dd className="text-right"><Money value={Math.round(((p.depositHeld ?? 0) - p.returned.amount) * 100) / 100} /></dd></>
+          )}
         </dl>
       </div>
-      {s.balanceClaimed > 0 && (
+      {s.balanceClaimed > 0 && !p.forfeited && (
         <p className="-mt-2 flex items-center justify-end gap-1.5 px-5 pb-3 text-xs text-ink-3">
           A claim, not a demand
           <InfoTip align="end" title="Balance claimed">The statement lists this as a claim, not a demand for payment. The agent never collects it on its own.</InfoTip>

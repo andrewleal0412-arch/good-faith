@@ -105,7 +105,6 @@ export const WA: ClientPack = {
     securityTotal: refundableSecurity,
     securityCharge: (c) => c.refundable !== false, // a charge the lease labels nonrefundable is flagged, not invoiced
     chargeWord: "charge",
-    confirmState: true,
     capTip: { title: "No statewide cap", cite: R("59.18.260 to 59.18.285"), text: "Washington sets no statewide cap on a deposit for these tenancies. A fee the lease doesn't clearly label nonrefundable is a refundable deposit. Seattle, Tacoma, Bellingham and Olympia cap deposits locally." },
     capSub: () => "No statewide cap",
     lawfulSub: () => "As the lease asks; no statewide cap",

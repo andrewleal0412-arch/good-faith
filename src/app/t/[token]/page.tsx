@@ -7,7 +7,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money } from "@/components/ui";
 import { DEMO_EXAMPLE, displayName, maskEmail } from "@/lib/copy";
-import { isClosed, tenantDisputeStatus, type TenantDisputeStatus } from "@/lib/disputes";
+import { draftAction, isClosed, reopens, tenantDisputeStatus, type TenantDisputeStatus } from "@/lib/disputes";
 import { longDate, pacificDate, shortDate } from "@/lib/dates";
 import { returnCompleted, returnFailed } from "@/lib/invoice-status";
 import { streetLine } from "@/lib/ledger";
@@ -38,7 +38,6 @@ const payMethod = (m: string | null) => (!m || m === "PAYPAL" ? "PayPal" : words
 const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const usdText = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
-const CLOSED_WORDS: Record<string, string> = { settled: "settled", no_agreement: "no agreement", withdrawn: "withdrawn" };
 
 export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   const { token } = await params;
@@ -46,9 +45,12 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   if (!link) notFound();
   const [v, dispute] = await Promise.all([loadTenantView(link.tenancyId), tenantDisputeStatus(link.tenancyId)]);
   if (!v) notFound();
-  // A dispute the tenants sent, live or closed: a statement is disputed here once.
+  // A dispute the tenants sent, live or closed. A statement has one live dispute at a time; one they withdrew can be
+  // opened again, as a new dispute of the same statement, and a settled one (or one with no agreement) stays closed.
   const disputeSent = !!dispute && dispute.status !== "draft";
   const disputeClosed = !!dispute && isClosed(dispute.status);
+  const canDispute = ["create", "update"].includes(draftAction(dispute?.status ?? null));
+  const disputeVerb = dispute?.status === "draft" ? "Continue your dispute" : dispute && reopens(dispute.status) ? "Dispute again" : null;
 
   // The law of the state the unit is in: its pack's rules, deadline and citations (California's LEGAL_RULES source S7
   // is the courts' guide, where disputes go).
@@ -114,11 +116,11 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
               ? <ol>{st.deductions.map((d) => <DeductionRow key={d.n} d={d} pack={pack} />)}</ol>
               : <p className="text-ink-3">None. The whole deposit comes back.</p>}
             {/* The way into the dispute where the charges are, not only at the foot of the page. */}
-            {st.deductions.length > 0 && !disputeSent && (
+            {st.deductions.length > 0 && canDispute && (
               <p className="mt-3 border-t border-line-2 pt-3 text-sm text-ink-3">
                 Disagree with a charge?{" "}
                 <a href={`/t/${token}/dispute`} className="font-medium text-brand hover:underline">
-                  {dispute?.status === "draft" ? "Continue your dispute" : "Dispute it"}
+                  {disputeVerb ?? "Dispute it"}
                 </a>
               </p>
             )}
@@ -192,14 +194,14 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
             <div className="mt-4 rounded-lg border border-line-2 bg-surface px-4 py-3.5">
               <p className="font-medium">Questions about a deduction?</p>
               <p className="mt-0.5 text-sm text-ink-3">
-                {st.deductions.length && !disputeSent
+                {st.deductions.length && canDispute
                   ? `Dispute it here: your advocate reads the statement, the photos and ${pack.name} law and drafts your case for ${landlord}.`
                   : <>Ask {landlord} first. The courts&apos; guide explains how disputes are handled.</>}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {st.deductions.length > 0 && !disputeSent && (
+                {st.deductions.length > 0 && canDispute && (
                   <a href={`/t/${token}/dispute`} className={buttonClass("secondary", "sm")}>
-                    {dispute?.status === "draft" ? "Continue your dispute" : "Dispute a deduction"}
+                    {disputeVerb ?? "Dispute a deduction"}
                   </a>
                 )}
                 <a href="#rights" className={buttonClass("secondary", "sm")}>Your rights</a>
@@ -241,7 +243,7 @@ function disputeLine(d: TenantDisputeStatus, landlord: string): string {
   if (d.status === "agreed" && s) return s.accepted ? `You accepted ${usdText(s.amount)} back. Waiting for ${landlord}` : `Settlement offered: ${usdText(s.amount)} back. Waiting on you`;
   if (d.status === "negotiating") return "Being negotiated";
   if (d.status === "no_agreement") return "No agreement yet";
-  if (d.status === "withdrawn") return `Closed: ${CLOSED_WORDS.withdrawn}`;
+  if (d.status === "withdrawn") return "Withdrawn. You can dispute it again";
   return `Sent to ${landlord}${d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}`;
 }
 
@@ -253,27 +255,35 @@ type Tone = "green" | "amber" | "red" | "gray";
 function standing(v: TenantView, pack: StatePack): { label: string; amount: number | null; tone: Tone; title: string; line?: ReactNode; pay?: string | null } {
   const st = v.statement;
   const due = (text: string) => withTip(text, <InfoTip align="end" title={pack.tenant.dueTip.title} cite={pack.tenant.dueTip.cite}>{pack.tenant.dueTip.text}</InfoTip>);
+  // Forfeited deductions (New York after day 14): the whole deposit is owed back, whatever the statement deducted.
+  const forfeit = st?.standing?.forfeits ? st.standing : null;
+  const forfeitTip = (text: string) => withTip(text, <InfoTip align="end" title={forfeit!.label}>{forfeit!.note}</InfoTip>);
   if (v.returned && v.settlement) {
-    // A settled dispute: the statement's refund and the settlement, both by PayPal.
+    // A settled dispute: the statement's refund and the settlement, both by PayPal; or only the statement's refund, when
+    // it was already the whole deposit and the settlement had nothing more to send.
     const r = v.returned, x = v.settlement;
     return {
       label: "Refund amount", amount: Math.round((r.amount + x.amount) * 100) / 100, tone: "green", title: `Settled ${shortDate(pacificDate(x.at))}`,
       line: x.example
         ? `${usdText(r.amount)} with the statement by PayPal, and ${usdText(x.amount)} under the settlement you accepted. ${DEMO_EXAMPLE.tenant}`
-        : `${usdText(r.amount)} with the statement and ${usdText(x.amount)} under the settlement you accepted, both by PayPal.`,
+        : x.amount > 0 ? `${usdText(r.amount)} with the statement and ${usdText(x.amount)} under the settlement you accepted, both by PayPal.`
+          : `${usdText(r.amount)} with the statement by PayPal: the whole deposit, so the settlement you accepted had nothing more to send.`,
     };
   }
   if (v.returned) {
     const r = v.returned, how = r.kind === "payout" ? "PayPal Payout" : "PayPal refund";
     if (returnFailed(r.status)) return { label: "Refund amount", amount: r.amount, tone: "red", title: `Refund ${words(r.status)}`, line: `PayPal reports the ${how} as ${words(r.status)}. Ask your landlord to send it again.` };
     const done = returnCompleted(r.status);
+    const short = forfeit && st ? Math.round((st.depositHeld - r.amount) * 100) / 100 : 0;
     return {
-      label: "Refund amount", amount: r.amount, tone: done ? "green" : "amber", title: `Refund sent ${shortDate(pacificDate(r.at))}`,
-      line: `PayPal shows the ${how.replace("PayPal ", "")} as ${done ? "completed" : words(r.status)}.`,
+      label: "Refund amount", amount: r.amount, tone: done && short <= 0 ? "green" : "amber", title: `Refund sent ${shortDate(pacificDate(r.at))}`,
+      line: short > 0 ? forfeitTip(`${usdText(short)} more is owed: none of the deposit may be kept after day 14.`)
+        : `PayPal shows the ${how.replace("PayPal ", "")} as ${done ? "completed" : words(r.status)}.`,
     };
   }
   if (st) {
     const sent = `Statement sent ${shortDate(st.delivery.date)}`;
+    if (forfeit) return { label: "Owed back", amount: st.refund, tone: "amber", title: sent, line: forfeitTip("Day 14 has passed, so none of the deposit may be kept.") };
     if (st.refund > 0) return { label: "Refund due", amount: st.refund, tone: "amber", title: sent, line: v.statementDue ? due(`The refund is due by ${shortDate(v.statementDue)}.`) : undefined };
     if (st.balanceClaimed > 0) return { label: "Balance claimed", amount: st.balanceClaimed, tone: "gray", title: sent, line: "The statement records it as a claim, not a demand for immediate payment." };
     return { label: "Refund", amount: 0, tone: "gray", title: sent, line: "The deductions used the whole deposit." };
@@ -418,10 +428,15 @@ function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
   if (d) rows.push({ k: d.paid ? "Deposit paid" : "Deposit requested", v: <Money value={d.amount} /> });
   else rows.push({ k: "Deposit", v: <span className="text-ink-3">Not requested yet</span> });
 
+  const forfeits = !!st?.standing?.forfeits;
   if (st) {
-    rows.push({ k: st.standing?.label ?? "Deductions", v: st.total ? <Money value={st.total} sign="minus" /> : <Money value={0} /> });
+    rows.push({ k: st.standing && !forfeits ? st.standing.label : "Deductions", v: st.total ? <Money value={st.total} sign="minus" /> : <Money value={0} /> });
+    // Forfeited deductions come back off, so the total is the whole deposit (New York after day 14).
+    if (forfeits) rows.push({ k: st.standing!.label, v: <Money value={st.total} sign="plus" /> });
     if (st.balanceClaimed > 0) rows.push({ k: "Balance claimed", v: <Money value={st.balanceClaimed} />, total: true });
-    else rows.push({ k: v.returned ? "Refund" : "Refund due", v: <Money value={v.returned?.amount ?? st.refund} />, total: !(v.returned && v.settlement) });
+    else rows.push({ k: v.returned ? "Refund" : forfeits ? "Owed back" : "Refund due", v: <Money value={v.returned?.amount ?? st.refund} />, total: !(v.returned && v.settlement) });
+    const short = forfeits && v.returned ? Math.round((st.depositHeld - v.returned.amount - (v.settlement?.amount ?? 0)) * 100) / 100 : 0;
+    if (short > 0) rows.push({ k: "Still owed", v: <Money value={short} /> });
   }
 
   if (v.returned) {

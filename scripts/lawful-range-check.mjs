@@ -183,6 +183,13 @@ const line = (r, id) => r.lines.find((l) => l.id === id);
   eq("NY: statement on time, refund late: forfeited", [refundLate.late.late, refundLate.late.forfeits, refundLate.lines.map((l) => l.max)], [true, true, [0, 0]]);
   const refundOk = lawfulRanges(base([rent, carpet()], { deliveredOn: "2026-10-10", refundedOn: "2026-10-12" }), NY);
   eq("NY: both by day 14 is on time", refundOk.late.late, false);
+  // The hard block's rule (nyLate): the rest of the deposit still unsent once the last day is behind is late too.
+  const unsent = lawfulRanges(base([rent, carpet()], { deliveredOn: "2026-10-10", refundedOn: null, today: "2026-10-16" }), NY);
+  eq("NY: statement on time, refund owed and still unsent on day 15: forfeited", [unsent.late.late, unsent.late.forfeits, unsent.lines.map((l) => l.max)], [true, true, [0, 0]]);
+  eq("NY: the same on day 14 is not late yet", lawfulRanges(base([rent, carpet()], { deliveredOn: "2026-10-10", refundedOn: null, today: "2026-10-15" }), NY).late.late, false);
+  const usedUp = lawfulRanges(base([rent, carpet()], { depositHeld: 1000, deliveredOn: "2026-10-10", refundedOn: null, today: "2026-10-30" }), NY);
+  eq("NY: statement on time and nothing left to refund: on time after day 14", [usedUp.late.late, usedUp.lines.map((l) => l.max)], [false, [400, 720]]);
+  check("NY: the late text names both halves of day 14", /statement and the rest of the deposit/.test(late.late.text), late.late.text);
   const noProof = lawfulRanges(base([wall({ receipt_path: null, after_photo_paths: [], finding: { id: "n1", classification: "damage", remedy: "repair", confidence: 0.8 } })]), NY);
   check("NY: no evidence is weak under the burden of proof, 7-108(1-a)(f)", line(noProof, "wall").max === 140 && line(noProof, "wall").flags.some((f) => f.cite === "N.Y. GOL 7-108(1-a)(f)"));
 }

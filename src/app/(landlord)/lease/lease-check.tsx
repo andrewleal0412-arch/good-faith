@@ -219,16 +219,20 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
     const t = r.terms;
     return (
       <div className="flex flex-col gap-6">
-        {/* The file that was checked, in one row, with the way to check another. */}
-        <Card className="flex items-center gap-3 px-4 py-3">
+        {/* The file that was checked, in one row, with the state its rules follow (always shown, so a misread state is
+            corrected before the tenancy starts) and the way to check another. On a phone the state and the link take
+            the second row. */}
+        <Card className="flex flex-wrap items-center gap-x-3 gap-y-2.5 px-4 py-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-surface text-ink-3"><Icon name="doc" className="size-[15px]" /></span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium" title={fileName}>{fileName || "Lease"}</p>
             <p className="truncate text-xs text-ink-3">{t.propertyAddress ?? "Address not found in the lease"}</p>
           </div>
-          {pack.lease.confirmState || result?.state !== pack.code ? picker : null}
-          <StatusChip tone="green" className="max-sm:hidden">Checked</StatusChip>
-          <Button variant="link" onClick={reset}>Check another</Button>
+          <div className="flex items-center gap-3 max-sm:w-full max-sm:justify-between max-sm:pl-11">
+            {picker}
+            <StatusChip tone="green" className="max-sm:hidden">Checked</StatusChip>
+            <Button variant="link" onClick={reset}>Check another</Button>
+          </div>
         </Card>
 
         <FactStrip cols={3}>

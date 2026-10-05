@@ -1,14 +1,15 @@
 import "server-only";
 import { CATEGORY_ORDER, isDemoExample } from "./copy";
-import { pacificToday, paypalPaidAt } from "./dates";
+import { pacificDate, pacificToday, paypalPaidAt } from "./dates";
 import { db } from "./db";
 import { basisWords, chargeTitle, settle, type Performer, type Proration, type Work } from "./deductions";
 import { refreshDepositInvoice, type DepositInvoiceRow } from "./deposit";
 import { isTemplate } from "./workspace";
-import { paidElectronically, wasPaid } from "./invoice-status";
+import { paidElectronically, returnFailed, wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
+import { settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
-import type { StateCode } from "./states/types";
+import type { Standing, StateCode } from "./states/types";
 import type { Category, DeliveryRecord } from "./statement";
 import type { TenantMoveOut } from "./tenant";
 
@@ -41,8 +42,8 @@ export type TenantView = {
   statement: {
     delivery: DeliveryRecord; deliveredAt: string; depositHeld: number;
     deductions: TenantDeduction[];
-    total: number; refund: number; balanceClaimed: number; documentsRequired: boolean;
-    standing?: { label: string; note: string }; // a claim disputed (Florida) or kept after day 14 (New York); absent otherwise
+    total: number; refund: number; balanceClaimed: number; documentsRequired: boolean; // refund: what is owed back (the whole deposit when the deductions are forfeited)
+    standing?: Standing; // a claim disputed (Florida) or forfeited after day 14 (New York); absent otherwise
   } | null;
   returned: { amount: number; kind: string; status: string; paypalId: string | null; at: string } | null;
   // The settlement of their dispute, once paid: the extra amount back on top of the statement's refund. Absent otherwise.
@@ -109,10 +110,17 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
       .map((d, i) => ({ n: i + 1, ...d }));
     const depositHeld = deposit?.paid ? deposit.amount : 0;
     const s = settle(depositHeld, rows, pack);
-    const standing = pack.close.standing?.({ today, notices, claimed: s.total, statementDue });
+    // The day the money went back, as the close-out and the statement count it: a refund PayPal refused or reversed
+    // returned nothing.
+    const standing = pack.close.standing?.({
+      today, notices, claimed: s.total, statementDue, deliveredOn: (t.statement_delivery as DeliveryRecord).date,
+      returnedOn: ret && !returnFailed(ret.status as string) ? pacificDate(ret.created_at as string) : null, refundOwed: s.refund > 0,
+    });
+    // Forfeited deductions (New York after day 14) leave the whole deposit owed back, and no balance claimed over it.
+    const forfeits = !!standing?.forfeits;
     statement = {
       delivery: t.statement_delivery as DeliveryRecord, deliveredAt: t.statement_delivered_at as string, depositHeld, deductions: rows,
-      total: s.total, refund: s.refund, balanceClaimed: s.balanceClaimed, documentsRequired: s.documentsRequired,
+      total: s.total, refund: forfeits ? depositHeld : s.refund, balanceClaimed: forfeits ? 0 : s.balanceClaimed, documentsRequired: s.documentsRequired,
       ...(standing ? { standing } : {}),
     };
   }
@@ -124,7 +132,8 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
 
   return {
     ...(settled ? { settlement: {
-      amount: Number(settled.amount), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
+      // What it added: nothing when the statement's refund was already the whole deposit (settlement.ts).
+      amount: settledExtra({ agreed: Number(settled.amount), depositHeld: deposit?.amount ?? Infinity, refunded: ret && !returnFailed(ret.status as string) ? Number(ret.amount) : 0 }), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
       status: (settled.paypal_status as string | null) ?? null, paypalId: (settled.paypal_id as string | null) ?? null, at: settled.sent_at as string,
       example: isDemoExample(settled.raw),
     } } : {}),

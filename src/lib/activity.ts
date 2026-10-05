@@ -95,6 +95,8 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "tenant_opened_statement": return "Opened the itemized statement through the tenant link";
     case "dispute_opened": return `${d?.name ?? "The tenants"} disputed ${d?.lines} deduction${d?.lines === 1 ? "" : "s"} through the tenant link and asked for ${usd(d?.amount_back as number)} back${d?.by_advocate ? ", with the case their advocate wrote" : ""}`;
     case "dispute_drafted": return "The tenants started a dispute through the tenant link";
+    case "dispute_reopened": return "The tenants started a new dispute through the tenant link, after withdrawing the last one";
+    case "dispute_withdrawn": return `${d?.name ?? "The tenants"} withdrew their dispute through the tenant link; the statement stands as sent`;
     case "dispute_draft_changed": return "The tenants changed their draft dispute";
     case "dispute_evidence_added": return `The tenants added ${d?.count} photo${d?.count === 1 ? "" : "s"} to their draft dispute`;
     case "dispute_evidence_removed": return "The tenants removed a photo from their draft dispute";
@@ -136,7 +138,7 @@ const ENDED: Record<string, (d: Record<string, unknown> | null) => string> = {
  *  the tenant link's bookkeeping). */
 export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "close_out_finished", "lease_checked", "tenant_opened_statement", "refund_proposed", "refund_approved", "finding_reviewed", "tenant_link_created", "tenant_link_revoked",
   // The tenants' dispute while it is still their draft: theirs until they send it.
-  "dispute_drafted", "dispute_draft_changed", "dispute_evidence_added", "dispute_evidence_removed", "advocate_case_written",
+  "dispute_drafted", "dispute_reopened", "dispute_draft_changed", "dispute_evidence_added", "dispute_evidence_removed", "advocate_case_written",
   // The negotiation's own steps: its outcome and the settlement are what the list shows.
   "negotiation_started", "negotiation_turn", "settlement_approved", "settlement_rechecked"];
 
@@ -206,6 +208,7 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "tenant_moving_out": return `${d?.name ?? "Tenant"} sent a move-out date`;
     case "tenant_moving_out_changed": return `${d?.name ?? "Tenant"} changed the move-out date`;
     case "dispute_opened": return `${d?.name ?? "Tenant"} disputed ${d?.lines} deduction${d?.lines === 1 ? "" : "s"}`;
+    case "dispute_withdrawn": return `${d?.name ?? "Tenant"} withdrew the dispute`;
     case "negotiation_turn": return d?.side === "landlord" ? "Negotiator answered" : "Tenants' advocate answered";
     case "negotiation_ended": return d?.reason === "agreed" ? "Agents agreed" : d?.reason === "limit" ? "Negotiator asks for your OK" : d?.reason === "no_movement" || d?.reason === "exhausted" ? "No agreement" : "Negotiation stopped";
     case "negotiation_offer": return d?.accept ? "Offer accepted" : `Offer of ${usd(d?.amount_back as number)} made`;

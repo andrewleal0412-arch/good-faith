@@ -60,6 +60,7 @@ export type RefundView = {
     deductions: number;
     balanceClaimed: number;
     standing?: string; // how the claimed amount stands when it is not a plain deduction ("Claimed, disputed"); absent in California
+    forfeited?: boolean; // the deductions are forfeited (New York after day 14), so the whole deposit goes back
     rail: Rail;
     why: string;
     method: string | null; // how the tenants paid, PayPal's code
@@ -132,7 +133,15 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean,
     tip: { title: "Documents", ...rule(RULES.documents) },
   });
   const matches = pendingAmount == null || pendingAmount.toFixed(2) === f.plan.amount.toFixed(2);
-  out.push({
+  const forfeit = f.standing?.forfeits ? f.standing : null;
+  out.push(forfeit ? {
+    // Forfeited deductions (New York after day 14): the whole deposit goes back. Until the deductions are removed (or,
+    // under a live dispute, the refund is the whole deposit) nothing can be sent, so the check fails.
+    key: "amount", label: "Deposit in full",
+    value: `${usd(f.totals.depositHeld)}, ${usd(f.totals.deductions)} in deductions forfeited`,
+    state: f.wholeDeposit && matches ? "ok" : "fail",
+    tip: { title: forfeit.label, body: forfeit.note },
+  } : {
     key: "amount", label: f.standing ? `Deposit less the amount ${f.standing.label.toLowerCase()}` : "Deposit less deductions",
     value: `${usd(f.totals.depositHeld)} less ${usd(f.totals.deductions)}`,
     state: matches ? "ok" : "fail",
@@ -246,8 +255,10 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
     ...base,
     sent: null,
     review: {
-      amount: pending?.amount ?? f.totals.refund, depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
-      balanceClaimed: f.totals.balanceClaimed, ...(f.standing ? { standing: f.standing.label } : {}), rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
+      // What goes back: the whole deposit once the deductions are forfeited (New York after day 14), else the rest.
+      amount: pending?.amount ?? (f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
+      balanceClaimed: f.totals.balanceClaimed, ...(f.standing && !f.standing.forfeits ? { standing: f.standing.label } : {}), ...(f.standing?.forfeits ? { forfeited: true } : {}),
+      rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
       blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),
       checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
       run: await runView(run), pending,

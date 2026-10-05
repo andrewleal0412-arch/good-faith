@@ -3,10 +3,11 @@
 // verified twice on 2026-10-03). A one-month cap on the deposit and advance together, the deposit held in trust (in an
 // interest-bearing New York bank account for six or more units), a move-in inspection offer, a pre-move-out inspection
 // on request, and the itemized statement and the rest of the deposit within 14 days, or every deduction is forfeited.
-// A 14th day on a Saturday, Sunday or public holiday runs to the next business day (GCL 25-a, N20); after it, a
-// deduction stays only under the landlord's recorded acknowledgment (N21, action W). This pack applies 7-108; a rent
-// stabilized unit follows 7-107, which says the same for leases from 2025-11-15. Not yet in code: N14 as a block before
-// occupancy, N24, the interest line's fields (docs/rules/README.md, Known gaps).
+// A 14th day on a Saturday, Sunday or public holiday runs to the next business day (GCL 25-a, N20); after it, nothing
+// may be kept (N21): a hard block since Andrew's decision of 2026-10-04, with no override, so the close-out refunds
+// only the whole deposit. This pack applies 7-108; a rent stabilized unit follows 7-107, which says the same for leases
+// from 2025-11-15. Not yet in code: N14 as a block before occupancy, N24, the interest line's fields
+// (docs/rules/README.md, Known gaps).
 
 import type { Flag, LeaseTerms } from "../rules";
 import { addDays, daysBetween, longDate, MAIL_METHODS, plural, usd } from "./common";
@@ -38,6 +39,20 @@ export function nyLastDay(due: string): string {
   const off = (iso: string) => { const wd = new Date(`${iso}T12:00:00Z`).getUTCDay(); return wd === 0 || wd === 6 || nyHolidays(Number(iso.slice(0, 4))).has(iso); };
   while (off(d)) d = addDays(d, 1);
   return d;
+}
+
+/** N19 to N21: whether day 14 (as General Construction Law 25-a runs it) passed before both the itemized statement and
+ *  the rest of the deposit went out, which forfeits any right to retain any portion of the deposit (GOL 7-108(1-a)(e)).
+ *  Late when the statement wasn't delivered by the last day, or when part of the deposit was owed back and didn't go
+ *  by then; a step still undone counts as late once the last day is behind `today`. Null before the move-out. The
+ *  close-out, the statement, the next step, the tenant page and the dispute all read this one rule. */
+export function nyLate(c: { due: string | null; today: string; deliveredOn: string | null; returnedOn: string | null; refundOwed: boolean }):
+  { due: string; last: string; late: boolean; missed: "statement" | "refund" | null } | null {
+  if (!c.due) return null;
+  const last = nyLastDay(c.due);
+  const missed = (on: string | null) => (on ? on > last : c.today > last);
+  const what = missed(c.deliveredOn) ? "statement" : c.refundOwed && missed(c.returnedOn) ? "refund" : null;
+  return { due: c.due, last, late: !!what, missed: what };
 }
 
 /** A move-in charge that is a fee rather than a deposit or prepaid rent: barred by RPL 238-a(1). */
@@ -165,7 +180,6 @@ export const NY: ClientPack = {
     securityTotal: securityOf,
     securityCharge: (c) => !isFee(c), // N7: deposits and prepaid rent count; fees are barred, not invoiced
     chargeWord: "charge",
-    confirmState: true,
     capTip: { title: "The deposit cap", cite: G("7-108(1-a)(a)"), text: "One month's rent for the deposit and any prepaid rent together; the first month's rent at signing doesn't count. Move-in, pet and key fees are barred altogether (RPL 238-a)." },
     capSub: () => "One month's rent",
     lawfulSub: (l, over) => (!l ? "Confirm the rent first" : over ? `Lease asks ${usd(over)} more` : "Within the cap"),
@@ -191,7 +205,7 @@ export const NY: ClientPack = {
     days: 14,
     clockStart: (c) => c.moveOutDate,
     due: (c) => (c.moveOutDate ? addDays(c.moveOutDate, 14) : null),
-    tip: { title: "14 days after move-out", cite: `${G("7-108(1-a)(e)")}; N.Y. Gen. Constr. Law 25-a`, text: "The itemized statement and the rest of the deposit are due within 14 days after the tenants vacate. Missing it forfeits any right to keep any part of the deposit. A 14th day that falls on a Saturday, Sunday or public holiday runs to the next business day." },
+    tip: { title: "14 days after move-out", cite: `${G("7-108(1-a)(e)")}; N.Y. Gen. Constr. Law 25-a`, text: "The itemized statement and the rest of the deposit are due within 14 days after the tenants vacate. A 14th day that falls on a Saturday, Sunday or public holiday runs to the next business day. Missing it forfeits any right to keep any part of the deposit, so after it Good Faith keeps no deduction: the whole deposit goes back." },
     summary: "14 days",
     railText: "The itemized statement and the rest of the deposit are due within 14 days after the tenants vacate; a 14th day on a weekend or public holiday runs to the next business day (GCL 25-a). Miss it and the landlord forfeits every deduction (7-108(1-a)(e)); a willful violation can cost up to twice the deposit (7-108(1-a)(g)).",
     clockWord: "the 14-day clock",
@@ -199,7 +213,7 @@ export const NY: ClientPack = {
       const last = nyLastDay(due);
       return n <= daysBetween(due, last)
         ? `Day 14 after the move-out, ${longDate(due)}, fell on a weekend or public holiday, so General Construction Law 25-a runs it to ${longDate(last)}: the statement and the rest of the deposit are still on time if they go out by then (N.Y. GOL 7-108(1-a)(e)).`
-        : `The 14th day after the move-out passed ${plural(n, "day")} ago${last !== due ? ` (General Construction Law 25-a ran it to ${longDate(last)})` : ""}. New York forfeits any right to keep any part of the deposit (N.Y. GOL 7-108(1-a)(e)): refund it in full.`;
+        : `The 14th day after the move-out passed ${plural(n, "day")} ago${last !== due ? ` (General Construction Law 25-a ran it to ${longDate(last)})` : ""}. Unless the statement and the rest of the deposit went out by then, New York forfeits any right to keep any part of the deposit (N.Y. GOL 7-108(1-a)(e)).`;
     },
     lastDay: nyLastDay,
     moveOutFirst: "Set the move-out date first: the day the tenants vacate starts the 14-day clock.",
@@ -313,15 +327,6 @@ export const NY: ClientPack = {
         { p: `Within 14 days after you vacate, you will receive an itemized statement of any amount kept and the rest of your deposit${c.due ? `; for a ${c.ends ? longDate(c.ends) : ""} move-out, by ${longDate(c.due)}` : ""}.` },
       ],
       response: ["I request an inspection before I move out. Dates and times that work for me: [[blank:w-64]]", "I do not request an inspection."],
-    },
-    {
-      kind: "late_acknowledgment", slug: "late-acknowledgment", phase: "move_out", hiddenUntilRecorded: true,
-      title: "Deductions kept after day 14", short: "late-deduction acknowledgment", cite: G("7-108(1-a)(e), (g)"), rule: "N21",
-      tip: "The statement and the rest of the deposit did not go out within 14 days after the tenants vacated (a 14th day on a weekend or public holiday runs to the next business day), so the landlord forfeits any right to keep any part of the deposit. The app holds every deduction until you either remove them and refund the deposit in full, or record here why they stay. The tenants may still recover the whole deposit, and a willful violation can cost up to twice the deposit in punitive damages.",
-      when: "Only after day 14, and only to keep a deduction.",
-      draft: false, methods: [["signed", "Acknowledged by the landlord"]], toLabel: "", verb: "Acknowledged",
-      detail: { label: "Why the deductions stay", required: true, placeholder: "For example: the tenants returned the keys on a later day" },
-      form: { method: "Recorded as", date: "Date", button: "Record the acknowledgment" },
     },
   ],
 

@@ -3,8 +3,10 @@
 // MockLanguageModelV4), so no Claude call is made: the checks every turn goes through (the lawful range, a counter
 // between the two sides' last figures, the landlord's limit, citations, wording), a human's own offer (whole dollars,
 // a tenant's figure equal to the landlord's sent to Accept, withdrawing from an agreement), the loop's stops
-// (agreement, no movement, three exchanges used, the limit, a turn the database refused), and the PayPal rail the
-// close-out and the settlement share (refund-rail.ts). Pure: no database, no PayPal. Exit 1 if any fails.
+// (agreement, no movement, three exchanges used, the limit, a turn the database refused), a forfeited deposit conceded in
+// code with no model call (New York after day 14), withdrawing a dispute and opening it again (dispute-status.ts), and
+// the PayPal rail the close-out and the settlement share (refund-rail.ts). Pure: no database, no PayPal. Exit 1 if any
+// fails.
 //
 //   node scripts/negotiation-check.mjs
 
@@ -16,7 +18,7 @@ import { MockLanguageModelV4 } from "ai/test";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
-const [states, range, advocate, nego, rail] = await Promise.all(["states/server", "lawful-range", "advocate", "negotiator", "refund-rail"].map(lib));
+const [states, range, advocate, nego, rail, status] = await Promise.all(["states/server", "lawful-range", "advocate", "negotiator", "refund-rail", "dispute-status"].map(lib));
 const CA = states.packFor("CA"), NY = states.packFor("NY");
 
 let pass = 0, fail = 0;
@@ -238,6 +240,22 @@ const CITES = (file, pack) => new Set(advocate.allowedCitations(pack, file.range
   eq("rail: enough left: refund", rail.railFor(d, null, { amount: 400, remaining: 400 }).rail, "refund_original_payment");
   eq("rail: no capture: payout to the designated account", rail.railFor({ ...d, captureId: null }, "maya@example.com").because, "no_capture");
 }
+{
+  // New York after day 14 under a live dispute (2026-10-05): the deductions can't be removed, so the close-out returns
+  // the whole deposit with them on file, and the dispute's settlement then has no money left to move.
+  const w = (o) => rail.wholeDepositOwed({ forfeits: true, disputeLive: true, alreadyReturned: false, depositHeld: 2000, ...o });
+  check("whole deposit: forfeited deductions a live dispute holds", w({}));
+  check("whole deposit: not without a live dispute (the block waits for them to be removed)", !w({ disputeLive: false }));
+  check("whole deposit: not when nothing is forfeited", !w({ forfeits: false }));
+  check("whole deposit: not once a refund went, nor with no deposit held", !w({ alreadyReturned: true }) && !w({ depositHeld: 0 }));
+  const totals = { depositHeld: 2000, refund: 1600 };
+  eq("refund owed: the deposit less deductions, or the whole deposit", [rail.refundOwed({ totals }), rail.refundOwed({ totals, wholeDeposit: true })], [1600, 2000]);
+  eq("refund owed: deductions over the deposit, forfeited: still the whole deposit", rail.refundOwed({ totals: { depositHeld: 2000, refund: 0 }, wholeDeposit: true }), 2000);
+  eq("settled extra: the agreed amount on top of the statement's refund", rail.settledExtra({ agreed: 400, depositHeld: 2000, refunded: 1600 }), 400);
+  eq("settled extra: nothing once the whole deposit went back", rail.settledExtra({ agreed: 400, depositHeld: 2000, refunded: 2000 }), 0);
+  eq("settled extra: the demo's $270 on a $2,800 deposit is unchanged", rail.settledExtra({ agreed: 270, depositHeld: 2800, refunded: 1790 }), 270);
+  eq("settled extra: no refund yet (the deductions used the deposit)", rail.settledExtra({ agreed: 500, depositHeld: 2000, refunded: 0 }), 500);
+}
 
 /* ---------- The loop ---------- */
 
@@ -344,14 +362,65 @@ function loopFor(file, turns, landlord, tenant, o = {}) {
   check("loop: no answer, no turn", threw);
 }
 {
-  // New York, late: the law forfeits every charge, so whatever the negotiator says, it gives everything back.
+  // New York, late (the hard block, 2026-10-04): the law forfeits every charge, so the landlord's side concedes all of it
+  // in code, citing 7-108(1-a)(e), and no model is asked.
   const file = fileFor([carpet(), wall()], NY, { disputed: ["carpet"], range: { deliveredOn: "2026-10-20" } });
   const t1 = caseTurn(file, { carpet: 0, wall: 140 });
   eq("NY late: the tenants' case is held to $0 on the wall too", [t1.proposal[1].keep, t1.amount_back], [0, 860]);
   const landlord = model(turnOf([L(1, "hold", 720, "Stands.", "N.Y. GOL 7-108(1-a)(e)"), L(2, "hold", 140, "Stands.", "N.Y. GOL 7-108(1-a)(e)")]));
   const { stored, run } = loopFor(file, [t1], landlord, model(), { pack: NY });
   const out = await run();
-  eq("NY late: the negotiator's hold is conceded automatically and that is agreement", [out.reason, stored[0].t.amount_back, stored[0].t.move], ["agreed", 860, "concede"]);
+  eq("NY late: every charge conceded and that is agreement", [out.reason, stored[0].t.amount_back, stored[0].t.move], ["agreed", 860, "concede"]);
+  eq("NY late: no model call", [out.calls, landlord.doGenerateCalls.length], [0, 0]);
+  check("NY late: each line cites the forfeiture", stored[0].t.proposal.every((l) => l.citation === "N.Y. GOL 7-108(1-a)(e)" && /forfeits/.test(l.reason)), JSON.stringify(stored[0].t.proposal));
+  check("NY late: the message says why, plainly", /Day 14 passed/.test(stored[0].t.message) && /N\.Y\. GOL 7-108\(1-a\)\(e\)/.test(stored[0].t.message) && !/court/i.test(stored[0].t.message), stored[0].t.message);
+  // The refund owed and never sent counts too: statement on time, today past the last day.
+  const unsent = fileFor([carpet(), wall()], NY, { disputed: ["carpet"], range: { deliveredOn: "2026-10-10", refundedOn: null, today: "2026-10-20" } });
+  eq("NY late: a refund still owed after day 14 forfeits as well", [unsent.ranges.late.forfeits, unsent.ranges.totals.minBack], [true, 860]);
+  // A limit below the whole amount with automatic concessions off: it stops to ask, still without a call.
+  const asks = loopFor(file, [t1], model(), model(), { pack: NY, policy: { autoConcede: false, limit: 100 } });
+  const out2 = await asks.run();
+  eq("NY late: a limit the law can't meet stops to ask, no call", [out2.reason, out2.calls], ["limit", 0]);
+  // On time, the model answers as before.
+  const onTime = fileFor([carpet(), wall()], NY, { disputed: ["carpet"], range: { deliveredOn: "2026-10-10", refundedOn: "2026-10-10" } });
+  const ontimeLandlord = model(turnOf([L(1, "counter", 360, "Part of it.", "N.Y. GOL 7-108(1-a)(b)"), L(2, "hold", 140, "Stands.", "N.Y. GOL 7-108(1-a)(b)")]));
+  const out3 = await loopFor(onTime, [caseTurn(onTime, { carpet: 0, wall: 140 })], ontimeLandlord, model(turnOf([L(1, "concede", 360), L(2, "hold", 140)])), { pack: NY }).run();
+  eq("NY on time: the negotiator is asked", [out3.calls > 0, ontimeLandlord.doGenerateCalls.length], [true, 1]);
+}
+{
+  // Washington late on every reading also forfeits (RCW 59.18.280(2)), but its statute keeps two defenses the file
+  // can't record, so only New York concedes in code: Washington's negotiator is still asked, and still held to $0.
+  const WA = states.packFor("WA");
+  check("forced concession: New York only", NY.dispute.late.noDefense === true && !WA.dispute.late.noDefense && !CA.dispute.late.noDefense);
+  const file = fileFor([carpet(), wall()], WA, { disputed: ["carpet"], range: { deliveredOn: "2026-11-15", today: "2026-11-20" } });
+  check("WA late: the range forfeits every charge", file.ranges.late.forfeits && file.ranges.lines.every((l) => l.max === 0), JSON.stringify(file.ranges.late));
+  const landlord = model(turnOf([L(1, "concede", 0, "Forfeited.", "RCW 59.18.280(2)"), L(2, "concede", 0, "Forfeited.", "RCW 59.18.280(2)")]));
+  const out = await loopFor(file, [caseTurn(file, { carpet: 0, wall: 0 })], landlord, model(), { pack: WA }).run();
+  eq("WA late: the negotiator is asked", landlord.doGenerateCalls.length, 1);
+  check("WA late: and it can keep nothing", out.landlordBack === file.ranges.totals.maxBack, JSON.stringify(out));
+}
+
+/* ---------- Withdrawing a dispute and opening it again (Andrew, 2026-10-04) ---------- */
+{
+  eq("status: no dispute yet opens one", status.draftAction(null), "create");
+  eq("status: a draft is changed", status.draftAction("draft"), "update");
+  eq("status: a withdrawn dispute opens a new one", status.draftAction("withdrawn"), "create");
+  eq("status: settled stays closed", status.draftAction("settled"), "closed");
+  eq("status: no agreement stays closed", status.draftAction("no_agreement"), "closed");
+  for (const s of ["open", "negotiating", "agreed"]) eq(`status: ${s} is with the landlord`, status.draftAction(s), "sent");
+  check("status: withdrawn is closed and reopens; settled and no agreement don't",
+    status.isClosed("withdrawn") && status.reopens("withdrawn") && !status.reopens("settled") && !status.reopens("no_agreement"));
+  const w = (o) => status.canWithdraw({ status: "open", running: false, settlement: null, ...o });
+  check("withdraw: an open dispute", w({}));
+  check("withdraw: negotiating, or agreed and waiting on the tenants", w({ status: "negotiating" }) && w({ status: "agreed", settlement: { status: "pending", tenantAccepted: false, unconfirmed: false } }));
+  check("withdraw: not a draft, nor a closed dispute", !w({ status: "draft" }) && !w({ status: "settled" }) && !w({ status: "no_agreement" }) && !w({ status: "withdrawn" }));
+  check("withdraw: not while the agents run", !w({ running: true }));
+  check("withdraw: not once the tenants accepted", !w({ status: "agreed", settlement: { status: "pending", tenantAccepted: true, unconfirmed: false } }));
+  check("withdraw: not while a payment is on its way, sent or unconfirmed",
+    !w({ status: "agreed", settlement: { status: "sending", tenantAccepted: false, unconfirmed: false } })
+    && !w({ status: "agreed", settlement: { status: "sent", tenantAccepted: false, unconfirmed: false } })
+    && !w({ status: "agreed", settlement: { status: "failed", tenantAccepted: false, unconfirmed: true } }));
+  check("withdraw: a cancelled settlement doesn't hold it", w({ status: "negotiating", settlement: { status: "cancelled", tenantAccepted: true, unconfirmed: false } }));
 }
 {
   // The prompts: the tenants' words are marked as theirs, the limit never reaches the advocate.

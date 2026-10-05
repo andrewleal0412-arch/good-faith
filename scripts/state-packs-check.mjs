@@ -151,9 +151,20 @@ eq("FL: certified mail needs the delivery date", next({ state: "FL", ...claimed,
 eq("FL: then the objection window", next({ state: "FL", ...claimed, notices: { claim_notice: { date: "2026-10-01", method: "certified", to: "A Tenant", recorded_at: "x", detail: "9407", received: "2026-10-02" } } }).due, "2026-10-17");
 eq("FL: no claim, 15 days", next({ state: "FL", ...moved }).due, "2026-10-15");
 eq("CA unchanged: statement due 21 days", next({ state: "CA", ...moved }).due, "2026-10-21");
+// N21, a hard block since 2026-10-04: an old acknowledgment record (the override it replaced) changes nothing.
 const ack = { late_acknowledgment: { date: "2026-10-20", method: "signed", to: null, recorded_at: "x", detail: "Keys came back on 10-05" } };
-eq("NY: after day 14 the deductions wait for the landlord's choice", next({ state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-10", deductions: [{ category: "damage", amount: 300 }] }).label, "Day 14 has passed: refund in full");
-eq("NY: an acknowledgment moves it on to the statement", next({ state: "NY", notices: { ...offered, ...ack }, ...moved, moveOutDate: "2026-09-10", deductions: [{ category: "damage", amount: 300 }] }).label, "Send the itemized statement and refund");
+const nyLateStep = next({ state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-10", deductions: [{ category: "damage", amount: 300 }] });
+eq("NY: after day 14 the step is the full refund", [nyLateStep.label, nyLateStep.level, nyLateStep.cite, nyLateStep.action?.path], ["Day 14 has passed: refund in full", "overdue", "N.Y. GOL 7-108(1-a)(e)", "?tab=move-out"]);
+eq("NY: an old acknowledgment no longer moves it on", next({ state: "NY", notices: { ...offered, ...ack }, ...moved, moveOutDate: "2026-09-10", deductions: [{ category: "damage", amount: 300 }] }).label, "Day 14 has passed: refund in full");
+eq("NY: on the last day the statement is still the step", next({ state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-19", deductions: [{ category: "damage", amount: 300 }] }).label, "Send the itemized statement and refund");
+eq("NY: no deductions, nothing forfeited", next({ state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-10" }).label, "Send the itemized statement and refund");
+const nyOut = { state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-10", deductions: [{ category: "damage", amount: 300 }] };
+eq("NY: statement out on time, refund still owed after day 14: the full refund", next({ ...nyOut, statementDeliveredAt: "2026-09-20T17:00:00Z", statementDeliveredOn: "2026-09-20" }).label, "Day 14 has passed: refund in full");
+eq("NY: statement out on day 15: the full refund", next({ ...nyOut, statementDeliveredAt: "2026-09-25T17:00:00Z", statementDeliveredOn: "2026-09-25", deductions: [{ category: "damage", amount: 2500 }] }).label, "Day 14 has passed: refund in full");
+eq("NY: statement on time and the deductions use the whole deposit: done", next({ ...nyOut, statementDeliveredAt: "2026-09-20T17:00:00Z", statementDeliveredOn: "2026-09-20", deductions: [{ category: "damage", amount: 2500 }] }).label, "Done");
+const nyDisputed = next({ ...nyOut, statementDeliveredAt: "2026-09-20T17:00:00Z", statementDeliveredOn: "2026-09-20", dispute: "open" });
+eq("NY: under a live dispute the step is the whole deposit, sent as it is (the deductions can't be removed)", [nyDisputed.label, nyDisputed.action?.path, /whole deposit/.test(nyDisputed.detail)], ["Day 14 has passed: refund in full", "refund", true]);
+eq("NY: a live dispute before day 14 leaves the usual refund step", next({ ...nyOut, moveOutDate: "2026-09-25", statementDeliveredAt: "2026-09-28T17:00:00Z", statementDeliveredOn: "2026-09-28", dispute: "open" }).label, "Send the refund");
 const objected = (date) => ({ claim_notice: { date: "2026-09-15", method: "certified", to: "A", recorded_at: "x", detail: "9407", received: "2026-09-17" }, claim_objection: { date, method: "mail", to: "A", recorded_at: "x" } });
 eq("FL: a timely objection: refund the undisputed balance", next({ state: "FL", ...claimed, moveOutDate: "2026-09-01", notices: objected("2026-09-25") }).label, "Refund the undisputed balance");
 eq("FL: the undisputed balance is due 30 days after the notice", next({ state: "FL", ...claimed, moveOutDate: "2026-09-01", notices: objected("2026-09-25") }).due, "2026-10-15");
@@ -163,7 +174,7 @@ eq("FL: a late objection leaves the claim to be deducted", next({ state: "FL", .
 const facts = (o = {}) => ({ today, tenancy: { address: "x", tenants: ["A Tenant"], moveOutDate: "2026-09-10", statementDue: null, daysLeft: -9 }, deposit: { status: "PAID" }, refundAgreement: null, deductions: [{ item: "Carpet", category: "damage", amount: 400 }], totals: {}, alreadyReturned: null, plan: {}, blockers: [], warnings: [], rules: {}, ...o });
 const ctx = (o = {}) => ({ today, notices: {}, forwarding: null, endDate: null, plannedMoveOut: null, deductionsCount: 1, ...o });
 const nyFacts = (due, o = {}) => facts({ tenancy: { address: "x", tenants: ["A"], moveOutDate: "2026-09-10", statementDue: due, daysLeft: -9 }, totals: { deductions: 400 }, ...o });
-check("NY: day 14 passed forfeits the deductions", NY.close.extraBlockers(nyFacts("2026-09-24"), ctx()).some((b) => /forfeits/.test(b)));
+check("NY: day 14 passed forfeits the deductions", NY.close.extraBlockers(nyFacts("2026-09-24"), ctx()).some((b) => /forfeits/.test(b) && /N\.Y\. GOL 7-108\(1-a\)\(e\)/.test(b)));
 check("NY: nothing to forfeit without deductions", NY.close.extraBlockers(nyFacts("2026-09-24", { deductions: [] }), ctx()).length === 0);
 eq("NY GCL 25-a: a Saturday day 14 before Columbus Day runs to Tuesday", NY.deadline.lastDay("2026-10-10"), "2026-10-13");
 eq("NY GCL 25-a: general election day", NY.deadline.lastDay("2026-11-03"), "2026-11-04");
@@ -173,10 +184,35 @@ eq("NY GCL 25-a: a weekday is itself", NY.deadline.lastDay("2026-10-14"), "2026-
 check("NY: no forfeiture on the day 25-a allows", NY.close.extraBlockers(nyFacts("2026-10-10"), ctx({ today: "2026-10-13" })).length === 0);
 check("NY: forfeiture the day after it", NY.close.extraBlockers(nyFacts("2026-10-10"), ctx({ today: "2026-10-14" })).some((b) => /General Construction Law 25-a/.test(b)));
 check("NY: the late warning says the extension holds", /still on time/.test(NY.deadline.lateWarning(2, "2026-10-10")) && /forfeits/.test(NY.deadline.lateWarning(4, "2026-10-10")));
-check("NY: an acknowledgment lifts the block", NY.close.extraBlockers(nyFacts("2026-09-24"), ctx({ notices: ack })).length === 0);
-check("NY: and warns of the forfeiture", NY.close.extraWarnings(nyFacts("2026-09-24"), ctx({ notices: ack })).some((w) => /forfeits/.test(w) && /twice the deposit/.test(w)));
-eq("NY: the statement says the deductions were kept after day 14", NY.close.standing({ today, notices: ack, claimed: 400, statementDue: "2026-09-24" })?.label, "Kept after day 14");
-eq("NY: no standing before day 14", NY.close.standing({ today: "2026-09-20", notices: ack, claimed: 400, statementDue: "2026-09-24" }), null);
+// The hard block (N21, 2026-10-04): nothing the landlord records lifts it, the blocker names no way to keep a deduction,
+// and the cases on both sides of day 14 (as GCL 25-a runs it) for the statement and for the rest of the deposit.
+check("NY: an acknowledgment no longer lifts the block", NY.close.extraBlockers(nyFacts("2026-09-24"), ctx({ notices: ack })).length === 1);
+check("NY: the blocker offers no override", NY.close.extraBlockers(nyFacts("2026-09-24"), ctx()).every((b) => !/acknowledg|record why/i.test(b) && /remove the deductions/.test(b)));
+check("NY: no record lets a deduction stay", !NY.records.some((r) => r.kind === "late_acknowledgment"));
+const owed = (o = {}) => nyFacts("2026-09-24", { totals: { deductions: 400, refund: 1600 }, ...o });
+check("NY: statement on day 14, refund still owed on day 14: not yet late", NY.close.extraBlockers(owed(), ctx({ today: "2026-09-24", deliveredOn: "2026-09-24" })).length === 0);
+check("NY: statement on time, refund still owed the day after: forfeited", NY.close.extraBlockers(owed(), ctx({ today: "2026-09-25", deliveredOn: "2026-09-20" })).some((b) => /before the rest of the deposit went back/.test(b)));
+check("NY: statement on time, nothing left to refund: no block after day 14", NY.close.extraBlockers(nyFacts("2026-09-24", { totals: { deductions: 2000, refund: 0 } }), ctx({ deliveredOn: "2026-09-20" })).length === 0);
+check("NY: statement delivered on day 15, nothing owed: forfeited", NY.close.extraBlockers(nyFacts("2026-09-24", { totals: { deductions: 2000, refund: 0 } }), ctx({ deliveredOn: "2026-09-25" })).some((b) => /before the itemized statement went out/.test(b)));
+check("NY: the refund already sent: nothing more the close-out can do", NY.close.extraBlockers(nyFacts("2026-09-24", { alreadyReturned: { kind: "refund", amount: 1600, paypalId: "R", at: "2026-09-20T00:00:00Z" } }), ctx()).length === 0);
+check("NY: a dispute the tenants sent: no block, and the refund is the whole deposit",
+  NY.close.extraBlockers(owed(), ctx({ deliveredOn: "2026-09-20", disputeLive: true })).length === 0
+  && NY.close.extraWarnings(owed(), ctx({ deliveredOn: "2026-09-20", disputeLive: true })).some((w) => /returns the whole deposit/.test(w) && /no more money/.test(w)));
+check("NY: no dispute, no such warning", !NY.close.extraWarnings(owed(), ctx({ deliveredOn: "2026-09-20" })).some((w) => /settlement/.test(w)));
+check("NY GCL 25-a: a Saturday day 14, statement on the Tuesday after Columbus Day: on time", NY.close.extraBlockers(nyFacts("2026-10-10", { totals: { deductions: 400, refund: 0 } }), ctx({ today: "2026-10-20", deliveredOn: "2026-10-13" })).length === 0);
+check("NY GCL 25-a: on the Wednesday: forfeited", NY.close.extraBlockers(nyFacts("2026-10-10", { totals: { deductions: 400, refund: 0 } }), ctx({ today: "2026-10-20", deliveredOn: "2026-10-14" })).length === 1);
+const nyStanding = (o) => NY.close.standing({ today, notices: ack, claimed: 400, statementDue: "2026-09-24", deliveredOn: null, returnedOn: null, refundOwed: true, ...o });
+eq("NY: the statement prints the deductions as forfeited, the whole deposit owed", [nyStanding({})?.label, nyStanding({})?.forfeits, /N\.Y\. GOL 7-108\(1-a\)\(e\)/.test(nyStanding({})?.note ?? "")], ["Forfeited after day 14", true, true]);
+eq("NY: no standing before day 14", nyStanding({ today: "2026-09-20" }), null);
+eq("NY: no standing when the statement and the refund both went by day 14", nyStanding({ deliveredOn: "2026-09-23", returnedOn: "2026-09-24" }), null);
+eq("NY: a refund sent on day 15 is forfeited", nyStanding({ deliveredOn: "2026-09-23", returnedOn: "2026-09-25" })?.label, "Forfeited after day 14");
+eq("NY: no standing without deductions", nyStanding({ claimed: 0 }), null);
+const nyLate = (await lib("states/ny")).nyLate;
+eq("nyLate: day 14 itself is on time", nyLate({ due: "2026-10-15", today: "2026-10-15", deliveredOn: "2026-10-15", returnedOn: "2026-10-15", refundOwed: true })?.late, false);
+eq("nyLate: day 15 is late", nyLate({ due: "2026-10-15", today: "2026-10-16", deliveredOn: "2026-10-16", returnedOn: null, refundOwed: false })?.missed, "statement");
+eq("nyLate: an undone refund is late once the last day is behind", nyLate({ due: "2026-10-15", today: "2026-10-16", deliveredOn: "2026-10-14", returnedOn: null, refundOwed: true })?.missed, "refund");
+eq("nyLate: an undone refund is not late before it", nyLate({ due: "2026-10-15", today: "2026-10-15", deliveredOn: "2026-10-14", returnedOn: null, refundOwed: true })?.late, false);
+eq("nyLate: no move-out, no answer", nyLate({ due: null, today, deliveredOn: null, returnedOn: null, refundOwed: true }), null);
 const flFacts = (o = {}) => facts({ tenancy: { address: "x", tenants: ["A"], moveOutDate: "2026-09-01", statementDue: "2026-10-15", daysLeft: 12 }, totals: { deductions: 400 }, ...o });
 check("FL: an objection inside the window ends the wait", FL.close.extraBlockers(flFacts(), ctx({ today: "2026-09-25", notices: objected("2026-09-25") })).length === 0);
 check("FL: a timely objection makes the claim disputed", FL.close.extraWarnings(flFacts(), ctx({ notices: objected("2026-09-25") })).some((w) => /undisputed balance/.test(w)));

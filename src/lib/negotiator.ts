@@ -484,6 +484,27 @@ export async function agentTurn(o: {
   });
 }
 
+/** The landlord's answer when the state forfeits the deposit over a late statement and its statute names no defense
+ *  (`late.forfeits` with the pack's `late.noDefense`: New York after day 14): every charge's lawful range is $0, so
+ *  there is nothing to negotiate. Code concedes each charge with the rule and its citation, and no model is asked.
+ *  Washington's forfeiture keeps two defenses the file can't record, so its negotiator is still asked (and still held
+ *  to $0). Checked like any turn, so the landlord's limit still holds: a limit below the whole amount, with automatic
+ *  concessions off, stops it to ask. */
+export function forfeitTurn(o: { file: CaseFile; pack: StatePack; turns: Turn[]; policy: NegotiationPolicy }): CheckResult {
+  const r = o.file.ranges;
+  const own = latestOf(o.turns, "landlord"), other = latestOf(o.turns, "tenant");
+  const raw: RawTurn = {
+    lines: r.lines.map((l) => ({ line: l.n, move: "concede" as const, keep: 0, reason: r.late.text, citation: r.late.cite })),
+    message: `${r.late.text} Every charge goes back to the tenants (${r.late.cite}).`,
+    reasoning: `${o.pack.name} law settles this one: once the deposit is forfeited, the most the landlord may keep of any charge is $0, so the app conceded each charge without asking the negotiator.`,
+  };
+  return checkTurn({
+    side: "landlord", actor: "agent", ranges: r, raw,
+    own: own ? keepsOf(own) : statementKeeps(r), other: other ? keepsOf(other) : statementKeeps(r),
+    allowed: new Set(allowedCitations(o.pack, r)), limit: effectiveLimit(o.policy, r),
+  });
+}
+
 /* ---------- The loop ---------- */
 
 export type StopReason = "agreed" | "no_movement" | "exhausted" | "limit" | "stopped";
@@ -523,9 +544,15 @@ export async function runNegotiation(o: {
     const last = all[all.length - 1];
     const side: Side = last.side === "tenant" ? "landlord" : "tenant";
     const otherSide: Side = side === "landlord" ? "tenant" : "landlord";
-    calls++;
-    await o.onCall?.();
-    const res = await agentTurn({ side, file: o.file, pack: o.pack, turns: all, policy: o.policy, model: o.models?.[side] });
+    // A forfeited deposit with no defense in the statute leaves the landlord's side nothing to argue: code concedes it
+    // all, with no model call.
+    const forced = side === "landlord" && o.file.ranges.late.forfeits && !!o.pack.dispute.late.noDefense;
+    if (!forced) {
+      calls++;
+      await o.onCall?.();
+    }
+    const res = forced ? forfeitTurn({ file: o.file, pack: o.pack, turns: all, policy: o.policy })
+      : await agentTurn({ side, file: o.file, pack: o.pack, turns: all, policy: o.policy, model: o.models?.[side] });
     if (!res.ok) return done("limit", { wanted: res.wanted, limit: res.limit });
     const turn: Turn = { ...res.turn, n: last.n + 1 };
     const agreement = same(turn.amount_back, Number(latestOf(all, otherSide)?.amount_back ?? -1));

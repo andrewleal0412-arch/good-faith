@@ -10,10 +10,10 @@ import { RulesChip } from "@/components/rules-chip";
 import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBox, Table, Tabs, Td, Th, Thumb, trClass } from "@/components/ui";
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
-import { wasPaid } from "@/lib/invoice-status";
+import { returnFailed, wasPaid } from "@/lib/invoice-status";
 import { db } from "@/lib/db";
 import { DEMO_DEPOSIT_DATE } from "@/lib/demo-pool";
-import { settle, type StoredDeduction } from "@/lib/deductions";
+import { settle, usd, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
 import { loadLandlordDispute } from "@/lib/disputes";
@@ -189,6 +189,13 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const money = settle(held ?? 0, deductions, pack);
   const due = dueOf(summary);
   const delivery = t.statement_delivery ? (t.statement_delivery as DeliveryRecord) : null;
+  // New York after day 14 (the statement's standing): the deductions stay as claimed and the whole deposit is owed back.
+  const returnedOk = returned && !returnFailed(returned.status as string) ? returned : null;
+  const forfeit = held && deductions.length ? pack.close.standing?.({
+    today, notices: summary.notices, claimed: money.total, statementDue: due, deliveredOn: delivery?.date ?? null,
+    returnedOn: returnedOk ? pacificDate(returnedOk.created_at) : null, refundOwed: money.refund > 0,
+  }) : null;
+  const forfeited = forfeit?.forfeits ? forfeit : null;
   // This unit's money events, from the refreshed invoice row and the deductions, as the Payments ledger lists them.
   const moneyRows = ledgerRows(t, paymentRows, (deductionRows ?? []) as LedgerDeduction[]);
   const paidOn = moneyRows.find((r) => r.kind === "payment")?.date ?? null;
@@ -371,10 +378,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           <FactStrip cols={4}>
             <Fact label="Deposit held" info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
               sub={held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid"} />
-            <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}`} />
-            <Fact label={returned ? "Refunded" : money.balanceClaimed > 0 ? "Balance claimed" : "Refund due"} big
-              value={<Money value={returned ? Number(returned.amount) : money.balanceClaimed > 0 ? money.balanceClaimed : money.refund} cents="small" phoneCents="full" />}
-              sub={returned ? `By PayPal, ${shortDate(pacificDate(returned.created_at))}` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
+            <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
+              info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />
+            <Fact label={returned ? "Refunded" : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : "Refund due"} big
+              value={<Money value={returned ? Number(returned.amount) : forfeited ? held ?? 0 : money.balanceClaimed > 0 ? money.balanceClaimed : money.refund} cents="small" phoneCents="full" />}
+              sub={forfeited && returned && (held ?? 0) - Number(returned.amount) > 0.005 ? `${usd(Math.round(((held ?? 0) - Number(returned.amount)) * 100) / 100)} still owed`
+                : returned ? `By PayPal, ${shortDate(pacificDate(returned.created_at))}` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
             <Fact label={dueLabelOf(summary)}
               info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
               value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
@@ -416,6 +425,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                 numbers={numbers}
                 wear={wearRows}
                 returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, at: returned.created_at } : null}
+                forfeited={forfeited ? { label: forfeited.label, note: forfeited.note } : null}
               />
             </section>
           )}
@@ -425,7 +435,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
               <CloseOut
                 tenancyId={id}
                 tenants={summary.tenants}
-                due={money.refund}
+                due={forfeited ? held ?? 0 : money.refund}
                 returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, on: pacificDate(returned.created_at) } : null}
                 run={run ? { status: run.status, error: run.error, at: run.created_at ? pacificDate(run.created_at) : null, pendingAmount } : null}
                 tenantView={tenantPath ? { href: tenantPath, delivered: !!t.statement_delivered_at, disputed: !!dispute } : null}

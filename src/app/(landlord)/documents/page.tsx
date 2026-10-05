@@ -65,7 +65,7 @@ export default async function DocumentsPage() {
     <InfoTip title="What each document is for">
       <span className="flex flex-col gap-1">
         <span>{refundRecordWords(one).name}: {one.refund.documentsTip.cite}</span>
-        {[...recordsFor(one, "move_in"), ...recordsFor(one, "notice"), ...recordsFor(one, "move_out")].filter((r) => !r.hiddenUntilRecorded).map((r) => (
+        {[...recordsFor(one, "move_in"), ...recordsFor(one, "notice"), ...recordsFor(one, "move_out")].map((r) => (
           <span key={r.kind}>{cap(r.short)}: {r.cite}</span>
         ))}
         <span>Itemized statement: {one.statement.documentRow.cite}</span>

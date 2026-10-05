@@ -12,6 +12,7 @@ import { Money, Notice, StatusChip, inputClass, textareaClass } from "@/componen
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
 import { DEMO_EXAMPLE } from "@/lib/copy";
 import { pacificDate, shortDate } from "@/lib/dates";
+import { canWithdraw } from "@/lib/dispute-status";
 import type { DisputeLineView, TenantDisputeView } from "@/lib/disputes";
 import type { LoadedNegotiation } from "@/lib/negotiation";
 import { uploadPhotos } from "@/lib/uploads";
@@ -44,8 +45,13 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
 }) {
   const router = useRouter();
   const d = view.dispute;
-  const runningOnLoad = !!d && d.status === "draft" && d.advocateStatus === "running";
-  const [mode, setMode] = useState<"edit" | "working" | "case">(runningOnLoad ? "working" : d?.advocate && d.status === "draft" ? "case" : "edit");
+  // A dispute the tenants withdrew can be opened again: a new one of the same statement, its form filled in from the
+  // withdrawn one's charges and reasons (photos are added again). `draft` is the dispute being written, if any.
+  const [again, setAgain] = useState(false);
+  const draft = d?.status === "draft" ? d : null;
+  const reopening = again && d?.status === "withdrawn"; // until the first save makes the new draft
+  const runningOnLoad = !!draft && draft.advocateStatus === "running";
+  const [mode, setMode] = useState<"edit" | "working" | "case">(runningOnLoad ? "working" : draft?.advocate ? "case" : "edit");
   const [waiting, setWaiting] = useState(runningOnLoad); // a run this page didn't start: poll until it ends
   const [picked, setPicked] = useState<string[]>(d?.items.map((i) => i.deductionId) ?? []);
   const [reasons, setReasons] = useState<Record<string, string>>(Object.fromEntries(d?.items.map((i) => [i.deductionId, i.reason]) ?? []));
@@ -55,7 +61,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
   const [fresh, setFresh] = useState<AdvocateCase | null>(null); // the case a run just returned, before the page refreshes
   const [edited, setEdited] = useState(false); // changes on this page not saved yet
   const [busy, setBusy] = useState<null | "save" | "send" | "remove">(null);
-  const [error, setError] = useState(d?.advocateError && d.status === "draft" && !runningOnLoad ? "Your advocate couldn't finish last time. Try again." : "");
+  const [error, setError] = useState(draft?.advocateError && !runningOnLoad ? "Your advocate couldn't finish last time. Try again." : "");
   const [confirm, dialog] = useConfirm();
 
   // A run in progress when the page loaded, or one a second tap found working: ask the server until it ends, then
@@ -87,15 +93,17 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
     return () => { stopped = true; clearInterval(t); };
   }, [waiting, token, router]);
 
-  const evidence = d?.evidence ?? [];
+  const evidence = draft?.evidence ?? [];
   const queued = picked.reduce((n, id) => n + (files[id]?.length ?? 0), 0);
   // A case this page just got and the refreshed view doesn't show yet stands in for the view's.
-  const pending = !!fresh && fresh.at !== d?.advocate?.at;
-  const advocate = pending ? fresh : d?.advocate ?? null;
+  const pending = !!fresh && fresh.at !== draft?.advocate?.at;
+  const advocate = pending ? fresh : draft?.advocate ?? null;
   // The saved draft (or the statement's amounts) changed after the case was written: it can't be sent as it is.
-  const serverStale = !pending && !!d?.stale;
+  const serverStale = !pending && !!draft?.stale;
 
-  if (d && d.status !== "draft") return <Sent token={token} landlord={landlord} view={view} negotiation={negotiation} />;
+  if (d && !draft && !reopening) {
+    return <Sent token={token} landlord={landlord} view={view} negotiation={negotiation} onAgain={d.status === "withdrawn" ? () => { setError(""); setAgain(true); } : undefined} />;
+  }
 
   const problem = (): string => {
     if (!picked.length) return "Pick at least one charge.";
@@ -238,9 +246,12 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
 
   return (
     <>
+      {reopening && (
+        <Notice tone="gray" className="mt-6">A new dispute of the same statement. Your reasons from the withdrawn one are filled in; add any photos again.</Notice>
+      )}
       {view.late.late && (
         <Notice tone="amber" className="mt-6">
-          The statement {view.late.doubt ? "may have gone" : "went"} out after {stateName}&apos;s deadline.{" "}
+          This statement {view.late.doubt ? "may be" : "is"} late under {stateName}&apos;s deadline.{" "}
           <InfoTip title="A late statement" cite={view.late.cite}>{view.late.text}</InfoTip>
         </Notice>
       )}
@@ -420,15 +431,18 @@ function CaseLines({ c, view }: { c: AdvocateCase; view: TenantDisputeView }) {
 
 /* ---------- Sent ---------- */
 
-/** The dispute once sent: where it stands (the landlord's answer, the settlement to accept, or no agreement and what the
- *  state's process is), the negotiation turn by turn, and what the tenants sent. */
-function Sent({ token, landlord, view, negotiation }: { token: string; landlord: string; view: TenantDisputeView; negotiation: LoadedNegotiation | null }) {
+/** The dispute once sent: where it stands (the landlord's answer, the settlement to accept, no agreement and what the
+ *  state's process is, or withdrawn with the way to dispute again), the negotiation turn by turn, and what the tenants
+ *  sent. While it is open they may withdraw it. */
+function Sent({ token, landlord, view, negotiation, onAgain }: {
+  token: string; landlord: string; view: TenantDisputeView; negotiation: LoadedNegotiation | null; onAgain?: () => void;
+}) {
   const router = useRouter();
   const d = view.dispute!;
   const n = negotiation;
   const s = n?.settlement ?? null;
   const [name, setName] = useState(d.openedBy ?? (view.tenants.length === 1 ? view.tenants[0] : ""));
-  const [busy, setBusy] = useState<null | "accept" | "offer">(null);
+  const [busy, setBusy] = useState<null | "accept" | "offer" | "withdraw">(null);
   const [error, setError] = useState("");
   const [offerOpen, setOfferOpen] = useState(false);
   const [amount, setAmount] = useState("");
@@ -455,6 +469,12 @@ function Sent({ token, landlord, view, negotiation }: { token: string; landlord:
   }, [n?.running, token, router]);
 
   const settled = !!n && (n.status === "settled" || s?.status === "sent");
+  // The tenants may take back a dispute that is still live, except while the agents run, once they accepted a
+  // settlement, or while its payment is on its way (the server checks the same under the dispute's lock).
+  const withdrawable = !!n && !settled && canWithdraw({
+    status: n.status, running: n.running,
+    settlement: s ? { status: s.status, tenantAccepted: !!s.tenantAcceptedAt, unconfirmed: s.unconfirmed } : null,
+  });
   const offered = n?.landlordBack ?? null;
   const live = !!n && ["open", "negotiating", "no_agreement", "agreed"].includes(n.status) && !n.running && s?.status !== "sending" && !s?.unconfirmed && !settled;
   const lo = Math.min(offered ?? 0, n?.tenantBack ?? 0), hi = Math.max(offered ?? 0, n?.tenantBack ?? 0);
@@ -506,6 +526,20 @@ function Sent({ token, landlord, view, negotiation }: { token: string; landlord:
     router.refresh();
   }
 
+  async function withdraw() {
+    if (!name) return setError("Pick your name.");
+    const ok = await confirm({
+      title: "Withdraw your dispute?",
+      body: `The statement then stands as ${landlord} sent it, and ${landlord} sees that you withdrew it. You can dispute it again later from this page.`,
+      action: "Withdraw",
+    });
+    if (!ok) return;
+    setBusy("withdraw");
+    await post("withdraw", { name });
+    setBusy(null);
+    router.refresh();
+  }
+
   async function counter() {
     const amt = Number(amount.replace(/[$,\s]/g, ""));
     if (amount.trim() === "" || !Number.isFinite(amt)) return setError("Enter how much you ask back.");
@@ -518,18 +552,32 @@ function Sent({ token, landlord, view, negotiation }: { token: string; landlord:
   }
 
   let hero: ReactNode;
-  if (settled && s) {
+  if (n?.status === "withdrawn" || (!n && d.status === "withdrawn")) {
+    hero = (
+      <>
+        <p className="text-sm text-ink-3">You asked back</p>
+        <Money value={d.askedBack ?? 0} className="mt-0.5 block text-2xl font-medium" />
+        <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
+          <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-3"><Icon name="x" className="size-3" /></span>
+          Withdrawn{d.closedAt ? ` ${shortDate(pacificDate(d.closedAt))}` : ""}
+        </p>
+        <p className="mt-1.5 text-ink-2">You withdrew this dispute, so the statement stands as {landlord} sent it. You can dispute it again.</p>
+        {onAgain && <Button variant="primary" size="lg" className="mt-4 h-11 w-full" onClick={onAgain}>Dispute again</Button>}
+      </>
+    );
+  } else if (settled && s) {
     hero = (
       <>
         <p className="text-sm text-ink-3">Settled</p>
-        <Money value={s.amount} className="mt-0.5 block text-2xl font-medium" />
+        <Money value={s.wholeBack ? 0 : s.amount} className="mt-0.5 block text-2xl font-medium" />
         <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
           <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3" /></span>
-          {s.example ? `Settled${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : s.amount > 0 ? `Sent by PayPal${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled"}
+          {s.example ? `Settled${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : s.amount > 0 && !s.wholeBack ? `Sent by PayPal${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled"}
         </p>
         <p className="mt-1.5 text-ink-2">
           {s.example ? `Back to you on top of the statement's refund. ${DEMO_EXAMPLE.tenant}`
-            : s.amount > 0 ? `Back to you on top of the statement's refund${s.paypalId ? `, PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : ""}.` : "The deposit was used in full, so no money moved; the balance claimed went down."} The amended statement records it.
+            : s.wholeBack ? "The whole deposit already went back to you with the statement's refund, so no more money moved."
+              : s.amount > 0 ? `Back to you on top of the statement's refund${s.paypalId ? `, PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : ""}.` : "The deposit was used in full, so no money moved; the balance claimed went down."} The amended statement records it.
         </p>
       </>
     );
@@ -547,7 +595,8 @@ function Sent({ token, landlord, view, negotiation }: { token: string; landlord:
             ? `${landlord} approved it, and the payment through PayPal is being confirmed. This page shows it once PayPal does.`
             : s.tenantAcceptedAt
               ? `${s.tenantName ?? "You"} accepted it ${shortDate(pacificDate(s.tenantAcceptedAt))}. It goes back to you through PayPal once ${landlord} approves it.`
-              : `Back to you on top of the statement's refund. Nothing moves until you accept it and ${landlord} approves it.`}
+              : s.wholeBack ? `The whole deposit already went back to you with the statement's refund, so this moves no more money: it records that the charges were given back.`
+                : `Back to you on top of the statement's refund. Nothing moves until you accept it and ${landlord} approves it.`}
         </p>
         {!s.tenantAcceptedAt && (
           <div className="mt-4 flex flex-col gap-3">
@@ -600,7 +649,7 @@ function Sent({ token, landlord, view, negotiation }: { token: string; landlord:
         <Money value={d.askedBack ?? 0} className="mt-0.5 block text-2xl font-medium" />
         <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
           <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-bg text-amber"><Icon name="clock" className="size-3" /></span>
-          {d.status === "withdrawn" ? "Withdrawn" : `Sent to ${landlord}${d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}`}
+          {`Sent to ${landlord}${d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}`}
         </p>
         <p className="mt-1.5 text-ink-2">
           {n?.running ? "The agents are negotiating. Each turn appears below as it is made." : "Their answer comes back to this page. Nothing changes until you both agree."}
@@ -711,9 +760,14 @@ function Sent({ token, landlord, view, negotiation }: { token: string; landlord:
         {d.message && <p className="mt-3 whitespace-pre-line border-t border-line-2 pt-3 text-sm text-ink-2">{d.message}</p>}
       </Block>
 
-      {n?.status !== "no_agreement" && !settled && (
-        <p className="mt-6 text-sm text-ink-3">
+      {n?.status !== "no_agreement" && !settled && d.status !== "withdrawn" && (
+        <p className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-3">
           <InfoTip trigger={<TipLabel>If you can&apos;t agree</TipLabel>} title={view.forum.name} cite={view.forum.cite}>{view.forum.text}</InfoTip>
+          {withdrawable && (
+            <button type="button" disabled={!!busy} onClick={withdraw} className="ml-auto font-medium text-ink-2 hover:text-ink hover:underline disabled:opacity-50">
+              {busy === "withdraw" ? "Withdrawing..." : "Withdraw dispute"}
+            </button>
+          )}
         </p>
       )}
       {dialog}

@@ -28,7 +28,8 @@ export default async function DisputePage({ params }: PageProps<"/t/[token]/disp
   if (!v) notFound();
   const pack = packFor(v.state);
   const landlord = v.landlord ? displayName(v.landlord) : "Your landlord";
-  const sent = !!v.dispute && v.dispute.status !== "draft";
+  // A withdrawn dispute reads like none: the page is where the tenants dispute the statement again.
+  const sent = !!v.dispute && v.dispute.status !== "draft" && v.dispute.status !== "withdrawn";
 
   return (
     <div className="min-h-screen bg-canvas">

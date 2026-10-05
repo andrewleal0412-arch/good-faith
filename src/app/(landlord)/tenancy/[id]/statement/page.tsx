@@ -58,6 +58,11 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
   const pdfHref = `/api/tenancies/${id}/statement/pdf`;
   const delivered = !!s.delivery;
   const sent = s.refund.state === "sent";
+  // Forfeited deductions (New York after day 14): the lines stay as what was claimed, they come back off in the totals,
+  // and the whole security is what is owed. A claim over the deposit is a separate matter, so no balance is shown then.
+  const forfeits = !!s.standing?.forfeits;
+  const claim = forfeits ? null : s.balanceClaimed;
+  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0)) * 100) / 100) : 0;
   let n = 0;
   const next = () => ++n;
 
@@ -86,15 +91,16 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
       <FactStrip cols={4} className="mt-6 print:hidden">
         <Fact label="Security held" value={<Money value={s.totals.depositHeld} />}
           sub={s.security?.paid ? (s.security.paidAt ? `Paid ${shortDate(pacificDate(s.security.paidAt))}` : "Paid") : "Not paid"} />
-        <Fact label={s.standing?.label ?? "Deductions"} value={<Money value={s.totals.deductions} />} sub={`${s.deductions.length} item${s.deductions.length === 1 ? "" : "s"}`}
+        <Fact label={s.standing && !forfeits ? s.standing.label : "Deductions"} value={<Money value={s.totals.deductions} />}
+          sub={`${s.deductions.length} item${s.deductions.length === 1 ? "" : "s"}${forfeits ? ", forfeited" : ""}`}
           info={s.standing ? <InfoTip title={s.standing.label}>{s.standing.note}</InfoTip> : undefined} />
         {s.settlement ? (
           <Fact big label="Returned in all" value={<Money value={s.settlement.returnedInAll} cents="small" phoneCents="full" />}
             sub={`Statement and settlement, ${shortDate(pacificDate(s.settlement.sentAt ?? s.today))}`} />
         ) : (
-          <Fact big label={s.balanceClaimed ? "Balance claimed" : sent ? "Refunded" : "Refund due"}
-            value={<Money value={s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount} cents="small" phoneCents="full" />}
-            sub={sent && s.refund.sentAt ? `By PayPal, ${shortDate(pacificDate(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
+          <Fact big label={claim ? "Balance claimed" : sent ? "Refunded" : forfeits ? "Owed back" : "Refund due"}
+            value={<Money value={claim ? claim.amount : s.refund.amount} cents="small" phoneCents="full" />}
+            sub={stillOwed ? `${usd(stillOwed)} still owed` : sent && s.refund.sentAt ? `By PayPal, ${shortDate(pacificDate(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
         )}
         <Fact label="Due by"
           info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
@@ -189,9 +195,11 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             )}
             <dl className="print-block ml-auto mt-4 grid max-w-[320px] grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1.5 border-t border-line pt-4">
               <dt className="text-ink-3">Security held</dt><dd className="text-right tabular-nums">{usd(s.totals.depositHeld)}</dd>
-              <dt className="text-ink-3">{s.standing?.label ?? "Deductions"}</dt><dd className="text-right"><Money value={s.totals.deductions} sign={s.totals.deductions ? "minus" : undefined} /></dd>
-              <dt className="mt-1 border-t border-line pt-2 font-medium">{s.balanceClaimed ? "Balance claimed" : sent ? "Refunded" : "Refund"}</dt>
-              <dd className="mt-1 border-t border-line pt-2 text-right text-lg font-medium tabular-nums">{usd(s.balanceClaimed ? s.balanceClaimed.amount : s.refund.amount)}</dd>
+              <dt className="text-ink-3">{s.standing && !forfeits ? s.standing.label : "Deductions"}</dt><dd className="text-right"><Money value={s.totals.deductions} sign={s.totals.deductions ? "minus" : undefined} /></dd>
+              {forfeits && <><dt className="text-ink-3">{s.standing!.label}</dt><dd className="text-right"><Money value={s.totals.deductions} sign="plus" /></dd></>}
+              <dt className="mt-1 border-t border-line pt-2 font-medium">{claim ? "Balance claimed" : sent ? "Refunded" : forfeits ? "Owed back" : "Refund"}</dt>
+              <dd className="mt-1 border-t border-line pt-2 text-right text-lg font-medium tabular-nums">{usd(claim ? claim.amount : s.refund.amount)}</dd>
+              {stillOwed > 0 && <><dt className="text-ink-3">Still owed</dt><dd className="text-right tabular-nums">{usd(stillOwed)}</dd></>}
             </dl>
           </Section>
 
@@ -224,7 +232,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             {s.refund.note && <p className="mt-3 hidden text-sm text-ink-2 print:block">{s.refund.note}</p>}
           </Section>
 
-          {s.settlement && <SettlementSection n={next()} st={s.settlement} landlord={s.landlord} deducted={s.totals.deductions} refund={s.refund.amount} />}
+          {s.settlement && <SettlementSection n={next()} st={s.settlement} landlord={s.landlord} deducted={s.totals.deductions} refund={s.refund.amount} deposit={s.totals.depositHeld} />}
 
           <Section n={next()} title={pack.statement.interestTitle} tip={s.interest.note}>
             <p className={s.interest.known ? "text-amber print:text-ink-2" : "text-ink-2"}>
@@ -275,9 +283,10 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
 }
 
 /** The amended statement: the tenants disputed it, both sides settled, and the extra amount went back by PayPal. */
-function SettlementSection({ n, st, landlord, deducted, refund }: { n: number; st: StatementSettlement; landlord: string; deducted: number; refund: number }) {
+function SettlementSection({ n, st, landlord, deducted, refund, deposit }: { n: number; st: StatementSettlement; landlord: string; deducted: number; refund: number; deposit: number }) {
   const how = st.example ? DEMO_EXAMPLE.short
-    : st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : st.rail ? "PayPal refund of the original deposit payment" : "No money moved: the deposit was used in full";
+    : st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : st.rail ? "PayPal refund of the original deposit payment"
+      : st.refundSent && refund >= deposit - 0.005 ? "No money moved: the whole deposit had already gone back with the statement" : "No money moved: the deposit was used in full";
   return (
     <Section n={n} title="Settlement" tip="The tenants disputed this statement through their link. Their advocate and the landlord's negotiator, each held to what the law and the record allow, agreed on the figures below; the tenants accepted them and the landlord approved them. This section amends the statement. Not legal advice.">
       <p className="text-ink-2">

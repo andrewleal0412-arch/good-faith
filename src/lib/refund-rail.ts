@@ -32,3 +32,22 @@ export function railFor(d: RailFacts, designated: string | null, o: { amount?: n
   }
   return { rail: "blocked", because: inWindow ? "short" : "no_designation" };
 }
+
+/** What a settlement added to the money back, as the amended statement and the tenants' page count it: the agreed
+ *  amount, but never more than the deposit left after the statement's refund. A close-out that returned the whole
+ *  deposit (New York's forfeited deductions under a live dispute) leaves nothing, and its settlement moved no money
+ *  (settlement.ts). */
+export function settledExtra(o: { agreed: number; depositHeld: number; refunded: number }): number {
+  return Math.round(Math.max(0, Math.min(o.agreed, o.depositHeld - o.refunded)) * 100) / 100;
+}
+
+/** Whether the close-out returns the whole deposit with deductions still on file: they are forfeited (New York after
+ *  day 14) and a dispute the tenants sent holds them, so they can't be removed first. Otherwise a forfeiture blocks the
+ *  refund until the landlord removes them, and the close-out never sends less than the whole deposit either way. */
+export const wholeDepositOwed = (o: { forfeits: boolean; disputeLive: boolean; alreadyReturned: boolean; depositHeld: number }) =>
+  o.forfeits && o.disputeLive && !o.alreadyReturned && o.depositHeld > 0;
+
+/** What the close-out returns: the deposit less the deductions, or the whole deposit when wholeDepositOwed. The
+ *  settlement reads the same figure for the refund that must go before it. */
+export const refundOwed = (f: { totals: { depositHeld: number; refund: number }; wholeDeposit?: boolean }) =>
+  (f.wholeDeposit ? f.totals.depositHeld : f.totals.refund);

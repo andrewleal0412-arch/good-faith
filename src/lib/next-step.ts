@@ -33,6 +33,7 @@ export type TenancySummary = {
   moveOutDate: string | null; // the actual move-out, which starts the state's clock
   moveOutInspectedAt: string | null;
   statementDeliveredAt: string | null;
+  statementDeliveredOn?: string | null; // the delivery record's own date, where the caller read it (New York's day 14)
   agreement: boolean; // the tenants' written refund-method agreement is on file (California's AB 414)
   deposit: { amount: number; status: string; paypalId: string | null } | null; // the deposit invoice as last stored
   depositElectronic: boolean; // the deposit reached the landlord electronically, which is what makes California's (h)(1)(A) apply
@@ -143,6 +144,10 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
   if (t.statementDeliveredAt) {
     const delivered = longDate(pacificDate(t.statementDeliveredAt));
     const left = refundLeft(t);
+    // A state where the deadline forfeits the deductions (New York): past it, the refund is the whole deposit, even
+    // where the deductions used all of it.
+    const forfeit = pack.steps.forfeit?.(t, today, h);
+    if (forfeit) return forfeit;
     if (closedOut(t)) {
       const how = t.returned ? `; ${usd(t.returned.amount)} returned by PayPal`
         : !paid ? "; no deposit was paid through PayPal, so there was nothing to return"
@@ -161,7 +166,7 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
     const due = dueOf(t) ?? t.moveOutDate;
     if (!t.moveOutPhotos) return withOpen(dated("Take move-out photos", flow.photosOut.detail, flow.photosOut.cite, due));
     if (!t.moveOutInspectedAt) return withOpen(dated("Compare move-in and move-out photos", "Then decide the deductions and build the itemized statement.", flow.compareCite, due));
-    const extra = pack.steps.afterInspection(t, today, h);
+    const extra = pack.steps.forfeit?.(t, today, h) ?? pack.steps.afterInspection(t, today, h);
     if (extra) return withOpen(extra);
     if (t.returned) return withOpen(dated("Record the statement delivery", `${usd(t.returned.amount)} went back by PayPal; the itemized statement still has to reach the tenants.`, flow.deliveryCite, due));
     return withOpen(dated("Send the itemized statement and refund", flow.statementDetail(t.moveOutDate), flow.statementCite, due));

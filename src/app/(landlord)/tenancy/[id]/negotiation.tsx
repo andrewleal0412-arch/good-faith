@@ -93,6 +93,10 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
       title: "Check this payment with PayPal?",
       body: `The same request goes to PayPal again, with the same key. If the first one went, PayPal answers with that payment and nothing more is sent; if it didn't, PayPal sends ${usd(s.amount)} now, once.`,
       action: "Check with PayPal",
+    } : s.wholeBack ? {
+      title: "Approve the settlement?",
+      body: `The statement's refund was already the whole deposit, so no money moves: the amended statement records the settlement ${s.tenantName ?? "the tenants"} accepted.`,
+      action: "Approve",
     } : {
       title: `Send ${usd(s.amount)} to ${tenantsLabel}?`,
       body: `The settlement ${s.tenantName ?? "the tenants"} accepted goes back through PayPal, on top of the statement's refund: a partial refund of their original deposit payment, or a Payout where that can't be refunded. This can't be undone.`,
@@ -134,6 +138,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
   }
 
   const chip = settled ? <StatusChip tone="green">Settled</StatusChip>
+    : v.status === "withdrawn" ? <StatusChip tone="gray">Withdrawn</StatusChip>
     : v.status === "agreed" ? <StatusChip tone="amber">{s?.tenantAcceptedAt ? "Waiting for you" : "Agreed"}</StatusChip>
       : v.status === "no_agreement" ? <StatusChip tone="red">No agreement</StatusChip>
         : v.running || polling ? <StatusChip tone="amber">Negotiating</StatusChip>
@@ -154,7 +159,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3.5" /></span>
               <div className="min-w-0 flex-[1_1_14rem]">
-                <p className="text-sm font-medium">Settled: <Money value={s.amount} /> back{s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}</p>
+                <p className="text-sm font-medium">{s.wholeBack ? "Settled" : <>Settled: <Money value={s.amount} /> back</>}{s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}</p>
                 {s.example ? (
                   <p className="flex items-center gap-1.5 text-xs text-ink-3">
                     {DEMO_EXAMPLE.short}
@@ -162,7 +167,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
                   </p>
                 ) : (
                   <p className="break-all text-xs text-ink-3">
-                    {s.paypalId ? `PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : "No money moved: the deposit was used in full"}
+                    {s.paypalId ? `PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : s.wholeBack ? "No money moved: the whole deposit had already gone back" : "No money moved: the deposit was used in full"}
                   </p>
                 )}
               </div>
@@ -171,7 +176,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
           ) : (
             <>
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-                <Position label="Agreed back" value={s.amount} sub="On top of the statement's refund" />
+                <Position label="Agreed back" value={s.amount} sub={s.wholeBack ? "Already back with the whole deposit" : "On top of the statement's refund"} />
                 <div className="min-w-0">
                   <p className="text-xs text-ink-3">{tenantsLabel}</p>
                   <p className="mt-0.5 text-lg font-medium">{s.tenantAcceptedAt ? "Accepted" : "Not yet"}</p>
@@ -205,7 +210,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
                   </Button>
                 ) : (
                   <Button variant={quiet ? "secondary" : "primary"} disabled={!s.tenantAcceptedAt || !!busy || s.status === "sending" || !!v.payBlock} onClick={pay}>
-                    <Icon name="send" />{busy === "pay" ? "Sending..." : s.retry ? `Try again: pay ${usd(s.amount)}` : `Approve and pay ${usd(s.amount)}`}
+                    <Icon name="send" />{busy === "pay" ? "Sending..." : s.wholeBack ? "Approve" : s.retry ? `Try again: pay ${usd(s.amount)}` : `Approve and pay ${usd(s.amount)}`}
                   </Button>
                 )}
                 {!s.tenantAcceptedAt && <span className="text-xs text-ink-3">Waiting for {tenantsLabel} to accept.</span>}
@@ -228,7 +233,12 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
           </p>
         </div>
       )}
-      {!s && v.outcome?.reason === "limit" && v.status !== "no_agreement" && v.outcome.wanted != null && (
+      {v.status === "withdrawn" && (
+        <p className="border-b border-line-2 px-5 py-4 text-sm text-ink-2">
+          {v.openedBy ?? tenantsLabel} withdrew this dispute. The statement stands as you sent it, and its deductions can change again. The tenants may dispute it again from their link.
+        </p>
+      )}
+      {!s && v.outcome?.reason === "limit" && v.status !== "no_agreement" && v.status !== "withdrawn" && v.outcome.wanted != null && (
         <div className="border-b border-line-2 px-5 py-4">
           <Notice tone="amber">
             Your negotiator would give back {usd(v.outcome.wanted)}, more than your {usd(v.outcome.limit ?? 0)} limit. Raise the limit to let it go on, or make an offer yourself.

@@ -154,7 +154,6 @@ export const FL: ClientPack = {
     securityTotal: refundableSecurity,
     securityCharge: (c) => c.refundable !== false, // a fee labeled nonrefundable is flagged (F2), not invoiced
     chargeWord: "charge",
-    confirmState: true,
     capTip: { title: "No deposit cap", cite: F("83.43(4), 83.49"), text: "Florida sets no limit on a deposit or advance rent. Deposit money is any money held for the tenant, including damage, pet and advance rent deposits; a fee labeled nonrefundable may still be one." },
     capSub: () => "No statewide cap",
     lawfulSub: () => "As the lease asks; no cap",

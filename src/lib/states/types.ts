@@ -41,8 +41,9 @@ export type ClockInput = {
 export type RecordKind =
   | "inspection" | "electronic_refund" // California's two notices (New York's inspection-rights notice reuses "inspection")
   | "move_in_inspection" | "deposit_account" | "holding_notice" | "move_in_checklist"
-  | "forwarding_address" | "claim_notice" | "claim_objection"
-  | "late_acknowledgment"; // New York: the landlord's recorded reason for keeping deductions after day 14 (N21)
+  | "forwarding_address" | "claim_notice" | "claim_objection";
+// set_state_notice() still accepts "late_acknowledgment" (New York's old override for deductions kept after day 14);
+// since 2026-10-04 day 14 is a hard block and nothing records one.
 
 export type RecordDef = {
   kind: RecordKind;
@@ -62,7 +63,6 @@ export type RecordDef = {
   received?: boolean; // ask for the day the tenant received it (Florida's claim notice by certified mail)
   beforeInvoice?: boolean; // a move-in record that comes before the deposit invoice (Washington's checklist)
   after?: RecordKind; // shown only once this record exists (Florida: the objection after the claim notice)
-  hiddenUntilRecorded?: boolean; // listed only once made; reached from the step or blocker that asks for it (New York's late acknowledgment)
   /** A line about the record as it stands, for its page's status card (Florida: whether an objection came in time). */
   status?: (notices: Notices) => { text: string; tone: "green" | "amber" | "red" } | null;
   form?: { method: string; date: string; button: string }; // the record form's labels when they aren't a notice's
@@ -132,7 +132,6 @@ export type StatePack = {
     securityTotal: (t: LeaseTerms) => number; // what the lease asks as security, by the state's definition
     securityCharge: (c: LeaseTerms["otherMoveInCharges"][number]) => boolean; // a move-in charge counted in securityTotal
     chargeWord: string; // what the lease check calls those charges: "fee" (California) or "charge"
-    confirmState: boolean; // the lease check offers the state picker even when the lease names this state
     /** The lease check's facts strip: the cap fact's tip and its sub line. */
     capTip: Tip;
     capSub: (t: LeaseTerms, lawful: LawfulDeposit | null) => string;
@@ -250,9 +249,9 @@ export type StatePack = {
     extraBlockers: (f: CloseOutFacts, ctx: CloseOutContext) => string[];
     extraWarnings: (f: CloseOutFacts, ctx: CloseOutContext) => string[];
     /** How the claimed amounts stand when they are not plainly deducted (Florida: claimed and disputed by a timely
-     *  objection; New York: kept after day 14 under the landlord's acknowledgment). The statement, its PDF and the
-     *  tenant page print it beside the deductions; null when they are plain deductions. */
-    standing?: (c: StandingInput) => { label: string; note: string } | null;
+     *  objection; New York: forfeited once day 14 passed). The statement, its PDF and the tenant page print it beside
+     *  the deductions; null when they are plain deductions. */
+    standing?: (c: StandingInput) => Standing | null;
   };
 
   steps: {
@@ -265,6 +264,10 @@ export type StatePack = {
     beforeMoveOut?: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
     /** Extra steps after the comparison, before the statement and refund; null when none is open. */
     afterInspection: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
+    /** Where missing the deadline forfeits the deductions and the app holds the refund until they are removed (New
+     *  York, day 14): that step, from the comparison on, before the statement goes out and after; null when none is
+     *  open. Absent elsewhere. */
+    forfeit?: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
     /** Move-in items still open that the card lists under a later step. */
     openMoveIn: (t: TenancySummary) => string[];
   };
@@ -331,7 +334,13 @@ export type StatePack = {
   dispute: {
     /** "forfeit": a late statement loses the right to keep any of the deposit (New York, Florida, Washington); "flag":
      *  lateness is evidence of bad faith, not a forfeiture by itself (California, Texas). */
-    late: { effect: "forfeit" | "flag"; text: string; cite: string };
+    late: {
+      effect: "forfeit" | "flag"; text: string; cite: string;
+      /** The statute names no defense to the forfeiture (New York's 7-108(1-a)(e)), so once it applies the landlord's
+       *  side concedes every charge in code, with no model call. Absent where the statute keeps a defense the file
+       *  can't record (Washington's abandonment or circumstances beyond the landlord's control). */
+      noDefense?: boolean;
+    };
     /** Whether the statement and refund (or Florida's claim notice) went out after the state's deadline, from the
      *  dates on file. A forfeiture is applied only when it is late on every reading the state's spec documents and no
      *  fact the file doesn't record could excuse it; otherwise `doubt` says why, and the lateness is a point for the
@@ -367,6 +376,7 @@ export type LateInput = {
   refundedOn: string | null;
   sentOn: string | null;
   claimed: boolean;
+  refundOwed: boolean; // the statement leaves part of the deposit to go back (New York: owed by day 14 too)
 };
 
 /** isLate's answer: late or not (null: the file can't tell), and when late, any reason the forfeiture is arguable. */
@@ -380,8 +390,18 @@ export type ClientPack = Omit<StatePack, ServerKeys>;
 /** A pack's server half, joined to its ClientPack by `src/lib/states/server.ts`. */
 export type ServerPart = Pick<StatePack, ServerKeys>;
 
-/** What a claim's standing is read from; the close-out and the tenant page both have it. */
-export type StandingInput = { today: string; notices: Notices; claimed: number; statementDue: string | null };
+/** What a claim's standing is read from; the close-out and the tenant page both have it. `deliveredOn` is the delivery
+ *  record's date, `returnedOn` the day the refund or Payout went (Pacific), `refundOwed` whether the statement leaves
+ *  part of the deposit to go back. */
+export type StandingInput = {
+  today: string; notices: Notices; claimed: number; statementDue: string | null;
+  deliveredOn?: string | null; returnedOn?: string | null; refundOwed?: boolean;
+};
+
+/** A claim's standing as the statement prints it. `forfeits`: none of the deposit may be kept (New York after day 14),
+ *  so the deduction lines stay on file as what was claimed, marked forfeited, and every total prints the whole deposit
+ *  as owed back. */
+export type Standing = { label: string; note: string; forfeits?: boolean };
 
 export type CloseOutContext = {
   today: string;
@@ -390,6 +410,8 @@ export type CloseOutContext = {
   endDate: string | null;
   plannedMoveOut: string | null;
   deductionsCount: number;
+  deliveredOn?: string | null; // the statement's delivery record date
+  disputeLive?: boolean; // a dispute the tenants sent is open, negotiating or agreed, so the deductions are frozen
 };
 
 export type RefundNoteInput = {

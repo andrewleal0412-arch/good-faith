@@ -139,7 +139,6 @@ export const CA: ClientPack = {
     securityTotal: totalSecurity,
     securityCharge: () => true, // D1: every move-in charge but first month's rent is security
     chargeWord: "fee",
-    confirmState: false, // the California lease check never showed a picker for a California lease
     capTip: {
       title: "The deposit cap", cite: "Civ. Code 1950.5(c)(1), (c)(5)",
       text: "One month's rent, or two for an owner who is a natural person (or an LLC of natural persons) with at most 2 rental properties and 4 units. A service member always pays at most one month. Everything charged at move-in except first month's rent counts.",

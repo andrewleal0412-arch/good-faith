@@ -6,9 +6,9 @@ import { missingDocs, settle, usd, type StoredDeduction } from "./deductions";
 import { wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
 import { getInvoice, type Invoice } from "./paypal";
-import { railFor, REFUND_WINDOW_DAYS } from "./refund-rail";
+import { railFor, refundOwed, REFUND_WINDOW_DAYS, wholeDepositOwed } from "./refund-rail";
 import { packFor } from "./states/server";
-import type { StatePack } from "./states/types";
+import type { Standing, StatePack } from "./states/types";
 import type { TenantMoveOut } from "./tenant";
 
 // The move-out close-out, in plain code. The agent reads these facts and drives PayPal, but what may be refunded,
@@ -40,8 +40,11 @@ export type CloseOutFacts = {
   warnings: string[];
   rules: Record<string, string>;
   // How the claimed amounts stand when they are not plain deductions (Florida: disputed by a timely objection; New
-  // York: kept after day 14 under the landlord's acknowledgment). Absent otherwise, and always in California.
-  standing?: { label: string; note: string };
+  // York: forfeited once day 14 passed). Absent otherwise, and always in California.
+  standing?: Standing;
+  // The refund is the whole deposit although deductions are on file: they are forfeited (New York after day 14) and a
+  // dispute the tenants sent holds them, so they can't be removed first. Absent otherwise.
+  wholeDeposit?: boolean;
 };
 
 /** The only citations the agent may use: the tenancy's pack's. It cites from this list, never from memory (it once
@@ -161,10 +164,16 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   };
   // The state's own requirements: a written forwarding address (Texas), the claim notice and the objection window
   // (Florida), the 14-day forfeiture (New York), the move-in checklist (Washington). Before the already-returned line,
-  // which reads last.
+  // which reads last. A dispute the tenants sent that is still live freezes the deductions (disputes.ts), which the
+  // New York forfeiture needs to know: they can't be removed then, so the close-out returns the whole deposit with them.
+  const deliveredOn = (t.statement_delivery as { date?: string } | null)?.date ?? null;
+  const { data: live } = t.statement_delivered_at && deductions.length
+    ? await db.from("disputes").select("id").eq("tenancy_id", tenancyId).in("status", ["open", "negotiating", "agreed"]).limit(1)
+    : { data: [] };
   const ctx = {
     today, notices, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null, deductionsCount: deductions.length,
     forwarding: tm ? { address: tm.forwarding_address, date: pacificDate(tm.updated_at) } : null,
+    deliveredOn, disputeLive: !!live?.length,
   };
   const extra = pack.close.extraBlockers(facts, ctx);
   if (extra.length) {
@@ -172,12 +181,19 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
     blockers.splice(at, 0, ...extra);
   }
   warnings.push(...pack.close.extraWarnings(facts, ctx));
-  const standing = pack.close.standing?.({ today, notices, claimed: s.total, statementDue: due });
+  const standing = pack.close.standing?.({
+    today, notices, claimed: s.total, statementDue: due, deliveredOn,
+    returnedOn: alreadyReturned ? pacificDate(alreadyReturned.at) : null, refundOwed: s.refund > 0,
+  });
   if (standing) facts.standing = standing;
+  // Forfeited deductions a live dispute holds on file: the close-out returns the whole deposit with them (New York's
+  // hard block, which otherwise waits for them to be removed). Its settlement then has nothing more to send
+  // (settlement.ts).
+  if (wholeDepositOwed({ forfeits: !!standing?.forfeits, disputeLive: !!ctx.disputeLive, alreadyReturned: !!alreadyReturned, depositHeld })) facts.wholeDeposit = true;
   // Without a written designation (where the state needs none for a refund of the original payment), a payment that
   // can't be refunded against itself has nowhere lawful to go yet.
   const d = facts.deposit;
-  if (!agreement && !pack.refund.agreementRequired && d && wasPaid(d.status) && s.refund > 0 && !alreadyReturned
+  if (!agreement && !pack.refund.agreementRequired && d && wasPaid(d.status) && refundOwed(facts) > 0 && !alreadyReturned
     && !(d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS)) {
     blockers.push(pack.refund.noDesignationBlocker);
   }
@@ -187,11 +203,16 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
 
 function plan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
   if (f.blockers.length) return { rail: "blocked", amount: 0, why: "Resolve the blockers first." };
-  const amount = f.totals.refund;
+  const amount = refundOwed(f);
   if (amount <= 0) {
     return { rail: "nothing_to_refund", amount: 0,
       why: `Deductions use the whole deposit${f.totals.balanceClaimed ? `, leaving ${usd(f.totals.balanceClaimed)} claimed from the tenants` : ""}. The itemized statement still goes out.` };
   }
+  const p = railPlan(f, pack, amount);
+  return f.wholeDeposit && p.rail !== "blocked" ? { ...p, why: `None of the deductions may be kept, so the whole deposit goes back. ${p.why}` } : p;
+}
+
+function railPlan(f: CloseOutFacts, pack: StatePack, amount: number): CloseOutFacts["plan"] {
   const d = f.deposit!;
   // The rail is railFor's (refund-rail.ts), shared with a dispute's settlement; the words are the close-out's.
   // No written designation, where the state needs none for a refund of the original payment: back against that
@@ -231,7 +252,10 @@ export async function guardRefund(tenancyId: string, p: RefundIntent) {
 export function guardWithFacts(f: CloseOutFacts, p: RefundIntent) {
   if (f.plan.rail === "blocked") return `Blocked: ${f.blockers.join(" ")}`;
   if (p.rail !== f.plan.rail) return `Blocked: the rules call for ${f.plan.rail.replace(/_/g, " ")}, not ${p.rail.replace(/_/g, " ")}. ${f.plan.why}`;
-  if (p.amount !== f.plan.amount.toFixed(2)) return `Blocked: the refund owed is ${usd(f.plan.amount)} (deposit ${usd(f.totals.depositHeld)} minus ${usd(f.totals.deductions)} in deductions), not $${p.amount}.`;
+  if (p.amount !== f.plan.amount.toFixed(2)) {
+    const basis = f.wholeDeposit ? `the whole deposit: the ${usd(f.totals.deductions)} in deductions is forfeited` : `deposit ${usd(f.totals.depositHeld)} minus ${usd(f.totals.deductions)} in deductions`;
+    return `Blocked: the refund owed is ${usd(f.plan.amount)} (${basis}), not $${p.amount}.`;
+  }
   if (p.rail === "refund_original_payment" && p.captureId !== f.plan.captureId) return `Blocked: the deposit payment is ${f.plan.captureId}, not ${p.captureId}.`;
   if (p.rail === "payout" && p.email?.toLowerCase() !== f.plan.email?.toLowerCase()) return `Blocked: the tenants designated ${f.plan.email}, not ${p.email}.`;
   return null;

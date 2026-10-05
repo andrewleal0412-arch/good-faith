@@ -155,7 +155,8 @@ function Review({ v, statute, record }: { v: RefundView; statute: string; record
       <Divider />
       <Rows rows={[
         ...partyRows(v),
-        ["Amount", usd(r.amount), `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`],
+        ["Amount", usd(r.amount), r.forfeited ? `The whole ${usd(r.depositHeld)} deposit: the ${usd(r.deductions)} in deductions is forfeited`
+          : `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`],
         ...method,
       ]} />
       <Divider />

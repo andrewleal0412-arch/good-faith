@@ -11,6 +11,7 @@ import {
 } from "./negotiator";
 import { checkProposal } from "./lawful-range";
 import { tenancyDepositBlock } from "./demo-pool";
+import { settledExtra } from "./refund-rail";
 import type { StatePack } from "./states/types";
 
 // The negotiation over a sent dispute, with the database: the turns as stored, the landlord's negotiator run (claimed
@@ -172,6 +173,8 @@ export async function runNegotiator(tenancyId: string, d: NegotiationRow, policy
         return id;
       },
     });
+    // A run that asked no model (a forfeited deposit, conceded in code) spends nothing of today's allowance.
+    if (!outcome.calls) await allowance.giveBack();
     const at = new Date().toISOString();
     const out: StoredOutcome = { reason: outcome.reason, landlord_back: outcome.landlordBack, tenant_back: outcome.tenantBack, at,
       ...(outcome.wanted != null ? { wanted: outcome.wanted, limit: outcome.limit } : {}) };
@@ -286,6 +289,9 @@ export type SettlementView = {
   unconfirmed: boolean; // PayPal never confirmed the payment: nothing changes until it is checked
   recheck: boolean; // and "Check with PayPal" may send the same request again
   example: boolean; // the demo's recorded example (a copy's closed unit): history only, no PayPal money moved
+  // The statement's refund was already the whole deposit (New York's forfeited deductions under a live dispute), so the
+  // settlement records what was agreed and moves no money (settlement.ts).
+  wholeBack: boolean;
 };
 export type NegotiationView = {
   turns: TurnView[];
@@ -334,6 +340,7 @@ export function negotiationView(d: NegotiationRow, facts: DisputeFacts, turns: T
     unconfirmed: unconfirmed(s),
     recheck: recheckable(s),
     example: isDemoExample(s.raw),
+    wholeBack: !!facts.refunded && facts.depositHeld > 0 && settledExtra({ agreed: num(s.amount), depositHeld: facts.depositHeld, refunded: facts.refunded.amount }) === 0 && num(s.amount) > 0,
   } : null;
   const outcome = d.negotiation_outcome;
   return {

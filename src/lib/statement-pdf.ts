@@ -386,10 +386,17 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   w.space(2);
   w.rule(INK, 1);
   w.space(10);
+  // Forfeited deductions (New York after day 14) stay listed as claimed, come back off here, and leave the whole
+  // security owed; a claim over the deposit is then a separate matter, so no balance is totalled.
+  const forfeits = !!s.standing?.forfeits;
+  const sent = s.refund.state === "sent";
   w.row("Security held", usd(s.totals.depositHeld));
-  w.row(s.standing ? s.standing.label : "Total deductions", s.totals.deductions ? `-${usd(s.totals.deductions)}` : usd(0));
-  if (s.balanceClaimed) w.row("Balance claimed", usd(s.balanceClaimed.amount), { bold: true, size: 11.5 });
-  else w.row(s.refund.state === "sent" ? "Refunded" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
+  w.row(s.standing && !forfeits ? s.standing.label : "Total deductions", s.totals.deductions ? `-${usd(s.totals.deductions)}` : usd(0));
+  if (forfeits) w.row(s.standing!.label, `+${usd(s.totals.deductions)}`);
+  if (s.balanceClaimed && !forfeits) w.row("Balance claimed", usd(s.balanceClaimed.amount), { bold: true, size: 11.5 });
+  else w.row(sent ? "Refunded" : forfeits ? "Owed back" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
+  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0)) * 100) / 100) : 0;
+  if (stillOwed > 0) w.row("Still owed", usd(stillOwed));
 
   // 3. Documents (item 9): the rule, then exactly what this packet holds and what it does not.
   w.heading(++n, "Documents", pack.statement.documentsCite(s.documents.required));
@@ -427,7 +434,9 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.text(st.example ? `${DEMO_EXAMPLE.short}. ${DEMO_EXAMPLE.text}`
       : st.paypalId
         ? `${st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : "PayPal refund of the original deposit payment"} (PayPal id ${st.paypalId})${st.sentAt ? `, sent ${longDate(pacificDate(st.sentAt))}` : ""}.`
-        : "No money moved: the deposit was used in full, and the balance claimed went down.", { color: INK2 });
+        : st.refundSent && s.refund.amount >= s.totals.depositHeld - 0.005
+          ? "No money moved: the whole deposit had already gone back with the statement."
+          : "No money moved: the deposit was used in full, and the balance claimed went down.", { color: INK2 });
   }
 
   // 5. Local deposit interest (item 11).
