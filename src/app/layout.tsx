@@ -7,7 +7,7 @@ const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "sw
 
 export const metadata: Metadata = {
   title: { default: "Good Faith", template: "%s | Good Faith" },
-  description: "California security deposits from move-in to refund, lawful and fair to the tenant, with PayPal.",
+  description: "Security deposits from move-in to refund in California, New York, Texas, Florida and Washington, lawful and fair to the tenant, with PayPal.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

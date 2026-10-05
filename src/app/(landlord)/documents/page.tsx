@@ -4,7 +4,7 @@ import { InfoTip } from "@/components/info-tip";
 import { Card, EmptyState, PageHead, StatusChip, Table, Td, Th, trClass, type Tone } from "@/components/ui";
 import { pacificDate, shortDate } from "@/lib/dates";
 import { listedRecords, noticeInfoFor, NOTICE_SLUG, recordsFor, type NoticeKind } from "@/lib/notices";
-import { packOf } from "@/lib/next-step";
+import { inspectionExcused, packOf } from "@/lib/next-step";
 import { onePack, refundRecordWords } from "@/lib/states/server";
 import { splitAddress, tabHref } from "@/lib/property-view";
 import { loadUnits } from "@/lib/units";
@@ -26,11 +26,13 @@ export default async function DocumentsPage() {
     const info = noticeInfoFor(pack);
     const notice = (k: NoticeKind): Row => {
       const given = s.notices[k];
-      const notNeeded = k === "electronic_refund" && s.refundNotice.needed === false;
+      const notNeeded = (k === "electronic_refund" && s.refundNotice.needed === false) || (k === "inspection" && inspectionExcused(s));
+      // Once the tenants moved out, a notice never recorded is just that, not one still to come.
+      const draft = !given && !notNeeded && !s.moveOutDate && !!s.noticeGivenOn;
       return {
         key: `${s.id}-${k}`, name: cap(info[k]!.short),
-        status: given ? `Given ${shortDate(given.date)}` : notNeeded ? "Not needed" : s.noticeGivenOn ? "Draft" : "Not due yet",
-        tone: given ? "green" : notNeeded || !s.noticeGivenOn ? "gray" : "amber",
+        status: given ? `Given ${shortDate(given.date)}` : notNeeded ? "Not needed" : s.moveOutDate ? "Not recorded" : s.noticeGivenOn ? "Draft" : "Not due yet",
+        tone: given ? "green" : draft ? "amber" : "gray",
         href: `/tenancy/${s.id}/notices/${NOTICE_SLUG[k]}`, cite: info[k]!.cite,
       };
     };

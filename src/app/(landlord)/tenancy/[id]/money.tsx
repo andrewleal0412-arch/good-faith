@@ -15,11 +15,16 @@ export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string;
   // One hero: what is still held while the deposit is held, what went back once a refund or payout has gone out.
   const back = t.returned + t.pending > 0;
   const hero = (n: number) => <Money value={n} cents="small" phoneCents="full" />;
+  // A settlement's money comes off the deductions (ledgerTotals), so the figure is the deductions as settled, named as
+  // the amended statement names it, with the statement's own total under it.
+  const settled = Math.round(rows.filter((r) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending")).reduce((s, r) => s + r.amount, 0) * 100) / 100;
   return (
     <div className="flex flex-col gap-6">
       <FactStrip cols={4}>
         <Fact label="Collected" value={<Money value={t.collected} />} />
-        <Fact label="Deductions" value={<Money value={t.deducted} />} sub={t.drafted > 0 ? (t.drafted === t.deducted ? "Drafts" : `${shortMoney(t.drafted)} drafted`) : undefined} />
+        {settled > 0
+          ? <Fact label="Deductions as settled" value={<Money value={t.deducted} />} sub={`${shortMoney(t.deducted + settled)} less ${shortMoney(settled)} settled`} />
+          : <Fact label="Deductions" value={<Money value={t.deducted} />} sub={t.drafted > 0 ? (t.drafted === t.deducted ? "Drafts" : `${shortMoney(t.drafted)} drafted`) : undefined} />}
         {/* The hero is always the last cell. */}
         {back ? <Fact label="Still held" value={<Money value={t.held} />} />
           : <Fact label="Returned" value={<Money value={t.returned} />} />}

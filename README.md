@@ -1,8 +1,8 @@
 # Good Faith
 
-California penalizes the "bad faith" retention of a security deposit. Good Faith makes the landlord's close-out lawful and fair to the tenant.
+State law penalizes the "bad faith" retention of a security deposit (in California, up to twice the deposit). Good Faith makes the landlord's close-out lawful and fair to the tenant.
 
-An AI agent that runs a California security deposit from move-in to refund for small landlords: the owner of one condo, a duplex or an ADU who manages it alone. It reads the lease and flags what breaks Civil Code 1950.5, collects only the lawful deposit through a PayPal invoice, keeps the move-in and move-out photos the law now requires, has Claude compare them room by room, computes every deduction in code, writes the itemized statement with its exhibits, and returns the deposit through PayPal's Agent Toolkit once the landlord approves. Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/).
+An AI agent that runs a security deposit from move-in to refund for small landlords in California, New York, Texas, Florida and Washington: the owner of one condo, a duplex or an ADU who manages it alone. It reads the lease and flags what breaks the state's deposit law, collects only the lawful deposit through a PayPal invoice, keeps the move-in and move-out photos, has Claude compare them room by room, computes every deduction in code, writes the itemized statement with its exhibits, and returns the deposit through PayPal's Agent Toolkit once the landlord approves. If the tenants dispute the statement, their AI advocate and the landlord's AI negotiator settle it inside a lawful range computed in code, and PayPal pays only after both humans approve; if they dispute the payment with PayPal itself, a defense agent prepares the landlord's response for approval. Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/).
 
 It organizes records and fills in templates from the statute and published state guidance. It does not give legal advice.
 
@@ -10,7 +10,7 @@ It organizes records and fills in templates from the statute and published state
 
 ![A move-out finding: Claude's reading of the bedroom carpet next to the move-in photo, with the deduction computed in code and prorated by the carpet's age](docs/screenshots/inspection.png)
 
-![The itemized statement, graded against the 13-item checklist](docs/screenshots/statement.png)
+![The itemized statement, amended after the tenants' dispute settled, graded against the 13-item checklist](docs/screenshots/statement.png)
 
 Demo video: [to be added before submission]
 
@@ -29,7 +29,7 @@ Hosted demo: [good-faith.onrender.com](https://good-faith.onrender.com). It runs
 9. To see a finished one without waiting, open 482 N. Glassell St, Unit B and its Move-out tab: the tenants disputed the carpet and the range cleaning, and the two agents settled at $270.00 back in two exchanges. Open each turn's reasoning, then Amended statement; Open the tenant's view shows the same dispute from the tenants' side. It comes with the demo as a recorded example: its turns were written ahead and passed the same checks as a live run, and no PayPal money moved for it, so every page that shows it says "Demo example".
 10. Everything else works too: check a lease (`demo/lease-single-owner.pdf`, or `demo/lease-texas.pdf` for Texas), start a tenancy, add photos and deductions. Start over, in the account menu, gives your browser a fresh copy.
 
-The demo has daily limits on the Claude jobs (the advocate runs three times a day per tenant link, the negotiator three times per copy) and on new copies per network. If the day's pre-paid sandbox deposits run out, the Review refund page says so and the rest of the copy still works. Copies are removed after two weeks.
+The demo has daily limits on the Claude jobs (the advocate runs three times a day per unit, however many tenant links are made, the negotiator three times a day per browser, which Start over doesn't reset) and on new copies per network. If the day's pre-paid sandbox deposits run out, the Review refund page says so and the rest of the copy still works. Copies are removed after two weeks.
 
 A short script for a video of the whole flow, beat by beat, is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
@@ -42,6 +42,8 @@ California rewrote the security deposit rules four times in three years, and the
 - **Electronic refunds.** Since January 1, 2026, a landlord who received the deposit or rent electronically must refund the deposit electronically, to an account the tenant designates or "by any electronic or virtual method available to the landlord if agreed to in writing by the tenant", (h)(1)(A), AB 414. PayPal qualifies only with that written agreement, so the app records it at move-in. The statute also calls for a written notice of the right to an electronic refund after notice to terminate, (h)(1)(A)(ii)(II), unless the parties already agreed in writing on the method of return; the app treats the signed PayPal agreement as that agreement and drafts the notice when there is none.
 - **21 days.** The itemized statement and the refund are due within 21 calendar days after the tenant vacates, (h)(1), with the invoices, receipts, labor time and rates, and the photos attached, (h)(2)(A)-(D), unless repair and cleaning deductions total $125 or less, (h)(4).
 - **The penalty.** Bad-faith retention can cost up to twice the deposit in statutory damages on top of actual damages, and the landlord bears the burden of proving every deduction was reasonable, (h)(7), (m).
+
+California is the deepest pack and the one the demo walks through. New York, Texas, Florida and Washington run on the same engine with their own deadlines, documents and penalties; see [States](#states).
 
 ## How it works
 
@@ -172,6 +174,7 @@ src/lib/chargeback.ts, chargeback-agent.ts, chargeback-store.ts   PayPal dispute
 src/lib/statement.ts, statement-pdf.ts   the itemized statement and its PDF packet
 docs/LEGAL_RULES.md               the 30-rule legal spec the code enforces
 docs/DEPLOY.md                    hosting on Render and Supabase
+docs/AUDIT.md                     the whole-app audit before judging: every route, what was checked, what it found
 supabase/migrations/              the database schema, in order
 scripts/                          setup scripts, the demo seed and reset, the deposit pool and the sweep, the sandbox payer, the webhook's registration
 render.yaml                       the Render service (no values; they are entered in the dashboard)
@@ -207,7 +210,7 @@ City rules (New York City, Seattle, Austin and others) are shown as warnings onl
 
 The rules come from the current text of Civil Code 1950.5 on [leginfo.legislature.ca.gov](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=1950.5), as amended by AB 12 (2023), AB 2801 (2024), SB 611 (2024) and AB 414 (2025), the DRE's California Tenants guide (2026 edition), the Courts' self-help guide and the Attorney General's fact sheet. [docs/LEGAL_RULES.md](docs/LEGAL_RULES.md) lists every source, each rule with its subsection, the statement checklist, the wear-and-tear guide, the edge cases, and the guardrails. Useful-life proration and the paint schedule are DRE guidance, not statute, and the app says so wherever it uses them.
 
-The disclaimer the app shows: "This tool organizes your records and fills in templates based on California Civil Code 1950.5 and published state guidance. It does not give legal advice, does not evaluate your specific situation, and is not a substitute for a California attorney."
+The other four states' sources are in their specs under [docs/rules/](docs/rules/README.md). The disclaimer the app shows on a California property (each state's pack names its own statute and its own attorney): "This tool organizes your records and fills in templates based on California Civil Code 1950.5 and published state guidance. It does not give legal advice, does not evaluate your specific situation, and is not a substitute for a California attorney."
 
 ## Setup
 

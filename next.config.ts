@@ -15,6 +15,8 @@ const security = [
 const nextConfig: NextConfig = {
   // No dev-tools badge in the corner: the demo is filmed from next dev, and the statement is screenshotted from it.
   devIndicators: false,
+  // No x-powered-by header (Next's own error pages sent it while the app's routes didn't).
+  poweredByHeader: false,
   experimental: {
     // Next buffers a request body before the proxy runs, so the route can read it too, and keeps at most this much of
     // it in memory (the rest is cut off, not refused). No route takes more than the upload budget plus its form

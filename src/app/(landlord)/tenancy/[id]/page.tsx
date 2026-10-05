@@ -524,7 +524,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
       {tab === "documents" && (
         <Documents ws={t.ws} pack={pack} id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
-          notices={summary.notices} refundNoticeNeeded={summary.refundNotice.needed} noticeGiven={!!summary.noticeGivenOn} inspectionExcused={inspectionExcused(summary)}
+          notices={summary.notices} refundNoticeNeeded={summary.refundNotice.needed} noticeGiven={!!summary.noticeGivenOn} movedOut={!!summary.moveOutDate} inspectionExcused={inspectionExcused(summary)}
           inspected={inspected} delivery={delivery} hasEvents={events.length > 0} />
       )}
 
@@ -615,7 +615,7 @@ function LogRow({ a, today }: { a: { entry: { actor: string; action: string; det
 async function Documents(p: {
   ws: Workspace; pack: StatePack; id: string; leasePath: string | null; flags: Flag[]; agreement: { signed_by: string[]; signed_at: string } | null; moveInCount: number;
   notices: Notices; refundNoticeNeeded: boolean | null;
-  noticeGiven: boolean; inspectionExcused: boolean; inspected: boolean; delivery: DeliveryRecord | null; hasEvents: boolean;
+  noticeGiven: boolean; movedOut: boolean; inspectionExcused: boolean; inspected: boolean; delivery: DeliveryRecord | null; hasEvents: boolean;
 }) {
   const leaseUrl = p.leasePath ? (await signedUrlsFor(p.ws, "leases", [p.leasePath])).get(p.leasePath) ?? null : null;
   const v = p.flags.filter((f) => f.severity === "violation").length;
@@ -625,6 +625,8 @@ async function Documents(p: {
     if (given) return { text: `Given ${shortDate(given.date)}`, tone: "green" as const, title: `Given by ${describeNoticeGiven(given)}` };
     if (kind === "electronic_refund" && p.refundNoticeNeeded === false) return { text: "Not needed", tone: "gray" as const, title: null };
     if (kind === "inspection" && p.inspectionExcused) return { text: "Not needed", tone: "gray" as const, title: "The tenants ended the tenancy with less than two weeks' notice" };
+    // Once the tenants moved out, a notice never recorded is just that, not one still to come.
+    if (p.movedOut) return { text: "Not recorded", tone: "gray" as const, title: null };
     return { text: p.noticeGiven ? "Draft" : "Not due yet", tone: p.noticeGiven ? "amber" as const : "gray" as const, title: null };
   };
   const rows: { name: string; sub: string; subTitle?: string; status: React.ReactNode; open: React.ReactNode; info?: React.ReactNode }[] = [

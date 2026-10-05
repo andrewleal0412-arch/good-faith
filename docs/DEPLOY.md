@@ -1,10 +1,10 @@
 # Hosting Good Faith on Render and Supabase
 
-The steps, in order, to take the app from a laptop to a URL the judges can open. Nothing in this file has been run against a live host yet; it is the plan for the first deploy, written so each step is one screen. `render.yaml` in the repo root describes the service.
+The steps, in order, to take the app from a laptop to a URL the judges can open, written so each step is one screen. The hosted demo at https://good-faith.onrender.com was set up from them, and Render deploys it from `main`. `render.yaml` in the repo root describes the service.
 
 ## Before you start
 
-- Accounts: GitHub (the repo goes public, with the MIT license in `LICENSE`), Render (a paid Starter web service), Supabase (free), PayPal Developer (sandbox), and the Anthropic console (an API key with a spend limit).
+- Accounts: GitHub (the repo goes public, with the MIT license in `LICENSE`), Render (a web service: the hosted demo runs on the free plan for now, and should move to Starter before judging, step 4.6), Supabase (free), PayPal Developer (sandbox), and the Anthropic console (an API key with a spend limit).
 - **The hosted app sits behind an access code** (section 8): every landlord page and API route needs the session the `/access` page sets, and the Claude jobs, sandbox invoices and new demo copies have daily limits. Each browser that enters the judges' code gets its own private copy of the demo landlord (section 9), so judges never see or change each other's work, or yours. The code is shared by the judges, so it is a demo gate, not a landlord sign-in: host the fictional demo data only, never a real tenant, and keep `PAYPAL_ENVIRONMENT=SANDBOX`. The close-out routes still refuse `LIVE` (`src/lib/agent.ts`). The tenants' pages (`/t/<token>`) stay open to their token, as before.
 - The laptop keeps two jobs: filling the pool of pre-paid sandbox deposits (`npm run demo:pool`, section 9), which pays PayPal invoices with Playwright, and, until a cron job does it, removing old demo copies (`npm run demo:sweep`).
 
@@ -52,14 +52,14 @@ The steps, in order, to take the app from a laptop to a URL the judges can open.
 
 1. Push the repo to GitHub, public.
 2. Open `render.yaml` and set `region` to the Render region closest to the Supabase project (Supabase dashboard > Project Settings > General > Region): `oregon` for West US (North California), `virginia` or `ohio` for an East US project, `frankfurt` for Europe. Every page makes several database calls, so the distance shows in every load. Commit it.
-3. dashboard.render.com > New > Blueprint > connect the GitHub repo. Render reads `render.yaml` and shows one web service, `good-faith`: Node, plan Starter, build `npm ci && npm run build`, start `npm start`, health check `/api/health`, one instance.
+3. dashboard.render.com > New > Blueprint > connect the GitHub repo. Render reads `render.yaml` and shows one web service, `good-faith`: Node, plan Free (as `render.yaml` has it for now; Starter before judging, step 6), build `npm ci && npm run build`, start `npm start`, health check `/api/health`, one instance.
 4. Render asks for every variable the file lists (they are all `sync: false`, so the file holds no values). Required: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `PAYPAL_ENVIRONMENT` (`SANDBOX`), `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `ANTHROPIC_API_KEY`, `PAYPAL_WEBHOOK_ID` once the webhook is registered (section 2.5; until then PayPal's deliveries get a 503 and are retried), and the access gate's three (section 8):
    - `GOOD_FAITH_ACCESS_CODE`: the judges' code. A long random string you can type, for example `openssl rand -hex 12`. It goes in the Devpost submission's testing instructions, never in the repo.
    - `GOOD_FAITH_OWNER_CODE`: your own code, different from the judges'. It opens your own data (the owner workspace).
    - `GOOD_FAITH_SESSION_SECRET`: `openssl rand -base64 48`.
    Leave the optional ones empty for their defaults, except two for the judging window (section 8): `GOOD_FAITH_DAILY_AI_TOTAL`, set to what a day of judging needs, for example 40; and `GOOD_FAITH_DAILY_COPIES`, set to 15 or 20. Its default of 5 copies per address a day is low for judges who share one office network or VPN exit: three of them entering the code twice each would be locked out until the next day. A copy costs only rows (and a pool deposit while one is left), and `GOOD_FAITH_DAILY_COPIES_TOTAL` (60) stays the real ceiling. Do not add the sandbox buyer login, `PLAYWRIGHT_PYTHON`, `DEMO_BASE_URL`, `DEMO_ACCESS_CODE` or `GOOD_FAITH_CLIENT_IP_HEADER`; the first four belong to the laptop, and on Render the caller's address comes from `CF-Connecting-IP` by itself.
 5. Apply. The build runs with the variables set (the server modules create their clients when they load, so the build needs them). The build log should end with the route table: `/_not-found` static, everything else (including `/`) dynamic. Node comes from `.node-version` in the repo (`22`, the laptop's major version), so Render doesn't move to a newer default between deploys; Next.js 16 needs 20.9 or newer. A `NODE_VERSION` variable in the service's Environment would override the file.
-6. Why Starter and one instance: the free plan sleeps after 15 minutes without traffic, and a judge's first page would wait about a minute for it to wake. The wrong-code limit on the access page is counted in memory, so one instance keeps one count.
+6. Why Starter and one instance: the free plan sleeps after 15 minutes without traffic, and a judge's first page would wait about a minute for it to wake. The hosted demo is on the free plan until the Render workspace can take a card; before judging, set `plan: starter` in `render.yaml` (or change the plan in the dashboard). The wrong-code limit on the access page is counted in memory, so one instance keeps one count (and a free instance that sleeps starts it again).
 7. What Render does not limit: there is no 4.5 MB body cap and no per-route time limit, so the `maxDuration` exports in the routes (written for Vercel) are ignored, and an inspection or a close-out run takes as long as Claude does (well under a minute each in testing). The app keeps its own 4 MB upload budget (section 8) whatever the host allows.
 8. The URL is `https://good-faith.onrender.com` (or the name Render gives if that one is taken). A custom domain is optional.
 
@@ -122,8 +122,8 @@ Changing a code: the proxy runs on the Node.js runtime and reads these variables
 | `GOOD_FAITH_DAILY_INVOICE` | 5 | PayPal sandbox deposit invoices per demo session |
 | `GOOD_FAITH_DAILY_TENANCY` | 10 | New tenancies per demo session |
 | `GOOD_FAITH_DAILY_UPLOAD_MB` | 100 | Megabytes of photos, receipts and after-repair photos stored per demo session |
-| `GOOD_FAITH_DAILY_ADVOCATE` | 3 | Runs of the tenants' advocate per tenant link (the tenants' page has no session, so it counts by link; each run is one Claude job of a few steps with the disputed charges' photos), and runs of the landlord's negotiator per demo session (each run is one Claude job of at most six calls, one per turn, three exchanges in all) |
-| `GOOD_FAITH_DAILY_TENANT_UPLOAD_MB` | 20 | Megabytes of dispute photos per tenant link |
+| `GOOD_FAITH_DAILY_ADVOCATE` | 3 | Runs of the tenants' advocate per tenancy (the tenants' page has no session, so it counts by the tenancy its link is for, and a new link keeps the count; each run is one Claude job of a few steps with the disputed charges' photos), and runs of the landlord's negotiator per demo session (each run is one Claude job of at most six calls, one per turn, three exchanges in all) |
+| `GOOD_FAITH_DAILY_TENANT_UPLOAD_MB` | 20 | Megabytes of dispute photos per tenancy, counted the same way |
 | `GOOD_FAITH_DAILY_COPIES` | 5 | New demo copies per caller address (entering the code, or Start over) |
 | `GOOD_FAITH_DAILY_AI_TOTAL` | 150 | Claude jobs per day across every session, the owner's included |
 | `GOOD_FAITH_DAILY_INVOICE_TOTAL` | 100 | Sandbox invoices per day across every session |

@@ -111,7 +111,7 @@ export const CA: ClientPack = {
   },
   chip: {
     title: "California Civil Code 1950.5",
-    text: "This property is in California, so its deposit follows Civil Code 1950.5 as amended through AB 414 (2026): the cap, the move-in and move-out photos, the electronic refund, and the itemized statement and refund within 21 days.",
+    text: "This property is in California, so its deposit follows Civil Code 1950.5 as amended by AB 414 (2025), effective January 1, 2026: the cap, the move-in and move-out photos, the electronic refund, and the itemized statement and refund within 21 days.",
     cite: "Civ. Code 1950.5",
   },
   courtsGuide: { label: "Courts' guide", url: "https://selfhelp.courts.ca.gov/guide-security-deposits-california" },
@@ -157,7 +157,7 @@ export const CA: ClientPack = {
       },
       {
         label: "Electronic refunds",
-        line: "Since Jan 1, 2026, with written consent",
+        line: "Since 2026; PayPal with written consent",
         fact: "Since January 1, 2026, a landlord who received the deposit or the rent electronically must refund the deposit electronically. PayPal counts only if the tenant agreed to it in writing.",
         cite: "Civ. Code 1950.5(h)(1)(A), AB 414",
       },

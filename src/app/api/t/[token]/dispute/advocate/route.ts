@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 // "Ask my advocate": the tenants' advocate reads the file and writes their case (src/lib/advocate.ts), which the code
 // checks against the lawful range before it is saved on the draft. One run at a time per dispute (claimed in the
-// database, so a double tap can't spend two Claude calls), counted against the link's daily allowance before Claude
+// database, so a double tap can't spend two Claude calls), counted against the tenancy's daily allowance before Claude
 // is called, and given back when Claude never answered.
 export async function POST(_req: Request, ctx: RouteContext<"/api/t/[token]/dispute/advocate">) {
   const { token } = await ctx.params;
@@ -31,7 +31,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/t/[token]/disp
   const release = (status: "done" | "failed" | null, error: string | null) =>
     db.from("disputes").update({ advocate_status: status, advocate_error: error, updated_at: new Date().toISOString() }).eq("id", dispute.id);
 
-  const allowance = await takeTenantAllowance(link.linkId, "advocate");
+  const allowance = await takeTenantAllowance(link.tenancyId, "advocate");
   if (allowance.refused) {
     // Nothing ran: the draft goes back to where it was (its earlier case, if it had one).
     await release(dispute.advocate ? "done" : null, null);

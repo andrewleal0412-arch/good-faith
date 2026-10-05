@@ -14,8 +14,9 @@ import { currentSession } from "./session-server";
 // A Claude job is one unit however many calls it makes: an inspection is one call per room (up to
 // GOOD_FAITH_INSPECT_ROOMS), a close-out run up to twelve agent steps plus the steps after the approval, a tenant
 // advocate run up to eight steps, a negotiation run (the landlord's negotiator and the tenants' advocate taking turns)
-// at most six calls, counted as 'advocate' under the landlord's session. The tenants' own page has no session, so its jobs and uploads count under the tenant
-// link (takeTenantAllowance) with their own per-link limits, toward the same totals. The totals
+// at most six calls, counted as 'advocate' under the landlord's session. The tenants' own page has no session, so its jobs and uploads count under the
+// tenancy the tenant link is for (takeTenantAllowance), with their own per-tenancy limits, toward the same totals: a new
+// link for the same tenancy starts no new count. The totals
 // and the Anthropic console's spend limit are the real ceiling; the per-session limits are soft, since a new sign-in
 // is a new session.
 
@@ -39,7 +40,7 @@ export function dailyLimits() {
       invoice: envInt("GOOD_FAITH_DAILY_INVOICE", 5),
       tenancy: envInt("GOOD_FAITH_DAILY_TENANCY", 10),
       upload_mb: envInt("GOOD_FAITH_DAILY_UPLOAD_MB", 100),
-      advocate: envInt("GOOD_FAITH_DAILY_ADVOCATE", 3), // the landlord's negotiator runs (the tenants' advocate counts per link)
+      advocate: envInt("GOOD_FAITH_DAILY_ADVOCATE", 3), // the landlord's negotiator runs (the tenants' advocate counts per tenancy)
     } satisfies Record<UsageKind, number>,
     total: {
       lease: aiTotal,
@@ -50,9 +51,10 @@ export function dailyLimits() {
       upload_mb: envInt("GOOD_FAITH_DAILY_UPLOAD_MB_TOTAL", 400),
       advocate: aiTotal,
     } satisfies Record<UsageKind, number>,
-    /** What one tenant link may use a day: the tenants' advocate runs, and the megabytes of the photos they add to a
-     *  dispute. Counted under the link (tl:<link id>), not a session, toward the same totals. */
-    perTenantLink: {
+    /** What the tenants of one tenancy may use a day from their page: the advocate's runs, and the megabytes of the
+     *  photos they add to a dispute. Counted under the tenancy (tn:<tenancy id>), not a session or a link (a landlord can
+     *  make a new link at any time), toward the same totals. */
+    perTenancy: {
       advocate: envInt("GOOD_FAITH_DAILY_ADVOCATE", 3),
       upload_mb: envInt("GOOD_FAITH_DAILY_TENANT_UPLOAD_MB", 20),
     },
@@ -87,12 +89,12 @@ export async function takeAllowance(kind: UsageKind, units = 1): Promise<Allowan
   return take(session.sid, kind, units, session.kind === "owner" ? null : dailyLimits().perSession[kind]);
 }
 
-/** takeAllowance for the tenants' own page, which has no session: the units are counted under the tenant link that
- *  asked (one link per tenancy is live at a time), with that link's daily limit, toward the same day's totals. The
- *  refusal speaks to the tenants, not to a landlord trying the demo. */
-export async function takeTenantAllowance(linkId: string, kind: "advocate" | "upload_mb", units = 1): Promise<Allowance> {
-  const n = dailyLimits().perTenantLink[kind];
-  return take(`tl:${linkId}`, kind, units, n, (reason) => kind === "advocate"
+/** takeAllowance for the tenants' own page, which has no session: the units are counted under the tenancy the tenant
+ *  link is for, so a new link (Make a new link revokes the old one) starts no new count, with the per-tenancy daily
+ *  limit, toward the same day's totals. The refusal speaks to the tenants, not to a landlord trying the demo. */
+export async function takeTenantAllowance(tenancyId: string, kind: "advocate" | "upload_mb", units = 1): Promise<Allowance> {
+  const n = dailyLimits().perTenancy[kind];
+  return take(`tn:${tenancyId}`, kind, units, n, (reason) => kind === "advocate"
     ? reason === "session"
       ? `Your advocate can write your case ${n} times a day, and today's are used. You can still send your reasons as they are, or ask again tomorrow.`
       : "Your advocate can't take more cases today. You can still send your reasons as they are, or ask again tomorrow."

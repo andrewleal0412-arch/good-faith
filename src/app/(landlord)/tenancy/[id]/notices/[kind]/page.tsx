@@ -102,7 +102,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
                 <p>
                   <b>To request an inspection,</b> tell {landlord} in writing or by phone at <Blank w="w-56" />. We will try to schedule it
                   at a date and time that works for both of us. The inspection can take place no earlier than two weeks before the tenancy
-                  ends{windowOpens && ends ? <>: on or after <b>{longDate(windowOpens)}</b> for a {longDate(ends)} move-out</> : null}.
+                  ends{windowOpens && ends ? <>: on or after <b>{longDate(windowOpens)}</b> for the {longDate(ends)} move-out</> : null}.
                 </p>
                 <p>
                   You will receive at least {INSPECTION_NOTICE_HOURS} hours&apos; written notice of the date and time of the inspection, unless
@@ -140,7 +140,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
                 </p>
                 <p>
                   The remainder of the security deposit and an itemized statement of any deductions are due no later than 21 calendar days
-                  after you vacate{ends ? <>; for a {longDate(ends)} move-out, that is {longDate(statementDue(ends, pack))}</> : null} (Civil Code section 1950.5(h)(1)).
+                  after you vacate{ends ? <>; for the {longDate(ends)} move-out, that is {longDate(statementDue(ends, pack))}</> : null} (Civil Code section 1950.5(h)(1)).
                 </p>
                 {t.tenants.length > 1 && (
                   <p>

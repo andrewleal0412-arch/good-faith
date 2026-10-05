@@ -77,10 +77,13 @@ function Steps({ pack }: { pack: ClientPack }) {
   );
 }
 
-/** The three rules the state is known for, under the check. */
-function Law({ pack }: { pack: ClientPack }) {
+/** The three rules the state is known for, under the check, named for their state: before a lease is read they are
+ *  California's, and the line says so, so a Texas lease's check never reads as if California's rules applied to it. */
+function Law({ pack, read }: { pack: ClientPack; read: boolean }) {
   return (
-    <Card soft className="mt-6 grid divide-y divide-line-2 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+    <>
+    <p className="mt-6 text-xs text-ink-3">{read ? `${pack.name} rules` : `${pack.name} rules, until a lease's state is read`}</p>
+    <Card soft className="mt-2 grid divide-y divide-line-2 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
       {pack.lease.law.map((l, i) => (
         <div key={l.label} className="px-4 py-3">
           <div className="text-sm font-medium">
@@ -90,6 +93,7 @@ function Law({ pack }: { pack: ClientPack }) {
         </div>
       ))}
     </Card>
+    </>
   );
 }
 
@@ -97,12 +101,13 @@ function Law({ pack }: { pack: ClientPack }) {
 // California's until a lease from another supported state is read.
 export function LeaseCheck() {
   const [code, setCode] = useState<string | null>(null);
-  const shown = code && isSupported(code) ? packFor(code) : CA;
+  const read = !!code && isSupported(code);
+  const shown = read ? packFor(code) : CA;
   return (
     <>
       <Steps pack={shown} />
       <Check code={code} setCode={setCode} />
-      <Law pack={shown} />
+      <Law pack={shown} read={read} />
     </>
   );
 }

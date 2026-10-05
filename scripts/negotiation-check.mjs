@@ -5,7 +5,7 @@
 // a tenant's figure equal to the landlord's sent to Accept, withdrawing from an agreement), the loop's stops
 // (agreement, no movement, three exchanges used, the limit, a turn the database refused), a forfeited deposit conceded in
 // code with no model call (New York after day 14), withdrawing a dispute and opening it again (dispute-status.ts), and
-// the PayPal rail the close-out and the settlement share (refund-rail.ts). Pure: no database, no PayPal. Exit 1 if any
+// the PayPal rail the close-out and the settlement share, and the settlement's ceiling (refund-rail.ts). Pure: no database, no PayPal. Exit 1 if any
 // fails.
 //
 //   node scripts/negotiation-check.mjs
@@ -255,6 +255,14 @@ const CITES = (file, pack) => new Set(advocate.allowedCitations(pack, file.range
   eq("settled extra: nothing once the whole deposit went back", rail.settledExtra({ agreed: 400, depositHeld: 2000, refunded: 2000 }), 0);
   eq("settled extra: the demo's $270 on a $2,800 deposit is unchanged", rail.settledExtra({ agreed: 270, depositHeld: 2800, refunded: 1790 }), 270);
   eq("settled extra: no refund yet (the deductions used the deposit)", rail.settledExtra({ agreed: 500, depositHeld: 2000, refunded: 0 }), 500);
+  // The settlement's ceiling (2026-10-05 audit): what the deposit still holds after every return, a PayPal dispute
+  // refund included. $4,800 deposit, the $3,790 statement refund and a $500 PayPal dispute refund leave $510, so an
+  // agreed $800 doesn't go; the demo's $270 after its $1,790 refund on $2,800 does.
+  eq("settlement room: a PayPal dispute refund leaves less than agreed", rail.settlementRoom({ amount: 800, depositHeld: 4800, returned: 4290 }), { left: 510, fits: false });
+  eq("settlement room: the agreed amount fits after the statement's refund", rail.settlementRoom({ amount: 1010, depositHeld: 4800, returned: 3790 }), { left: 1010, fits: true });
+  eq("settlement room: the demo's $270 fits", rail.settlementRoom({ amount: 270, depositHeld: 2800, returned: 1790 }), { left: 1010, fits: true });
+  eq("settlement room: nothing left once the whole deposit went back", rail.settlementRoom({ amount: 400, depositHeld: 2000, returned: 2100 }), { left: 0, fits: false });
+  eq("settlement room: a cent of rounding still fits", rail.settlementRoom({ amount: 510.004, depositHeld: 4800, returned: 4290 }).fits, true);
 }
 
 /* ---------- The loop ---------- */

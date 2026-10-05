@@ -39,7 +39,7 @@ export default async function AccessPage({ searchParams }: PageProps<"/access">)
       <main className="flex flex-1 justify-center px-4 pb-16 pt-16 sm:pt-28">
         <div className="w-[400px] max-w-full">
           <Wordmark />
-          <p className="mt-1.5 text-balance text-base text-ink-3">California security deposits from move-in to refund, with PayPal.</p>
+          <p className="mt-1.5 text-balance text-base text-ink-3">Security deposits from move-in to refund in five states, with PayPal.</p>
           {g.mode === "unconfigured" ? (
             <Card className="mt-6">
               <EmptyState heading tone="gray" icon="alert" title="This demo is not configured"

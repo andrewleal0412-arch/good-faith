@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // The tenants' own photos for their dispute (a draft only), each for one disputed deduction. Checked by their
-// bytes like every upload, counted against the link's daily upload allowance, stored in the private photos bucket
+// bytes like every upload, counted against the tenancy's daily upload allowance, stored in the private photos bucket
 // under the tenancy's workspace prefix, and added to the draft under its row lock, at most MAX_EVIDENCE in all.
 export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispute/evidence">) {
   const { token } = await ctx.params;
@@ -38,7 +38,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
     if (!type) return bad(notAPhotoServer(f.name));
     checked.push({ file: f, bytes, type });
   }
-  const allowance = await takeTenantAllowance(link.linkId, "upload_mb", uploadUnits(checked.reduce((n, c) => n + c.bytes.length, 0)));
+  const allowance = await takeTenantAllowance(link.tenancyId, "upload_mb", uploadUnits(checked.reduce((n, c) => n + c.bytes.length, 0)));
   if (allowance.refused) return allowance.refused;
 
   const prefix = evidencePrefix(facts.workspaceId, link.tenancyId, dispute.id);

@@ -393,7 +393,7 @@ export const CA_SERVER: ServerPart = {
     evidence: { text: "The landlord carries the burden of proving each deduction reasonable.", cite: "Civ. Code 1950.5(m)" },
     forum: {
       name: "Small claims court", limit: 12500,
-      text: "Either side may take a deposit dispute to small claims court, for up to $12,500. The courts' guide explains how.",
+      text: "Either side may take a deposit dispute to small claims court: up to $12,500 for a person, and $6,250 for a business such as an LLC (Code Civ. Proc. 116.220, 116.221). The courts' guide explains how.",
       cite: "Civ. Code 1950.5(o); Code Civ. Proc. 116.221",
     },
     lineBar: null,

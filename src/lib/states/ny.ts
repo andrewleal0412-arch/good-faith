@@ -324,7 +324,7 @@ export const NY: ClientPack = {
         { p: "You have the right to request an inspection of the unit before you vacate it, and the right to be present at it." },
         { p: `If you request it, the inspection will be held no earlier than two weeks and no later than one week before the end of the tenancy${c.windowOpens && c.windowCloses ? `: between ${longDate(c.windowOpens)} and ${longDate(c.windowCloses)}` : ""}, with at least 48 hours' written notice of the date and time. To request it, tell ${c.landlord} in writing or by phone at [[blank:w-56]].` },
         { p: "After the inspection you will receive an itemized statement of the repairs or cleaning proposed as deductions from your security deposit, and you may fix them before the tenancy ends." },
-        { p: `Within 14 days after you vacate, you will receive an itemized statement of any amount kept and the rest of your deposit${c.due ? `; for a ${c.ends ? longDate(c.ends) : ""} move-out, by ${longDate(c.due)}` : ""}.` },
+        { p: `Within 14 days after you vacate, you will receive an itemized statement of any amount kept and the rest of your deposit${c.due ? `; for the ${c.ends ? longDate(c.ends) : ""} move-out, by ${longDate(c.due)}` : ""}.` },
       ],
       response: ["I request an inspection before I move out. Dates and times that work for me: [[blank:w-64]]", "I do not request an inspection."],
     },

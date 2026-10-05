@@ -6,7 +6,7 @@ import { depositBlock } from "./demo-pool";
 import { usd } from "./deductions";
 import { returnFailed, wasPaid } from "./invoice-status";
 import { PayPalRefused, SANDBOX, sendPayout, type Invoice } from "./paypal";
-import { railFor, REFUND_WINDOW_DAYS } from "./refund-rail";
+import { railFor, REFUND_WINDOW_DAYS, settlementRoom } from "./refund-rail";
 
 // The settlement's money: once the tenants accepted and the landlord approved, the amount agreed on top of the
 // statement's refund goes back through PayPal. The rail is the close-out's own rule (railFor, refund-rail.ts, read
@@ -20,7 +20,8 @@ import { railFor, REFUND_WINDOW_DAYS } from "./refund-rail";
 // settlementPlan, recomputed from the database and PayPal's live state right before PayPal is called, refuses a deposit
 // this workspace doesn't own (a demo copy's shared template payment), a live PayPal environment without a landlord
 // sign-in, PayPal unreachable, an unpaid deposit, a missing written agreement where the state needs one, a statement
-// whose own refund hasn't gone yet, and an amount the payment can't cover; and once the whole deposit went back (New
+// whose own refund hasn't gone yet, an amount the payment can't cover, and an amount more than the deposit still holds
+// after every return (settlementRoom: a PayPal dispute refund can leave less than was agreed); and once the whole deposit went back (New
 // York's forfeited deductions under a live dispute, refund-rail.ts), it moves no money at all. The close-out's other blockers (a charge
 // missing its documents, and the pack's own: Washington's move-in checklist, Florida's claim notice, New York's day 14,
 // Texas's forwarding address) limit what a landlord may keep, or when the statement's refund is owed; a settlement
@@ -84,8 +85,15 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   // under a live dispute), the settlement has nothing left to send: it records what was agreed and moves no money.
   const back = cents(payments.filter((p) => ["refund", "payout", "settlement_refund", "settlement_payout", "dispute_refund"].includes(p.kind) && !returnFailed(p.status))
     .reduce((s, p) => s + Number(p.amount), 0));
-  if (f.totals.depositHeld - back <= 0.005) {
+  const room = settlementRoom({ amount, depositHeld: f.totals.depositHeld, returned: back });
+  if (room.left <= 0.005) {
     return { rail: "none", amount: 0, why: `The whole deposit, ${usd(f.totals.depositHeld)}, already went back to the tenants, so the settlement moves no more money.` };
+  }
+  // PayPal's refund through the tenants' PayPal dispute can leave less of the deposit than the agreed amount: the
+  // settlement never sends more than the deposit still holds, so nothing goes and a person decides.
+  if (!room.fits) {
+    const via = f.viaDispute?.amount ?? 0;
+    return { blocked: `Only ${usd(room.left)} of the ${usd(f.totals.depositHeld)} deposit is left${via > 0 ? `, after the ${usd(via)} PayPal returned through the tenants' PayPal dispute` : ""}, less than the ${usd(amount)} agreed. A settlement can't send more than the deposit still holds, so nothing was sent.` };
   }
 
   // What is left of the payment to refund: PayPal's own count, and ours (the statement's refund and any earlier

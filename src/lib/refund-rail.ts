@@ -43,6 +43,15 @@ export function settledExtra(o: { agreed: number; depositHeld: number; refunded:
   return Math.round(Math.max(0, Math.min(o.agreed, o.depositHeld - o.refunded)) * 100) / 100;
 }
 
+/** What a settlement may still send: the deposit less every return that didn't fail (the statement's refund, an
+ *  earlier Payout, PayPal's refunds through the tenants' PayPal dispute). The agreed amount goes only when it fits:
+ *  a PayPal dispute refund can leave less of the deposit than the lawful range assumed, and paying the agreed amount
+ *  then would send back money the deposit never held. The settlement pages show the same ceiling (settledExtra). */
+export function settlementRoom(o: { amount: number; depositHeld: number; returned: number }): { left: number; fits: boolean } {
+  const left = Math.round(Math.max(0, o.depositHeld - o.returned) * 100) / 100;
+  return { left, fits: o.amount <= left + 0.005 };
+}
+
 /** Whether the close-out returns the whole deposit with deductions still on file: they are forfeited (New York after
  *  day 14) and a dispute the tenants sent holds them, so they can't be removed first. Otherwise a forfeiture blocks the
  *  refund until the landlord removes them, and the close-out never sends less than the whole deposit either way. */
