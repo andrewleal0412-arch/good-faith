@@ -21,7 +21,7 @@
 // differently.
 
 import { CATEGORY_ORDER } from "./copy";
-import { chargeable, chargeTitle, evidenceGaps, missingDocs, settle, suggestedLife, usd, type Performer, type Proration, type StoredDeduction, type Work } from "./deductions";
+import { chargeable, chargeTitle, evidenceGaps, missingDocs, settle, suggestedLife, usd, type DeductionInput, type Performer, type Proration, type StoredDeduction, type Work } from "./deductions";
 import type { Notices } from "./notices";
 import type { StateCode, StatePack } from "./states/types";
 
@@ -113,6 +113,17 @@ export function statementOrder<T extends { category: "rent" | "damage" | "cleani
 export const backFor = (r: Pick<Ranges["totals"], "retained" | "depositHeld">, keep: number) =>
   cents(Math.max(0, r.retained - Math.min(Math.max(0, keep), r.depositHeld)));
 
+/** What a replacement comes to over the guidance's useful life, when its inputs prorate it over a longer one (carpet:
+ *  10 years): the most the range allows for it. Null when the guidance has no life for the item, the charge isn't
+ *  prorated by useful life, its life is within the guidance's, or its age isn't on file. The range and the deductions
+ *  grid (deduction-edit.ts) both read it, so an edit is held to the same cap the tenants' dispute would be. */
+export function guidanceCap(item: string, inputs: DeductionInput): { amount: number; math: string; life: number } | null {
+  const life = suggestedLife(item);
+  if (inputs.proration !== "useful_life" || !life || !inputs.usefulLifeYears || inputs.usefulLifeYears <= life || inputs.itemAgeYears == null) return null;
+  const guided = chargeable({ ...inputs, usefulLifeYears: life });
+  return "amount" in guided ? { amount: guided.amount, math: guided.math, life } : null;
+}
+
 export function lawfulRanges(input: RangeInput, pack: StatePack): Ranges {
   const rows = statementOrder(input.deductions.map((d) => ({ ...d, amount: cents(Number(d.amount)) })));
   const s = settle(input.depositHeld, rows, pack);
@@ -184,12 +195,9 @@ function lineRange(d: RangeDeduction, n: number, ctx: { pack: StatePack; documen
     if ("amount" in again && again.amount < d.amount - 0.005) {
       add("math", "cap", `Its own inputs come to ${usd(again.amount)}, not the ${usd(d.amount)} charged: ${again.math}.`, kind!.cite, again.amount);
     }
-    const guideLife = suggestedLife(d.item);
-    if (d.proration === "useful_life" && guideLife && inputs.usefulLifeYears && inputs.usefulLifeYears > guideLife && inputs.itemAgeYears != null) {
-      const guided = chargeable({ ...inputs, usefulLifeYears: guideLife });
-      if ("amount" in guided && guided.amount < d.amount - 0.005) {
-        add("useful_life", "cap", `Prorated over a ${inputs.usefulLifeYears}-year life where the guidance uses ${guideLife} years: ${guided.math}.`, pack.copy.guidanceCite, guided.amount);
-      }
+    const guided = guidanceCap(d.item, inputs);
+    if (guided && guided.amount < d.amount - 0.005) {
+      add("useful_life", "cap", `Prorated over a ${inputs.usefulLifeYears}-year life where the guidance uses ${guided.life} years: ${guided.math}.`, pack.copy.guidanceCite, guided.amount);
     }
     if (d.work === "replace" && d.proration === "none") {
       add("full_cost", "weak", `Replaced at full cost, with nothing taken off for the item's age. ${pack.copy.guidanceNote}`, pack.copy.guidanceCite);

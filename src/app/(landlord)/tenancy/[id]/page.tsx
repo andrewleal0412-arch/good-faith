@@ -17,7 +17,8 @@ import { settle, usd, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice } from "@/lib/deposit";
 import { disputeBanner, loadPayPalDispute } from "@/lib/chargeback-store";
-import { loadLandlordDispute } from "@/lib/disputes";
+import { deductionsLock, disputeFacts, loadLandlordDispute } from "@/lib/disputes";
+import { limitsFor } from "@/lib/deduction-edit";
 import { loadNegotiation } from "@/lib/negotiation";
 import { dayLabel, daysBetween, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
@@ -214,6 +215,25 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     returnedOn: returnedOk ? pacificDate(returnedOk.created_at) : null, refundOwed: money.refund > 0,
   }) : null;
   const forfeited = forfeit?.forfeits ? forfeit : null;
+  // The deductions grid on Move-out: whether its inputs may change, and each line's limits from its lawful range (the
+  // same range engine the tenants' dispute and the edit route run). Read only once the deductions are final or while a
+  // dispute the tenants sent is open (deductionsLock, the rule the deduction routes refuse by), and for the demo's
+  // templates.
+  const template = tab === "move-out" && inspected ? await isTemplate(id) : false;
+  const editFacts = tab === "move-out" && inspected && !own ? await disputeFacts(id).catch((e) => { console.error("deduction limits failed", e); return null; }) : null;
+  const lock = deductionsLock({
+    payments: paymentRows.map((p) => ({ kind: p.kind as string, amount: p.amount as number | string, status: (p.status as string | null) ?? null })),
+    disputes: dispute ? [dispute.status] : [], refundOwed: held != null ? money.refund : null,
+  });
+  const editing = {
+    allowed: !returned && !lock && !template && !!editFacts,
+    reason: template ? "This is the template every demo copy is made from, so its deductions don't change. A copy's do."
+      : lock && !returned ? lock.message
+        : !returned && !editFacts ? "The deductions couldn't be checked against their lawful range just now, so they can't be changed. Refresh to try again." : null,
+    limits: Object.fromEntries((editFacts?.deductions ?? []).map((d) => [d.id, limitsFor(editFacts!.ranges.lines.find((l) => l.id === d.id), {
+      delivered: !!t.statement_delivered_at && !!t.statement_delivery, amount: d.amount, guidanceCite: pack.copy.guidanceCite,
+    })])),
+  };
   // This unit's money events, from the refreshed invoice row and the deductions, as the Payments ledger lists them.
   const moneyRows = ledgerRows(t, paymentRows, (deductionRows ?? []) as LedgerDeduction[]);
   const paidOn = moneyRows.find((r) => r.kind === "payment")?.date ?? null;
@@ -466,6 +486,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                 deductions={deductions}
                 numbers={numbers}
                 wear={wearRows}
+                edit={editing}
                 returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, at: returned.created_at } : null}
                 viaDispute={via ? { amount: via.amount, notKept } : null}
                 forfeited={forfeited ? { label: forfeited.label, note: forfeited.note } : null}

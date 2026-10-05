@@ -8,7 +8,7 @@ import { Icon, PayPalMark, type IconName } from "./icons";
 import { Menu } from "./menu";
 import { Avatar, Notice, Wordmark } from "./ui";
 
-// The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Documents, then the Workflows group),
+// The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Insights, Documents, then the Workflows group),
 // PayPal's connection and the account at its foot; a 56px top bar with search, the Test mode switch (the only place
 // the sandbox shows), notifications, help and the avatar. At phone width the sidebar becomes a drawer.
 
@@ -30,6 +30,7 @@ const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) =>
   { href: "/units", icon: "building", label: "Properties", match: (p) => p === "/" || p.startsWith("/units") || p.startsWith("/tenancy") },
   { href: "/tenants", icon: "users", label: "Tenants", match: (p) => p.startsWith("/tenants") },
   { href: "/ledger", icon: "card", label: "Payments", match: (p) => p.startsWith("/ledger") },
+  { href: "/insights", icon: "split", label: "Insights", match: (p) => p.startsWith("/insights") },
   { href: "/documents", icon: "doc", label: "Documents", match: (p) => p.startsWith("/documents") },
   { group: "Workflows" },
   { href: "/lease", icon: "file-check", label: "Lease check", match: (p) => p.startsWith("/lease") },

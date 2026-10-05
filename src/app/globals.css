@@ -118,6 +118,58 @@
   }
 }
 
+/* AG Grid (src/components/grid.tsx): the deductions grid's totals read as one block under the rows, with a rule only
+   above the bottom line; an input the landlord can change darkens its border on the row's hover; the first column
+   lines up with the card's 20px padding. */
+.ag-row.gf-total {
+  border-bottom-color: transparent !important;
+}
+.ag-row.gf-total-strong {
+  border-top: 1px solid var(--color-line);
+}
+.ag-row.gf-group {
+  background-color: var(--color-surface);
+  cursor: pointer;
+}
+.ag-row.gf-room {
+  background-color: var(--color-surface);
+}
+.ag-row.gf-sum {
+  font-weight: 500;
+}
+.ag-row-hover .gf-input,
+.ag-cell-focus .gf-input {
+  border-color: var(--color-ink-4);
+}
+.gf-grid .ag-cell > .ag-cell-wrapper,
+.gf-grid .ag-cell-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gf-deductions .ag-cell-inline-editing input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ag-cell.gf-first,
+.ag-header-cell.gf-first {
+  padding-left: 20px;
+}
+/* A cell with keyboard focus: the app's 2px brand outline, drawn inside the cell over AG Grid's 1px focus border (an
+   editor keeps its own ring). */
+.ag-cell-focus:not(.ag-cell-range-selected):not(.ag-cell-inline-editing):focus-within {
+  outline: 2px solid var(--color-brand);
+  outline-offset: -2px;
+}
+/* A header a screen reader names but the eye doesn't need (the row menus' "Actions"). */
+.ag-header-cell.gf-header-sr .ag-header-cell-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* The itemized statement and the notice drafts print as plain documents: white paper, no chrome. Only pieces that
    fit a page (the header, one deduction, the totals) are kept whole; a heading is never left alone at the foot of a
    page. */

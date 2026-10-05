@@ -35,6 +35,7 @@ const P: Record<string, React.ReactNode> = {
   "file-check": <><path d="M4 2.5h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z" /><path d="M9 2.5v3h3M5.8 10l1.5 1.5L10.5 8" /></>,
   key: <><circle cx="5.5" cy="10.5" r="3" /><path d="m7.6 8.4 5.9-5.9M11 5l2 2M9 7l2 2" /></>,
   split: <path d="M3 13h10M4.5 10V3.5M8 10V5.5M11.5 10V7.5" />,
+  columns: <><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M6.2 3v10M9.8 3v10" /></>,
   menu: <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />,
   link: <path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" />,
   pen: <path d="M10.5 3.5l2 2L6 12l-2.5.5L4 10l6.5-6.5z" />,

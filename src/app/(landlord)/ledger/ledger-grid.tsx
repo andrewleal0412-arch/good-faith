@@ -2,83 +2,57 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgGridProvider, AgGridReact, type CustomCellRendererProps, type CustomTooltipProps } from "ag-grid-react";
-import {
-  AllCommunityModule, themeQuartz,
-  type ColDef, type GridApi, type GridReadyEvent, type IRowNode, type ITooltipParams,
-  type ProcessCellForExportParams, type ProcessHeaderForExportParams, type ValueFormatterParams, type ValueGetterParams,
+import { AgGridProvider, AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
+import type {
+  CellClickedEvent, CellKeyDownEvent, ColDef, ColumnMovedEvent, ColumnResizedEvent, ColumnState, GridApi, GridReadyEvent, IRowNode, ITooltipParams,
+  ProcessCellForExportParams, ProcessHeaderForExportParams, SortChangedEvent, ValueFormatterParams, ValueGetterParams,
 } from "ag-grid-community";
-import { dayLabel, shortDate } from "@/lib/dates";
+import { atText, dayLabel, longDate, shortDate } from "@/lib/dates";
 import { Button, ButtonLink } from "@/components/button";
+import { CopyId } from "@/components/copy-id";
+import { Drawer } from "@/components/drawer";
+import { browserStore, csvSafe, GridTip, gridModules, gridTheme } from "@/components/grid";
 import { Icon, PayPalMark } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
 import { Tabs } from "@/components/tabs";
-import { Money, StatusChip } from "@/components/ui";
+import { KV, Money, StatusChip, inlineInputClass } from "@/components/ui";
 import { ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
-import type { LedgerUnit } from "@/lib/ledger-load";
+import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
 
-// Payments, as Mercury's and Stripe's transaction tables read: the page title with Export and Request deposit, two
-// tiles (what is held, what is due back next), tabs by kind, filter chips, then one 48px line per money event in AG Grid
-// Community: sorting, row selection, the external filter behind the tabs and chips, the quick filter behind the top
-// bar's search, custom cells, tooltips and the CSV export. No license key and nothing from Enterprise; the modules go
-// in through the provider so nothing runs on the server.
-const modules = [AllCommunityModule];
+// Payments, as Mercury's and Stripe's transaction tables read: the page title with Views, Export and Request deposit,
+// two tiles (what is held, what is due back next), the views as tabs, filter chips and a quick filter, then one 48px
+// line per money event in AG Grid Community. Each view is a saved layout: its rows, its columns and its sort, and the
+// columns a landlord resizes, moves, sorts, hides or shows are remembered per view in this browser. A row opens its
+// details (every PayPal id with a copy button, where its status came from, PayPal's webhook deliveries) on a click or
+// Enter; the arrow keys move between cells. Past a screenful the grid renders only the rows in view, so a few hundred
+// rows scroll as fast as ten. No license key and nothing from Enterprise; the modules go in through the provider so
+// nothing runs on the server.
 
-// The design tokens by value (globals.css): the theme mixes them into its hover, selection and focus tints, which it
-// cannot do from a var() reference. The grid draws no border of its own; the card around it does.
-const theme = themeQuartz.withParams({
-  accentColor: "#5e6ad2",
-  backgroundColor: "#ffffff",
-  foregroundColor: "#1b1d23",
-  cellTextColor: "#1b1d23",
-  borderColor: "#e6e8ee",
-  wrapperBorder: false,
-  wrapperBorderRadius: 0,
-  rowBorder: { color: "#eff0f4" },
-  headerRowBorder: { color: "#e6e8ee" },
-  columnBorder: false,
-  headerColumnBorder: false,
-  headerColumnResizeHandleColor: "transparent",
-  chromeBackgroundColor: "#ffffff",
-  headerBackgroundColor: "#ffffff",
-  headerCellHoverBackgroundColor: "#f7f8fa",
-  headerTextColor: "#64697b",
-  headerFontWeight: 500,
-  headerFontSize: 12,
-  headerHeight: 40,
-  rowHeight: 48,
-  autoHeightMinBodyHeight: 48, // room for the "no payments match" line, not the 150px default under a short list
-  rowHoverColor: "#f7f8fa",
-  selectedRowBackgroundColor: "#eef0fb",
-  fontFamily: "var(--font-inter), system-ui, sans-serif",
-  fontSize: 13,
-  dataFontSize: 13,
-  cellHorizontalPadding: 10,
-  iconSize: 12,
-  checkboxBorderRadius: 4,
-  checkboxUncheckedBorderColor: "#c9ccd6",
-  checkboxCheckedBackgroundColor: "#5e6ad2",
-  checkboxCheckedBorderColor: "#5e6ad2",
-  checkboxIndeterminateBackgroundColor: "#5e6ad2",
-  checkboxIndeterminateBorderColor: "#5e6ad2",
-});
+/* ---------- Views and what each row is ---------- */
 
-/* ---------- Tabs, chips and what each row is ---------- */
+type View = "all" | "deposits" | "refunds" | "settlements" | "deductions" | "requests" | "paypal";
+type ColId = "date" | "tenants" | "type" | "unit" | "method" | "detail" | "paypalId" | "source" | "tag" | "status" | "amount";
 
-type Tab = "all" | "deposits" | "refunds" | "requests" | "deductions";
-const GROUP: Record<LedgerKind, Exclude<Tab, "all">> = {
-  payment: "deposits", refund: "refunds", payout: "refunds", deposit_invoice: "requests", damage_invoice: "requests", deduction: "deductions", settlement: "refunds",
-  dispute_refund: "refunds",
-};
-// All is money that moved: deposits in, refunds and payouts out. Invoices are requests, and deductions are what the
-// statement keeps; each has its own tab.
-const TABS: { key: Tab; label: string; has: (k: LedgerKind) => boolean }[] = [
-  { key: "all", label: "All", has: (k) => GROUP[k] === "deposits" || GROUP[k] === "refunds" },
-  { key: "deposits", label: "Deposits", has: (k) => GROUP[k] === "deposits" },
-  { key: "refunds", label: "Refunds", has: (k) => GROUP[k] === "refunds" },
-  { key: "requests", label: "Requests", has: (k) => GROUP[k] === "requests" },
-  { key: "deductions", label: "Deductions", has: (k) => GROUP[k] === "deductions" },
+const BACK: LedgerKind[] = ["refund", "payout", "dispute_refund"];
+/** The views: which rows each shows and the columns it opens with (a wide card; narrower cards drop the extras). All
+ *  is money that moved: deposits in, refunds, payouts and settlements out. PayPal events is every row PayPal holds a
+ *  record of, with where each status came from. */
+const VIEWS: { key: View; label: string; has: (r: LedgerRow) => boolean; cols: ColId[] }[] = [
+  { key: "all", label: "All", has: (r) => r.kind === "payment" || BACK.includes(r.kind) || r.kind === "settlement", cols: ["date", "tenants", "type", "unit", "method", "status", "amount"] },
+  { key: "deposits", label: "Deposits", has: (r) => r.kind === "payment", cols: ["date", "tenants", "unit", "method", "paypalId", "status", "amount"] },
+  { key: "refunds", label: "Refunds", has: (r) => BACK.includes(r.kind), cols: ["date", "tenants", "type", "unit", "detail", "status", "amount"] },
+  { key: "settlements", label: "Settlements", has: (r) => r.kind === "settlement", cols: ["date", "tenants", "unit", "detail", "status", "amount"] },
+  { key: "deductions", label: "Deductions", has: (r) => r.kind === "deduction", cols: ["date", "tenants", "unit", "detail", "tag", "status", "amount"] },
+  { key: "requests", label: "Requests", has: (r) => r.kind === "deposit_invoice" || r.kind === "damage_invoice", cols: ["date", "tenants", "type", "unit", "paypalId", "status", "amount"] },
+  { key: "paypal", label: "PayPal events", has: (r) => r.kind !== "deduction" && !r.example && (!!r.paypalId || !!r.fromPayPal), cols: ["date", "type", "unit", "paypalId", "source", "status", "amount"] },
+];
+/** What a narrower card drops first, in order. */
+const DROP: ColId[] = ["method", "tag", "source", "detail", "paypalId", "type"];
+/** The columns a landlord may show or hide (the rest every view keeps). */
+const OPTIONAL: { id: ColId; label: string }[] = [
+  { id: "type", label: "Type" }, { id: "unit", label: "Property" }, { id: "method", label: "Method" }, { id: "detail", label: "Detail" },
+  { id: "paypalId", label: "PayPal ID" }, { id: "source", label: "Status from" }, { id: "tag", label: "Rule" }, { id: "status", label: "Status" },
 ];
 
 /** The word the table shows for each kind (the deposit received reads "Deposit"; an invoice is a request). */
@@ -130,10 +104,13 @@ function statusOf(r: LedgerRow, back: Map<string, "returned" | "pending">): stri
   }
 }
 
+/** Where a row's status came from, in a few words: PayPal's webhook, or the record as the app last read it. */
+const sourceOf = (r: LedgerRow) => (r.kind === "deduction" ? "Your records" : r.example ? "Demo example" : r.fromPayPal ? "PayPal webhook" : "As last read");
+
 /* ---------- Cells ---------- */
 
 type Layout = "narrow" | "medium" | "compact" | "wide";
-type Ctx = { back: Map<string, "returned" | "pending">; today: string; layout: Layout; onlyProperty: (id: string) => void };
+type Ctx = { back: Map<string, "returned" | "pending">; today: string; layout: Layout; onlyProperty: (id: string) => void; open: (r: LedgerRow) => void };
 
 function PropertyCell(p: CustomCellRendererProps<LedgerRow, string>) {
   if (!p.data) return null;
@@ -161,11 +138,20 @@ function StatusCell(p: CustomCellRendererProps<LedgerRow, string>) {
 function AmountCell(p: CustomCellRendererProps<LedgerRow, number>) {
   const r = p.data;
   if (!r) return null;
-  const m = r.effect === "failed" ? <Money value={r.amount} className="text-ink-3 line-through" />
-    : r.kind === "payment" ? <Money value={r.amount} className="text-green" />
-      : r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" || r.kind === "dispute_refund" ? <Money value={r.amount} sign="minus" />
-        : <Money value={r.amount} className="text-ink-2" />;
-  return <div className="text-right">{m}</div>;
+  return <div className="text-right"><RowMoney r={r} /></div>;
+}
+
+function RowMoney({ r, className = "" }: { r: LedgerRow; className?: string }) {
+  return r.effect === "failed" ? <Money value={r.amount} className={`text-ink-3 line-through ${className}`} />
+    : r.kind === "payment" ? <Money value={r.amount} className={`text-green ${className}`} />
+      : r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" || r.kind === "dispute_refund" ? <Money value={r.amount} sign="minus" className={className} />
+        : <Money value={r.amount} className={`text-ink-2 ${className}`} />;
+}
+
+/** A PayPal id in a cell: the id in tabular figures, truncated, the whole of it on hover. */
+function IdCell(p: CustomCellRendererProps<LedgerRow, string | null>) {
+  if (!p.value) return <span className="text-ink-3">None</span>;
+  return <span className="truncate tabular-nums text-ink-2" title={p.value}>{p.value}</span>;
 }
 
 /** Who, over what kind of row it is and when: the first column when the grid is too narrow for Date and Type. On a
@@ -191,6 +177,7 @@ function RowMenu(p: CustomCellRendererProps<LedgerRow>) {
   if (!r) return null;
   const ctx = p.context as Ctx;
   const items: MenuItem[] = [
+    { label: "Details", icon: "info", onSelect: () => ctx.open(r) },
     { label: "Open property", href: `/tenancy/${r.tenancyId}?tab=payments`, icon: "arrow-up-right" },
     ...(r.kind === "refund" || r.kind === "payout" ? [{ label: "View receipt", href: `/tenancy/${r.tenancyId}/refund`, icon: "doc" as const }] : []),
     ...(r.kind === "deduction" || r.kind === "refund" || r.kind === "payout" ? [{ label: "Itemized statement", href: `/tenancy/${r.tenancyId}/statement`, icon: "doc" as const }] : []),
@@ -212,35 +199,51 @@ function RowMenu(p: CustomCellRendererProps<LedgerRow>) {
   );
 }
 
-/** The grid's tooltips in the app's own dark tip. */
-function GridTip(p: CustomTooltipProps) {
-  return <div className="max-w-[300px] rounded-md bg-ink px-3 py-2 text-sm text-white shadow-md">{String(p.value ?? "")}</div>;
-}
+/* ---------- Remembered columns ---------- */
+
+const STORE = "gf.ledger.v2";
+const colsKey = (view: View, layout: Layout) => `${STORE}.cols.${view}.${layout}`;
+type SavedCol = Pick<ColumnState, "colId" | "width" | "hide" | "sort" | "sortIndex">;
 
 /* ---------- The page body ---------- */
 
-export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
+export function LedgerGrid({ rows, today, units, details, focusId, q, initialView, requestHref }: {
   rows: LedgerRow[];
   today: string;
   units: LedgerUnit[];
+  details: Record<string, LedgerDetail>;
   focusId: string | null; // opened from one tenancy's page: start filtered to it
   q: string; // the top bar's search, on this page
+  initialView: string | null; // ?view=, so a view can be linked to and survives a reload
   requestHref: string;
 }) {
   const apiRef = useRef<GridApi<LedgerRow> | null>(null);
   // Every row California's (its tags are subsections of Civ. Code 1950.5): the export's column keeps that name.
   const allCa = rows.every((r) => !r.tag || r.tag.startsWith("("));
-  const [tab, setTab] = useState<Tab>("all");
+  const [view, setView] = useState<View>(VIEWS.some((v) => v.key === initialView) ? initialView as View : "all");
   const [property, setProperty] = useState<string | null>(focusId && units.some((u) => u.id === focusId) ? focusId : null);
   const RANGES = useMemo(() => ranges(today), [today]);
   const [range, setRange] = useState<Range>(RANGES[0]);
   const [band, setBand] = useState<Band>(BANDS[0]);
+  // The quick filter: as the landlord types, on every column (the hidden ones too). The top bar's search lands here.
+  const [search, setSearch] = useState(q);
+  const [lastQ, setLastQ] = useState(q);
+  if (q !== lastQ) { setLastQ(q); setSearch(q); }
   const [shown, setShown] = useState(0);
   const [selected, setSelected] = useState(0);
+  const [open, setOpen] = useState<LedgerRow | null>(null);
+  const [shownCols, setShownCols] = useState<string[]>([]); // the Columns menu's checks follow the grid's own state
+  // The view is in the address (?view=), so it can be linked to, comes back on a reload and goes back with Back.
+  const choose = (v: View) => {
+    setView(v);
+    const url = new URL(window.location.href);
+    if (v === "all") url.searchParams.delete("view"); else url.searchParams.set("view", v);
+    window.history.replaceState(null, "", url);
+  };
+
   // The columns follow the card's own width, not the window's: beside the sidebar a 1024px window leaves the grid
-  // about 740px and a 1280px one about 990px. Wide shows every column; compact (a 13-inch laptop) drops only the
-  // method, which is PayPal on every row; medium folds the type and date under the name; a phone keeps who, how much
-  // and the row's menu.
+  // about 740px and a 1280px one about 990px. Wide shows the view's columns; compact (a 13-inch laptop) drops the
+  // extras first; medium folds the type and date under the name; a phone keeps who, how much and the row's menu.
   const card = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<Layout>("wide");
   useEffect(() => {
@@ -254,21 +257,22 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
     return () => ro.disconnect();
   }, []);
   const narrow = layout === "narrow";
+  const V = VIEWS.find((v) => v.key === view)!;
 
-  // Every chip but the tab, as one predicate: the tab counts and the external filter both read it.
+  // Every chip but the view, as one predicate: the view counts and the external filter both read it.
   const passesChips = useCallback((r: LedgerRow) =>
     (!property || r.tenancyId === property)
     && (!range.from || r.date >= range.from) && (!range.to || r.date <= range.to)
     && (band.min == null || r.amount >= band.min) && (band.max == null || r.amount < band.max), [property, range, band]);
-  const filter = useRef({ tab, passesChips });
+  const filter = useRef({ has: V.has, passesChips });
   useEffect(() => {
-    filter.current = { tab, passesChips };
+    filter.current = { has: V.has, passesChips };
     apiRef.current?.onFilterChanged();
-  }, [tab, passesChips]);
+  }, [V, passesChips]);
 
   const counts = useMemo(() => {
-    const c = Object.fromEntries(TABS.map((t) => [t.key, 0])) as Record<Tab, number>;
-    for (const r of rows) if (passesChips(r)) for (const t of TABS) if (t.has(r.kind)) c[t.key]++;
+    const c = Object.fromEntries(VIEWS.map((t) => [t.key, 0])) as Record<View, number>;
+    for (const r of rows) if (passesChips(r)) for (const t of VIEWS) if (t.has(r)) c[t.key]++;
     return c;
   }, [rows, passesChips]);
 
@@ -276,7 +280,7 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
   const back = useMemo(() => {
     const m = new Map<string, "returned" | "pending">();
     for (const r of rows) {
-      if (r.kind !== "refund" && r.kind !== "payout" && r.kind !== "dispute_refund") continue;
+      if (!BACK.includes(r.kind)) continue;
       if (r.effect === "returned") m.set(r.tenancyId, "returned");
       else if (r.effect === "pending" && !m.has(r.tenancyId)) m.set(r.tenancyId, "pending");
     }
@@ -297,25 +301,65 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
   }, [rows, units, property]);
 
   const onlyProperty = useCallback((id: string) => setProperty(id), []);
-  const context = useMemo<Ctx>(() => ({ back, today, layout, onlyProperty }), [back, today, layout, onlyProperty]);
+  const context = useMemo<Ctx>(() => ({ back, today, layout, onlyProperty, open: setOpen }), [back, today, layout, onlyProperty]);
 
   const recount = useCallback((api: GridApi<LedgerRow>) => {
     setShown(api.getDisplayedRowCount());
     setSelected(api.getSelectedRows().length);
   }, []);
 
+  // Which of the view's columns this card has room for.
+  const visible = useMemo(() => {
+    if (layout === "narrow") return new Set<ColId>(["amount"]);
+    if (layout === "medium") return new Set<ColId>(["unit", "status", "amount", ...V.cols.filter((c) => c === "paypalId" && view === "paypal")]);
+    const max = layout === "compact" ? 6 : 99;
+    const cols = [...V.cols];
+    for (const d of DROP) if (cols.length > max && cols.includes(d)) cols.splice(cols.indexOf(d), 1);
+    if (layout === "compact") { const i = cols.indexOf("method"); if (i >= 0) cols.splice(i, 1); }
+    return new Set(cols);
+  }, [layout, V, view]);
+
+  /** This view's remembered columns, or the defaults when there are none. */
+  const applySaved = useCallback((api: GridApi<LedgerRow>) => {
+    const saved = browserStore.get<SavedCol[]>(colsKey(view, layout));
+    if (saved?.length) api.applyColumnState({ state: saved, applyOrder: true, defaultState: { sort: null } });
+    else api.applyColumnState({ state: [{ colId: "date", sort: "desc" }], defaultState: { sort: null } });
+  }, [view, layout]);
+  useEffect(() => { if (apiRef.current) applySaved(apiRef.current); }, [applySaved, visible]);
+
+  const remember = useCallback(() => {
+    const api = apiRef.current;
+    if (!api) return;
+    const state = api.getColumnState().map(({ colId, width, hide, sort, sortIndex }) => ({ colId, width, hide, sort, sortIndex }));
+    browserStore.set(colsKey(view, layout), state);
+  }, [view, layout]);
+
+  const toggleColumn = (id: ColId) => {
+    const api = apiRef.current;
+    if (!api) return;
+    const col = api.getColumn(id);
+    api.setColumnsVisible([id], !col?.isVisible());
+    remember();
+  };
+  const resetColumns = () => {
+    browserStore.remove(colsKey(view, layout));
+    apiRef.current?.resetColumnState();
+    if (apiRef.current) applySaved(apiRef.current);
+  };
+
   const onGridReady = useCallback((e: GridReadyEvent<LedgerRow>) => {
     apiRef.current = e.api;
+    applySaved(e.api);
     recount(e.api);
-  }, [recount]);
+  }, [recount, applySaved]);
 
   const exportCsv = () => {
     const api = apiRef.current;
     if (!api) return;
     api.exportDataAsCsv({
-      fileName: `good-faith-payments-${today}.csv`,
+      fileName: `good-faith-payments-${view}-${today}.csv`,
       onlySelected: api.getSelectedRows().length > 0,
-      columnKeys: ["date", "type", "unit", "tenants", "detail", "method", "amount", "paypalId", "status", "tag"],
+      columnKeys: ["date", "type", "unit", "tenants", "detail", "method", "amount", "paypalId", "status", "source", "tag"],
       processHeaderCallback: (p: ProcessHeaderForExportParams<LedgerRow>) => {
         const id = p.column.getColId();
         return id === "tag" ? (allCa ? "Civ. Code 1950.5" : "Rule") : id === "unit" ? "Property" : id === "tenants" ? "Tenants" : id === "paypalId" ? "PayPal ID" : p.column.getColDef().headerName ?? id;
@@ -327,77 +371,112 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
         if (col === "date") return r.date;
         if (col === "amount") return r.amount.toFixed(2);
         if (col === "unit") return csvSafe(r.address);
+        if (col === "detail") return csvSafe(r.detail);
         if (col === "tag") return r.tag ? `${r.tag} ${r.tagLabel}` : "";
+        if (col === "source") return r.fromPayPal ? `PayPal webhook, ${r.fromPayPal}` : sourceOf(r);
         return csvSafe(p.value);
       },
     });
   };
 
   const columnDefs = useMemo<ColDef<LedgerRow>[]>(() => {
+    const on = (id: ColId) => visible.has(id);
+    const oneLine = layout === "wide" || layout === "compact";
     const date: ColDef<LedgerRow> = {
-      field: "date", headerName: "Date", width: 104, sort: "desc", comparator: byTime, cellClass: "tabular-nums text-ink-2",
+      field: "date", headerName: "Date", width: 104, comparator: byTime, cellClass: "tabular-nums text-ink-2", hide: !oneLine || !on("date"),
       valueFormatter: (p: ValueFormatterParams<LedgerRow, string>) => (p.value ? dayLabel(p.value, today) : ""),
       getQuickFilterText: (p) => (p.value ? `${p.value} ${shortDate(p.value)}` : ""),
     };
-    const type: ColDef<LedgerRow> = {
-      colId: "type", headerName: "Type", width: layout === "wide" ? 132 : 124, hide: layout === "medium",
-      valueGetter: (p: ValueGetterParams<LedgerRow>) => (p.data ? TYPE[p.data.kind] : ""),
-      // Each row's part of its state's deposit law (California: Civil Code 1950.5) is its type's tooltip, and a column of
-      // the export.
-      tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.tag ? `${tagCite(p.data)}: ${p.data.tagLabel}` : null),
-    };
-    const amount: ColDef<LedgerRow> = { field: "amount", headerName: "Amount", width: 128, type: "rightAligned", cellRenderer: AmountCell, cellClass: "tabular-nums" };
-    if (layout === "narrow") {
-      return [
-        { colId: "who", field: "tenants", headerName: "To / From", flex: 1, minWidth: 150, cellRenderer: WhoCell, sortable: false },
-        { ...amount, width: 116, sortable: false },
-        { ...MENU, width: 40 },
-        // Off screen, for the sort and the export.
-        { ...date, hide: true }, { ...type, hide: true },
-        { field: "unit", hide: true }, { field: "method", hide: true }, { colId: "status", hide: true, valueGetter: statusGetter },
-        ...HIDDEN,
-      ];
-    }
-    const oneLine = layout !== "medium"; // wide or compact: one 48px line per row, as the mockup's table
+    const who: ColDef<LedgerRow> = oneLine
+      ? { colId: "tenants", field: "tenants", headerName: "To / From", flex: 1.25, minWidth: layout === "wide" ? 170 : 150, cellClass: "font-medium", tooltipField: "tenants", hide: !on("tenants") }
+      // Shown in every view: a column definition that leaves `hide` out keeps whatever the wide layout set (the PayPal
+      // events view hides To / From there), and the two-line cell is the row's name on a phone.
+      : { colId: "tenants", field: "tenants", headerName: "To / From", flex: 1.2, minWidth: narrow ? 150 : 180, cellRenderer: WhoCell, tooltipField: "tenants", sortable: !narrow, hide: false };
     return [
-      { ...date, hide: !oneLine },
-      oneLine
-        ? { field: "tenants", headerName: "To / From", flex: 1.25, minWidth: layout === "wide" ? 170 : 150, cellClass: "font-medium", tooltipField: "tenants" }
-        : { field: "tenants", headerName: "To / From", flex: 1.2, minWidth: 180, cellRenderer: WhoCell, tooltipField: "tenants" },
-      type,
+      date,
+      who,
       {
-        field: "unit", headerName: "Property", flex: 1, minWidth: layout === "wide" ? 170 : layout === "compact" ? 150 : 140, cellRenderer: PropertyCell,
+        colId: "type", headerName: "Type", width: layout === "wide" ? 132 : 124, hide: !oneLine || !on("type"),
+        valueGetter: (p: ValueGetterParams<LedgerRow>) => (p.data ? TYPE[p.data.kind] : ""),
+        // Each row's part of its state's deposit law (California: Civil Code 1950.5) is its type's tooltip, and a column of
+        // the export.
+        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.tag ? `${tagCite(p.data)}: ${p.data.tagLabel}` : null),
+      },
+      {
+        colId: "unit", field: "unit", headerName: "Property", flex: 1, minWidth: layout === "wide" ? 170 : layout === "compact" ? 150 : 140, cellRenderer: PropertyCell, hide: !on("unit"),
         tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data ? p.data.address : null),
         getQuickFilterText: (p) => (p.data ? `${p.data.unit} ${p.data.address}` : ""),
       },
-      { field: "method", headerName: "Method", width: 120, cellRenderer: MethodCell, hide: layout !== "wide" },
+      { colId: "method", field: "method", headerName: "Method", width: 120, cellRenderer: MethodCell, hide: !on("method") },
       {
-        colId: "status", headerName: "Status", width: layout === "wide" ? 124 : 112, cellRenderer: StatusCell, valueGetter: statusGetter,
+        colId: "detail", field: "summary", headerName: "Detail", flex: 1.1, minWidth: 180, hide: !on("detail"), cellClass: "text-ink-2",
         tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data ? cap(p.data.detail) : null),
+        getQuickFilterText: (p) => (p.data ? p.data.detail : ""),
       },
-      { ...amount, width: layout === "wide" ? 128 : 116 },
-      MENU,
-      ...HIDDEN,
+      { colId: "paypalId", field: "paypalId", headerName: "PayPal ID", width: 176, cellRenderer: IdCell, hide: !on("paypalId") },
+      {
+        colId: "source", headerName: "Status from", width: 132, hide: !on("source"), cellClass: "text-ink-2",
+        valueGetter: (p: ValueGetterParams<LedgerRow>) => (p.data ? sourceOf(p.data) : ""),
+        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.fromPayPal ? `PayPal reported it ${atText(p.data.fromPayPal)}` : null),
+      },
+      {
+        colId: "tag", field: "tag", headerName: allCa ? "Civ. Code" : "Rule", width: 116, hide: !on("tag"), cellClass: "tabular-nums text-ink-2",
+        valueFormatter: (p: ValueFormatterParams<LedgerRow, string>) => (p.data?.tag ? `${p.data.tag.startsWith("(") ? p.data.tag : p.data.tagShort}` : ""),
+        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.tag ? `${tagCite(p.data)}: ${p.data.tagLabel}` : null),
+        getQuickFilterText: (p) => (p.data ? `${p.data.tag} ${p.data.tagShort}` : ""),
+      },
+      {
+        colId: "status", headerName: "Status", width: layout === "wide" ? 124 : 112, cellRenderer: StatusCell, valueGetter: statusGetter, hide: !on("status"),
+        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data ? cap(p.data.detail) + (p.data.fromPayPal ? `. PayPal reported it ${atText(p.data.fromPayPal)}.` : "") : null),
+      },
+      { colId: "amount", field: "amount", headerName: "Amount", width: narrow ? 116 : layout === "wide" ? 128 : 116, type: "rightAligned", cellRenderer: AmountCell, cellClass: "tabular-nums", sortable: !narrow },
+      { ...MENU, width: narrow ? 40 : 52 },
     ];
-  }, [layout, today]);
+  }, [layout, today, visible, narrow, allCa]);
 
   const defaultColDef = useMemo<ColDef<LedgerRow>>(() => ({
     sortable: true, resizable: true, suppressHeaderMenuButton: true, tooltipComponent: GridTip,
   }), []);
 
+  // A click on a row (not on its link, menu or checkbox) and Enter on a focused cell open the row's details.
+  const onCellClicked = useCallback((e: CellClickedEvent<LedgerRow>) => {
+    const t = e.event?.target as HTMLElement | null;
+    if (!e.data || t?.closest("a, button, input, [role=menu]") || e.column.getColId() === "menu") return;
+    setOpen(e.data);
+  }, []);
+  const onCellKeyDown = useCallback((e: CellKeyDownEvent<LedgerRow>) => {
+    const k = (e.event as KeyboardEvent | undefined)?.key;
+    if (k === "Enter" && e.data && e.column.getColId() !== "menu" && !(e.event?.target as HTMLElement | null)?.closest("button, a")) setOpen(e.data);
+  }, []);
+
+  // Past a screenful the grid gets a fixed height and renders only the rows in view (and a few either side), so a
+  // few hundred rows scroll as fast as ten; a short list grows to fit, with no scroll box inside the page.
+  const rowH = layout === "wide" || layout === "compact" ? 48 : 56;
+  const virtual = shown > 24;
+
   const chip = "inline-flex h-[30px] items-center gap-1.5 rounded-sm border px-2.5 text-sm [&_svg]:size-[13px]";
   const off = `${chip} border-line bg-canvas text-ink-2 hover:bg-surface [&_svg]:text-ink-4`;
-  const on = `${chip} border-brand-100 bg-brand-50 text-brand-700 [&_svg]:text-brand`;
+  const onC = `${chip} border-brand-100 bg-brand-50 text-brand-700 [&_svg]:text-brand`;
   const unit = units.find((u) => u.id === property);
   const streets = new Map<string, number>();
   for (const u of units) streets.set(u.street, (streets.get(u.street) ?? 0) + 1);
-  const anyChip = !!property || range.key !== "all" || band.key !== "any";
+  const anyChip = !!property || range.key !== "all" || band.key !== "any" || !!search;
 
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
         <h1 className="text-xl font-medium">Payments</h1>
         <div className="ml-auto flex items-center gap-2">
+          <Menu label="Columns" align="end" width={220} buttonClass="inline-flex h-[34px] items-center gap-[7px] rounded-md bg-surface-2 px-3.5 text-sm font-medium text-ink hover:bg-surface-3 max-sm:hidden"
+            trigger={<><Icon name="columns" className="size-[15px]" />Columns</>}
+            items={[
+              { heading: `${V.label}: columns` },
+              ...(narrow ? [] : OPTIONAL).map((o) => ({
+                label: o.label, icon: shownCols.includes(o.id) ? "check" as const : undefined, onSelect: () => toggleColumn(o.id),
+              })),
+              { divider: true },
+              { label: "Reset columns", icon: "restart", onSelect: resetColumns },
+            ]} />
           <Button onClick={exportCsv}>{selected ? `Export ${selected}` : "Export"}</Button>
           <ButtonLink variant="primary" href={requestHref}><Icon name="receive" />Request deposit</ButtonLink>
         </div>
@@ -415,14 +494,20 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
         )}
       </div>
 
-      <Tabs label="Payment types" active={tab} onSelect={(k) => setTab(k as Tab)}
-        items={TABS.map((t) => ({ key: t.key, label: t.label, count: counts[t.key] }))} />
+      <Tabs label="Views" active={view} onSelect={(k) => choose(k as View)}
+        items={VIEWS.map((t) => ({ key: t.key, label: t.label, count: counts[t.key] }))} />
 
       <div className="mb-3.5 mt-5 flex flex-wrap items-center gap-2">
-        <Menu label="Date range" align="start" width={200} buttonClass={range.key === "all" ? off : on}
+        <label className="relative flex min-w-0 items-center max-sm:w-full">
+          <span className="sr-only">Filter these rows</span>
+          <Icon name="search" className="pointer-events-none absolute left-2.5 size-[13px] text-ink-4" />
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter rows"
+            className={`${inlineInputClass} h-[30px] w-[220px] pl-8 text-sm max-sm:w-full`} />
+        </label>
+        <Menu label="Date range" align="start" width={200} buttonClass={range.key === "all" ? off : onC}
           trigger={<><Icon name="calendar" />{range.label}<Icon name="chev-down" /></>}
           items={RANGES.map((r) => ({ label: r.label, icon: r.key === range.key ? "check" as const : undefined, onSelect: () => setRange(r) }))} />
-        <Menu label="Property" align="start" width={280} buttonClass={unit ? on : off}
+        <Menu label="Property" align="start" width={280} buttonClass={unit ? onC : off}
           trigger={<><Icon name="building" /><span className="max-w-[180px] truncate">{unit ? unit.street : "Property"}</span><Icon name="chev-down" /></>}
           items={[
             { label: "All properties", icon: !unit ? "check" : undefined, onSelect: () => setProperty(null) },
@@ -432,50 +517,57 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
               icon: u.id === property ? "check" as const : undefined, onSelect: () => setProperty(u.id),
             })),
           ]} />
-        <Menu label="Amount" align="start" width={200} buttonClass={band.key === "any" ? off : on}
+        <Menu label="Amount" align="start" width={200} buttonClass={band.key === "any" ? off : onC}
           trigger={<>{band.key === "any" ? "Amount" : band.label}<Icon name="chev-down" /></>}
           items={BANDS.map((b) => ({ label: b.label, icon: b.key === band.key ? "check" as const : undefined, onSelect: () => setBand(b) }))} />
-        {q && (
-          <Link href={property ? `/ledger?tenancy=${property}` : "/ledger"} className={on} aria-label={`Clear the search for ${q}`}>
-            <Icon name="search" /><span className="max-w-[160px] truncate">{q}</span><Icon name="x" />
-          </Link>
-        )}
         {anyChip && (
-          <Button variant="link" className="ml-1" onClick={() => { setProperty(null); setRange(RANGES[0]); setBand(BANDS[0]); }}>Clear</Button>
+          <Button variant="link" className="ml-1" onClick={() => { setProperty(null); setRange(RANGES[0]); setBand(BANDS[0]); setSearch(""); }}>Clear</Button>
         )}
       </div>
 
       <div ref={card} className="overflow-hidden rounded-lg border border-line bg-canvas shadow-sm">
-        <AgGridProvider modules={modules}>
-          <AgGridReact<LedgerRow>
-            theme={theme}
-            rowData={rows}
-            columnDefs={columnDefs}
-            defaultColDef={defaultColDef}
-            context={context}
-            getRowId={(p) => p.data.id}
-            quickFilterText={q}
-            includeHiddenColumnsInQuickFilter
-            isExternalFilterPresent={() => true}
-            doesExternalFilterPass={(n: IRowNode<LedgerRow>) => {
-              const r = n.data;
-              const f = filter.current;
-              return !!r && TABS.find((t) => t.key === f.tab)!.has(r.kind) && f.passesChips(r);
-            }}
-            rowSelection={narrow ? undefined : { mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }}
-            selectionColumnDef={{ width: 48, minWidth: 48, maxWidth: 48, pinned: null, resizable: false, suppressHeaderMenuButton: true }}
-            rowHeight={layout === "wide" || layout === "compact" ? undefined : 56}
-            domLayout="autoHeight"
-            suppressColumnVirtualisation
-            animateRows={false}
-            suppressCellFocus
-            enableCellTextSelection
-            tooltipShowDelay={300}
-            overlayComponentParams={{ noMatchingRows: { overlayText: "No payments match these filters." } }}
-            onGridReady={onGridReady}
-            onModelUpdated={(e) => recount(e.api)}
-            onSelectionChanged={(e) => recount(e.api)}
-          />
+        <AgGridProvider modules={gridModules}>
+          <div style={virtual ? { height: 40 + 12 * rowH + 2 } : undefined}>
+            <AgGridReact<LedgerRow>
+              containerStyle={virtual ? { height: "100%" } : undefined}
+              theme={gridTheme}
+              rowData={rows}
+              columnDefs={columnDefs}
+              defaultColDef={defaultColDef}
+              context={context}
+              getRowId={(p) => p.data.id}
+              quickFilterText={search}
+              includeHiddenColumnsInQuickFilter
+              cacheQuickFilter
+              isExternalFilterPresent={() => true}
+              doesExternalFilterPass={(n: IRowNode<LedgerRow>) => {
+                const r = n.data;
+                const f = filter.current;
+                return !!r && f.has(r) && f.passesChips(r);
+              }}
+              rowSelection={narrow ? undefined : { mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }}
+              selectionColumnDef={{ width: 48, minWidth: 48, maxWidth: 48, pinned: null, resizable: false, suppressHeaderMenuButton: true, suppressMovable: true }}
+              rowHeight={layout === "wide" || layout === "compact" ? undefined : 56}
+              domLayout={virtual ? "normal" : "autoHeight"}
+              rowBuffer={8}
+              ensureDomOrder
+              suppressColumnVirtualisation
+              animateRows={false}
+              enableCellTextSelection
+              tooltipShowDelay={300}
+              overlayComponentParams={{ noMatchingRows: { overlayText: view === "paypal" ? "No PayPal records match. PayPal's reports show here as they arrive." : "No payments match these filters." } }}
+              onGridReady={onGridReady}
+              onModelUpdated={(e) => recount(e.api)}
+              onSelectionChanged={(e) => recount(e.api)}
+              onCellClicked={onCellClicked}
+              onCellKeyDown={onCellKeyDown}
+              onColumnResized={(e: ColumnResizedEvent<LedgerRow>) => { if (e.finished && e.source === "uiColumnResized") remember(); }}
+              onColumnMoved={(e: ColumnMovedEvent<LedgerRow>) => { if (e.finished && e.source === "uiColumnMoved") remember(); }}
+              onSortChanged={(e: SortChangedEvent<LedgerRow>) => { if (e.source === "uiColumnSorted") remember(); }}
+              onDisplayedColumnsChanged={(e) => setShownCols(e.api.getAllDisplayedColumns().map((c) => c.getColId()))}
+              getRowClass={() => "cursor-pointer"}
+            />
+          </div>
         </AgGridProvider>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-5 py-3 text-xs text-ink-3">
           {selected ? (
@@ -483,29 +575,93 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
           ) : (
             <span className="tabular-nums">{shown} result{shown === 1 ? "" : "s"}</span>
           )}
+          <span className="max-md:hidden">Click a row or press Enter for its details</span>
           <span className="ml-auto" title={`PayPal reports payments, refunds and payouts as they happen ("From PayPal" under a status), and opening a property refreshes its deposit. Hover a type for the part of ${allCa ? "Civil Code 1950.5" : "each property's state law"} behind it; the export lists it for every row.`}>
             Statuses as last checked
           </span>
         </div>
       </div>
+
+      <Drawer open={!!open} onClose={() => setOpen(null)} title={open ? `${TYPE[open.kind]}, ${shortDate(open.date)}` : ""} sub={open ? `${open.unit}, ${open.tenants}` : undefined}>
+        {open && <Details r={open} d={details[open.id]} status={statusOf(open, back)} />}
+      </Drawer>
     </>
   );
 }
 
-/** Each row's menu: open the property, the receipt, the statement, copy the PayPal id, filter to the property. */
+/** One row in full: the amount and its status, what it was and the rule behind it, every PayPal id with a copy button,
+ *  where the status came from, and what PayPal's webhook said about it. */
+function Details({ r, d, status }: { r: LedgerRow; d: LedgerDetail | undefined; status: string }) {
+  const section = "mt-6 border-t border-line-2 pt-4";
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <RowMoney r={r} className="text-2xl font-medium" />
+        {status === "Failed" || status === "Reversed" ? <StatusChip tone="red">{status}</StatusChip>
+          : <StatusChip tone={status === "Completed" || status === "Paid" || status === "Returned" ? "green" : status === "Held" || status === "Demo example" ? "gray" : "amber"}>{status}</StatusChip>}
+      </div>
+      <p className="mt-2 text-sm text-ink-2">{cap(r.detail)}.</p>
+      <KV className="mt-5" rows={[
+        ["Date", longDate(r.date)],
+        ["To / From", r.tenants],
+        ["Property", <Link key="p" href={`/tenancy/${r.tenancyId}?tab=payments`} className="text-brand hover:underline">{r.address}</Link>],
+        ["Method", r.method ?? "None"],
+        ...(r.tag ? [["Rule", <span key="t" className="inline-flex items-center gap-1.5">{tagCite(r)}<InfoTip title={tagCite(r)}>{r.tagLabel}</InfoTip></span>] as [React.ReactNode, React.ReactNode]] : []),
+      ]} />
+
+      <div className={section}>
+        <h3 className="flex items-center gap-1.5 text-sm font-medium"><PayPalMark size={14} />PayPal</h3>
+        {d?.ids.length ? (
+          <KV className="mt-3" rows={d.ids.map((x) => [x.label, <CopyId key={x.id} text={x.id} label={`Copy the ${x.label.toLowerCase()} id`} />])} />
+        ) : (
+          <p className="mt-2 text-sm text-ink-3">None. {r.kind === "deduction" ? "A deduction is on the statement, not in PayPal." : "PayPal holds no record of this row."}</p>
+        )}
+      </div>
+
+      <div className={section}>
+        <h3 className="text-sm font-medium">Status from</h3>
+        <p className="mt-2 text-sm text-ink-2">{d?.source.text ?? sourceOf(r)}{d?.source.at ? `, ${atText(d.source.at)}` : ""}.</p>
+        {d?.source.event && (
+          <KV className="mt-3" rows={[["Event", d.source.event.type], ["Event ID", <CopyId key="e" text={d.source.event.id} label="Copy the event id" />]]} />
+        )}
+      </div>
+
+      {!!d?.events.length && (
+        <div className={section}>
+          <h3 className="text-sm font-medium">PayPal&apos;s webhook</h3>
+          <ul className="mt-2">
+            {d.events.map((e) => (
+              <li key={e.id} className="flex items-start gap-3 border-b border-line-2 py-2.5 last:border-b-0">
+                <span className={`mt-1.5 size-2 shrink-0 rounded-full ${e.status === "failed" ? "bg-red-dot" : e.status === "applied" ? "bg-green-dot" : "bg-amber-dot"}`} aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{e.type}</div>
+                  <div className="text-xs text-ink-3">{e.note ?? cap(e.status)}</div>
+                </div>
+                <span className="shrink-0 text-xs text-ink-3">{atText(e.at)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-6 flex flex-wrap gap-2">
+        <ButtonLink href={`/tenancy/${r.tenancyId}?tab=payments`}><Icon name="arrow-up-right" />Open property</ButtonLink>
+        {(r.kind === "deduction" || r.kind === "refund" || r.kind === "payout" || r.kind === "settlement") && (
+          <ButtonLink href={`/tenancy/${r.tenancyId}/statement`}><Icon name="doc" />Statement</ButtonLink>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Each row's menu: its details, the property, the receipt, the statement, copy the PayPal id, filter to the property. */
 const MENU: ColDef<LedgerRow> = {
-  colId: "menu", headerName: "", width: 52, sortable: false, resizable: false, cellRenderer: RowMenu,
+  // Named for a screen reader, not shown.
+  colId: "menu", headerName: "Actions", headerClass: "gf-header-sr", width: 52, sortable: false, resizable: false, suppressMovable: true, lockPosition: "right", cellRenderer: RowMenu,
   cellStyle: { display: "flex", alignItems: "center", justifyContent: "flex-end", paddingLeft: 0 },
 };
 
 const statusGetter = (p: ValueGetterParams<LedgerRow>) => (p.data ? statusOf(p.data, (p.context as Ctx).back) : "");
-
-/** Columns off screen that the export and the search still read. */
-const HIDDEN: ColDef<LedgerRow>[] = [
-  { field: "detail", headerName: "Detail", hide: true },
-  { field: "paypalId", headerName: "PayPal ID", hide: true },
-  { field: "tag", headerName: "Civ. Code", hide: true, getQuickFilterText: (p) => (p.data ? `${p.data.tag} ${p.data.tagShort}` : "") },
-];
 
 /** Newest first by the day, and within a day by the moment it was stored (an invoice before its payment). */
 function byTime(_a: string, _b: string, na: IRowNode<LedgerRow>, nb: IRowNode<LedgerRow>) {
@@ -513,12 +669,6 @@ function byTime(_a: string, _b: string, na: IRowNode<LedgerRow>, nb: IRowNode<Le
   if (!a || !b) return 0;
   return a.date === b.date ? Date.parse(a.at) - Date.parse(b.at) : a.date < b.date ? -1 : 1;
 }
-
-/** Spreadsheets run a cell that starts with = + - @ or a tab as a formula, so such a value gets a leading apostrophe. */
-const csvSafe = (v: unknown) => {
-  const s = v == null ? "" : String(v);
-  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
-};
 
 function Tile({ label, value, sub }: { label: React.ReactNode; value: number; sub: string }) {
   return (

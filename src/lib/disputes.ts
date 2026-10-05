@@ -9,8 +9,8 @@ import { basisWords, chargeTitle, settle } from "./deductions";
 import type { DeliveryRecord } from "./delivery";
 import { findingTitle, type StoredFinding } from "./findings";
 import { returnFailed, wasPaid } from "./invoice-status";
-import { LIVE_STATUSES, SENT_LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
-import { checkProposal, lawfulRanges, statementOrder, type FindingSnapshot, type RangeDeduction, type Ranges, type Standing } from "./lawful-range";
+import { deductionsLock, LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
+import { checkProposal, lawfulRanges, statementOrder, type FindingSnapshot, type RangeDeduction, type RangeInput, type Ranges, type Standing } from "./lawful-range";
 import type { Notices } from "./notices";
 import { settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
@@ -26,7 +26,7 @@ import { isTemplate } from "./workspace";
 
 // The statuses and what each allows (reopening a withdrawn dispute, withdrawing a sent one) are pure, in
 // dispute-status.ts, so the pages and the check scripts read the same rules.
-export { canWithdraw, draftAction, isClosed, LIVE_STATUSES, reopens, SENT_LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
+export { canWithdraw, deductionsLock, draftAction, isClosed, LIVE_STATUSES, reopens, SENT_LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
 
 /** A photo the tenants added to their dispute, in the photos bucket under the workspace's prefix. */
 export type Evidence = { id: string; path: string; name: string; type: string; bytes: number; deduction_id: string | null; added_at: string };
@@ -86,6 +86,7 @@ export type DisputeFacts = {
   deductions: RangeDeduction[]; // in the statement's order
   findings: StoredFinding[];
   ranges: Ranges;
+  rangeInput: RangeInput; // what the ranges were computed from, to compute them again with a change in place
   statementRefund: number;
 };
 
@@ -114,10 +115,11 @@ export async function disputeFacts(tenancyId: string): Promise<DisputeFacts | nu
   const notices = (t.notices ?? {}) as Notices;
   const clock = { moveOutDate: t.move_out_date as string | null, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null };
   const today = pacificToday();
-  const ranges = lawfulRanges({
+  const rangeInput: RangeInput = {
     deductions, depositHeld, today, ...clock, notices, deliveredOn: delivery?.date ?? null,
     refundedOn: ret ? pacificDate(ret.created_at as string) : null,
-  }, pack);
+  };
+  const ranges = lawfulRanges(rangeInput, pack);
   return {
     tenancyId, workspaceId: (t.workspace_id as string | null) ?? null, pack, today,
     address: prop?.address ?? "Address not recorded", landlord: prop?.owner_name ?? null,
@@ -126,7 +128,7 @@ export async function disputeFacts(tenancyId: string): Promise<DisputeFacts | nu
     statementDue: pack.deadline.due({ ...clock, claimed: deductions.length > 0, claimNoticeDate: notices.claim_notice?.date ?? null }),
     delivery, deliveredAt: (t.statement_delivered_at as string | null) ?? null,
     depositHeld, refunded: ret ? { amount: Number(ret.amount), kind: ret.kind as string, at: ret.created_at as string } : null,
-    deductions, findings: ((t.move_out_findings ?? []) as StoredFinding[]), ranges,
+    deductions, findings: ((t.move_out_findings ?? []) as StoredFinding[]), ranges, rangeInput,
     statementRefund: settle(depositHeld, deductions, pack).refund,
   };
 }
@@ -145,13 +147,29 @@ export async function latestDispute(tenancyId: string): Promise<DisputeRow | nul
   return (data as DisputeRow | null) ?? null;
 }
 
-/** For the landlord's deduction routes: a 409 while a dispute the tenants sent is open, so the statement being
- *  negotiated (and later settled) is the one they disputed; null when the deductions may change. */
-export async function deductionsFrozen(tenancyId: string): Promise<Response | null> {
-  const { data } = await db.from("disputes").select("id").eq("tenancy_id", tenancyId).in("status", SENT_LIVE_STATUSES).limit(1);
-  return data?.length
-    ? Response.json({ error: "The tenants disputed this statement, so its deductions stay as they are while the dispute is open." }, { status: 409 })
-    : null;
+/** For the landlord's deduction routes (add, change, remove): a 409 once the deductions are final (the deposit went
+ *  back, a settlement was reached, or PayPal's refund through the tenants' PayPal dispute covers what is owed) or while
+ *  a dispute the tenants sent is open, so the statement being negotiated and settled is the one they disputed; null
+ *  when the deductions may change. The rule is deductionsLock (dispute-status.ts), which the Move-out tab reads too. */
+export async function deductionsLocked(tenancyId: string): Promise<Response | null> {
+  const [{ data: pays }, { data: ds }] = await Promise.all([
+    db.from("payments").select("kind, amount, status").eq("tenancy_id", tenancyId),
+    db.from("disputes").select("status").eq("tenancy_id", tenancyId).neq("status", "draft"),
+  ]);
+  const payments = (pays ?? []) as { kind: string; amount: number | string; status: string | null }[];
+  // The statement's refund as it stands, only needed to tell whether PayPal's refund through a dispute covers it.
+  let refundOwed: number | null = null;
+  const inv = payments.find((p) => p.kind === "deposit_invoice");
+  if (inv && wasPaid(inv.status) && payments.some((p) => p.kind === "dispute_refund")) {
+    const [{ data: t }, { data: rows }] = await Promise.all([
+      db.from("tenancies").select("properties(state)").eq("id", tenancyId).maybeSingle(),
+      db.from("deductions").select("category, amount").eq("tenancy_id", tenancyId),
+    ]);
+    const state = (t?.properties as { state?: string | null } | null)?.state;
+    refundOwed = settle(Number(inv.amount), ((rows ?? []) as { category: string; amount: number | string }[]).map((d) => ({ category: d.category, amount: Number(d.amount) })), packFor(state)).refund;
+  }
+  const lock = deductionsLock({ payments, disputes: ((ds ?? []) as { status: DisputeStatus }[]).map((d) => d.status), refundOwed });
+  return lock ? Response.json({ error: lock.message }, { status: 409 }) : null;
 }
 
 /** The dispute the landlord sees: the latest one the tenants sent (never a draft). */

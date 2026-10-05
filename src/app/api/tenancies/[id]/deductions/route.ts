@@ -1,5 +1,5 @@
 import { audit, db } from "@/lib/db";
-import { deductionsFrozen } from "@/lib/disputes";
+import { deductionsLocked } from "@/lib/disputes";
 import { chargeable, type DeductionInput, type Performer, type Proration, type Work } from "@/lib/deductions";
 import { imageType, notAPhotoServer, readForm, sniff, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
@@ -41,10 +41,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const finding = ((t.move_out_findings ?? []) as { id?: string; room: string; item: string; classification: string;
     moveInPath: string; moveOutPath: string; status?: string | null }[]).find((f) => f.id === findingId);
   if (!finding) return Response.json({ error: "That finding is from an older inspection. Refresh the page." }, { status: 400 });
-  const { data: sent } = await db.from("payments").select("id").eq("tenancy_id", id).in("kind", ["refund", "payout"]).limit(1);
-  if (sent?.length) return Response.json({ error: "The deposit has already been returned, so the deductions are final." }, { status: 409 });
-  const frozen = await deductionsFrozen(id);
-  if (frozen) return frozen;
+  const locked = await deductionsLocked(id);
+  if (locked) return locked;
   if (finding.status === "dismissed") return Response.json({ error: "That finding was dismissed. Reopen it first." }, { status: 400 });
   if (finding.classification === "wear_and_tear") {
     return Response.json({ error: packFor((t.properties as { state?: string | null } | null)?.state).copy.wearRefused }, { status: 400 });

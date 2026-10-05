@@ -1,5 +1,6 @@
 import "server-only";
 import { longDate } from "./dates";
+import { EDIT_FIELDS, inputWords, type EditField } from "./deduction-edit";
 import { NOTICE_METHOD_LABEL, RECORD_SHORT, type NoticeKind, type NoticeMethod } from "./notices";
 
 import { describeDelivery, type DeliveryRecord } from "./statement";
@@ -71,6 +72,12 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "finding_removed": return `Removed the finding added by hand: ${String(d?.item).toLowerCase()}`;
     case "deduction_added": return `Deducted ${usd(d?.amount as number)} for ${String(d?.item).toLowerCase()}: ${d?.math}`;
     case "deduction_removed": return `Removed the ${usd(d?.amount as number)} deduction for ${String(d?.item).toLowerCase()}`;
+    // An input changed in the deductions grid: the amount is the code's, worked out again from it.
+    case "deduction_edited": {
+      const f = (EDIT_FIELDS as string[]).includes(String(d?.field)) ? d?.field as EditField : null;
+      const v = (x: unknown) => (f ? inputWords(f, x == null ? null : Number(x)) : String(x ?? "not set"));
+      return `Changed the ${String(d?.label ?? "input").toLowerCase()} of the ${String(d?.item).toLowerCase()} deduction from ${v(d?.from)} to ${v(d?.to)}, so it is ${usd(d?.amount as number)}: ${d?.math}`;
+    }
     case "move_out_date_set": return `Tenant moved out ${day(d?.move_out_date)}; statement and refund due by ${day(d?.statement_due)}`;
     case "close_out_started": return "Started the close-out";
     case "refund_proposed": return `Asked you to approve a ${usd(d?.amount as number)} refund`;
@@ -185,7 +192,7 @@ const ON_RECORD = ["lease_checked", "tenant_opened_statement", "tenant_link_crea
 export const QUIET_ON_RECORD = QUIET_ACTIONS.filter((a) => !ON_RECORD.includes(a));
 
 type Entry = { tenancyId: string; action: string; detail: Record<string, unknown> | null };
-const FOLDS = ["deduction_added", "photos_added", "tenant_link_created"];
+const FOLDS = ["deduction_added", "deduction_edited", "photos_added", "tenant_link_created"];
 
 /** Activity rows with a run of the same action on one unit folded into one line (three deductions in a row, photos for
  *  several rooms, a link made twice), each with its short title. */
@@ -201,6 +208,7 @@ export function foldActivity<T extends Entry>(log: T[], tenantsOf: (tenancyId: s
     }
     const title = n > 1 && e.action === "tenant_link_created" ? "Tenant link remade"
       : n > 1 && e.action === "deduction_added" ? `${n} deductions added`
+      : n > 1 && e.action === "deduction_edited" ? `${n} deduction changes`
       : n > 1 && e.action === "photos_added" ? `${String(e.detail?.phase).startsWith("move_out") ? "Move-out" : String(e.detail?.phase) === "after_repair" ? "After-repair" : "Move-in"} photos added for ${n} rooms`
         : activityTitle(e.action, e.detail, tenantsOf(e.tenancyId));
     out.push({ entry: e, title, count: n });
@@ -222,6 +230,7 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "finding_removed": return "Finding removed";
     case "deduction_added": return `Deduction of ${usd(d?.amount as number)} added`;
     case "deduction_removed": return "Deduction removed";
+    case "deduction_edited": return `Deduction changed to ${usd(d?.amount as number)}`;
     case "move_out_date_set": return "Move-out recorded";
     case "refund_proposed": return `Refund of ${usd(d?.amount as number)} waiting for approval`;
     case "refund_approved": return `Refund of ${usd(d?.amount as number)} approved`;
