@@ -393,9 +393,13 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   w.row("Security held", usd(s.totals.depositHeld));
   w.row(s.standing && !forfeits ? s.standing.label : "Total deductions", s.totals.deductions ? `-${usd(s.totals.deductions)}` : usd(0));
   if (forfeits) w.row(s.standing!.label, `+${usd(s.totals.deductions)}`);
+  // PayPal's refund through the tenants' PayPal dispute: past the refund owed, the deductions it covered aren't kept.
+  const via = s.viaDispute;
+  if (via && via.notKept > 0) w.row("Not kept, after the PayPal dispute", `+${usd(via.notKept)}`);
+  if (via) w.row("Returned through the PayPal dispute", `-${usd(via.amount)}`);
   if (s.balanceClaimed && !forfeits) w.row("Balance claimed", usd(s.balanceClaimed.amount), { bold: true, size: 11.5 });
-  else w.row(sent ? "Refunded" : forfeits ? "Owed back" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
-  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0)) * 100) / 100) : 0;
+  else w.row(sent ? "Refunded" : forfeits ? "Owed back" : via ? "Left to refund" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
+  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0) - (via?.amount ?? 0)) * 100) / 100) : 0;
   if (stillOwed > 0) w.row("Still owed", usd(stillOwed));
 
   // 3. Documents (item 9): the rule, then exactly what this packet holds and what it does not.
@@ -410,6 +414,9 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
 
   // 4. Refund (item 10).
   w.heading(++n, "Refund", sec.refund);
+  if (via) {
+    w.text(`Returned through the tenants' PayPal dispute: ${usd(via.amount)}${via.disputeId ? ` (dispute ${via.disputeId})` : ""}${via.at ? `, ${longDate(pacificDate(via.at))}` : ""}.${via.notKept > 0 ? ` That is more than this statement's refund, so ${usd(via.notKept)} of the deductions above is not kept.` : ""}`, { color: INK2, after: 4 });
+  }
   w.text(usd(s.refund.amount), { size: 16, font: bold, lead: 20 });
   w.text(`${s.refund.method}${s.refund.paypalId ? ` (PayPal id ${s.refund.paypalId})` : ""}${s.refund.sentAt ? `, sent ${longDate(pacificDate(s.refund.sentAt))}` : ""}${s.refund.state === "none" ? "" : "."}`, { color: INK2 });
   if (s.refund.state !== "none") w.text(`Payable to ${s.refund.payees.join(" and ")}${s.refund.paypalEmail ? `, PayPal account ${s.refund.paypalEmail}` : ""}.`, { color: INK2 });

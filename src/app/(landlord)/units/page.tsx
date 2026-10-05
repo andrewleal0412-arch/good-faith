@@ -13,6 +13,7 @@ import { dayLabel, daysBetween, pacificDate, shortDate } from "@/lib/dates";
 import { wasPaid } from "@/lib/invoice-status";
 import { loadLedger } from "@/lib/ledger-load";
 import { ledgerTotals } from "@/lib/ledger";
+import { paypalDisputeAlerts } from "@/lib/chargeback-store";
 import { disputeAlerts, type DisputeAlert } from "@/lib/negotiation";
 import { closedOut, dueLabelOf, dueOf, packOf, refundLeft, type TenancySummary } from "@/lib/next-step";
 import { GROUP_LABEL, keepUnit, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup, type StepLink } from "@/lib/property-view";
@@ -57,6 +58,10 @@ const DISPUTE_STEP: Record<string, Pick<StepLink, "label" | "icon">> = {
   "Approve and pay the settlement": { label: "Approve settlement", icon: "send" },
   "Check the settlement with PayPal": { label: "Check payment", icon: "send" },
   "Your negotiator asks for your OK": { label: "Answer negotiator", icon: "pen" },
+  // The tenants' PayPal dispute of the deposit payment (src/lib/chargeback-store.ts, paypalDisputeAlerts).
+  "Answer the PayPal dispute": { label: "Answer PayPal", icon: "card" },
+  "Approve the PayPal dispute response": { label: "Approve response", icon: "send" },
+  "Check the PayPal dispute response": { label: "Check response", icon: "card" },
 };
 const disputeStep = (a: DisputeAlert): StepLink => ({ label: DISPUTE_STEP[a.title]?.label ?? "View dispute", icon: DISPUTE_STEP[a.title]?.icon ?? "doc", title: a.title, href: a.href });
 
@@ -71,9 +76,13 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
     loadLedger(),
     loadThumbnails(units.map((u) => u.summary.id)),
     loadRecentActivity(40, QUIET_ACTIONS),
-    ws ? disputeAlerts(ws.id).catch((e) => { console.error("Properties: couldn't load the disputes", e); return [] as DisputeAlert[]; }) : Promise.resolve([] as DisputeAlert[]),
+    ws ? Promise.all([
+      disputeAlerts(ws.id).catch((e) => { console.error("Properties: couldn't load the disputes", e); return [] as DisputeAlert[]; }),
+      paypalDisputeAlerts(ws.id).catch((e) => { console.error("Properties: couldn't load the PayPal disputes", e); return []; }),
+    ]).then(([a, b]) => [...b, ...a] as DisputeAlert[]) : Promise.resolve([] as DisputeAlert[]),
   ]);
-  const disputeOf = new Map(disputes.map((a) => [a.tenancyId, a]));
+  // A PayPal dispute's step comes first: PayPal's date is the nearer one.
+  const disputeOf = new Map([...disputes].reverse().map((a) => [a.tenancyId, a]));
 
   const rows = units.map((u) => {
     const a = disputeOf.get(u.summary.id);

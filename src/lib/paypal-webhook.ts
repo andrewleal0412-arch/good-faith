@@ -22,15 +22,17 @@ import { returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 //    PAYMENT.CAPTURE.COMPLETED    the deposit payment's capture confirmed (one that arrives before its invoice's PAID
 //                                 event, which records the capture, matches nothing yet: for ten minutes PayPal is
 //                                 asked to send it again, so it lands after; later it is stored as unmatched);
-//    PAYMENT.CAPTURE.REFUNDED     a refund this app sent: its status; one it didn't send: recorded on the activity
-//                                 (closeOutState then blocks the close-out until someone has looked), once it is
-//                                 two minutes old (younger, it may be this app's own, its row not yet written, so
+//    PAYMENT.CAPTURE.REFUNDED     a refund this app sent: its status; PayPal's own refund through a PayPal dispute
+//                                 (matchDisputeRefund): that dispute's refund record; any other: recorded on the
+//                                 activity (closeOutState then blocks the close-out until someone has looked), once it
+//                                 is two minutes old (younger, it may be this app's own, its row not yet written, so
 //                                 PayPal is asked to send it again);
 //    PAYMENT.CAPTURE.REVERSED     the deposit payment reversed (a chargeback): recorded on the deposit, which blocks
 //                                 the close-out and a settlement;
 //    PAYMENT.PAYOUTSBATCH.*,      a Payout's status (the item's, once PayPal reports one: a batch can succeed while
 //    PAYMENT.PAYOUTS-ITEM.*       its one payment is unclaimed or returned);
-//    CUSTOMER.DISPUTE.*           a PayPal dispute of the deposit payment, kept in paypal_disputes;
+//    CUSTOMER.DISPUTE.*           a PayPal dispute of the deposit payment, kept in paypal_disputes, with the money
+//                                 PayPal returned through it and, once resolved, its waiting responses retired;
 //    anything else                stored and ignored.
 //    A status PayPal sent is marked on the row (raw.status_from), and the ledger and the tenancy pages say so. A row is
 //    written only under the status it was read with, and only the raw keys the event changed are merged in
@@ -165,7 +167,45 @@ export interface WebhookStore {
   settlementStatus(tenancyId: string, paypalId: string, status: string): Promise<void>;
   /** Stores the dispute unless what is stored is newer or another tenancy's. The status it had, or null when skipped. */
   upsertDispute(row: PayPalDisputeRow): Promise<{ previousStatus: string | null } | null>;
+  /** What follows a dispute PayPal reported: the money it lists as returned through it, or its outcome refunded once
+   *  resolved, recorded as a dispute refund (refunds already on record as the close-out's or a settlement's, and any
+   *  made before the dispute opened, left out), and once it is resolved, the responses still waiting retired.
+   *  Optional. */
+  afterDispute?(row: PayPalDisputeRow): Promise<void>;
+  /** The tenancy's money back through its PayPal disputes and the disputes as last stored, for telling PayPal's
+   *  refund through a dispute from one made outside the app. Optional. */
+  disputeRefunds?(tenancyId: string): Promise<DisputeRefundInfo>;
+  /** A refund PayPal made through a dispute that has no record yet: a new dispute refund for that dispute. Optional. */
+  addDisputeRefund?(tenancyId: string, o: { disputeId: string; refundId: string | null; amount: number; status: string; raw: Obj }): Promise<void>;
   audit(tenancyId: string, action: string, detail: Obj): Promise<void>;
+}
+
+export type DisputeRefundInfo = { rows: PaymentRef[]; disputes: { id: string; status: string | null; raw: Obj }[] };
+
+/** Which record a refund of the deposit payment that this app didn't send belongs to, if it came through a PayPal
+ *  dispute: the dispute refund that already lists it, one an accepted claim left pending (PayPal's refund completes
+ *  it), or a dispute that lists it among its refunds, or that PayPal resolved with more refunded than is on record
+ *  (and this refund fits in what is missing). Null otherwise: a refund made in PayPal after the dispute closed is
+ *  still one made outside Good Faith. Pure. */
+export function matchDisputeRefund(refundId: string | undefined, amount: number | null, info: DisputeRefundInfo): { row: PaymentRef } | { dispute: string } | null {
+  const idsOf = (r: PaymentRef) => list(r.raw?.refund_ids).map(String);
+  if (refundId) {
+    const known = info.rows.find((r) => idsOf(r).includes(refundId));
+    if (known) return { row: known };
+  }
+  const pending = info.rows.find((r) => !returnCompleted(r.status) && !returnFailed(r.status));
+  if (pending) return { row: pending };
+  for (const d of info.disputes) {
+    const listed = !!refundId && list(obj(d.raw.refund_details).transactions).some((t) => obj(t).id === refundId);
+    const outcome = d.status === "RESOLVED" ? num(obj(obj(d.raw.dispute_outcome).amount_refunded).value) ?? 0 : 0;
+    const recorded = info.rows.filter((r) => r.paypal_id === d.id && !returnFailed(r.status)).reduce((s, r) => s + r.amount, 0);
+    const missing = Math.round((outcome - recorded) * 100) / 100;
+    if (listed || (amount != null && missing > 0.005 && amount <= missing + 0.005)) {
+      const row = info.rows.find((r) => r.paypal_id === d.id);
+      return row ? { row } : { dispute: d.id };
+    }
+  }
+  return null;
 }
 
 /** What the handler needs: the store, PayPal's signature check, and PayPal's invoice read. */
@@ -396,6 +436,32 @@ async function onRefunded(e: PayPalEvent, refs: Refs, rows: PaymentRef[], deps: 
   // A refund of the deposit payment that this app didn't send (or whose answer never came back): on the activity and
   // the bell, and closeOutState blocks the close-out until someone has looked. No money row is made from it.
   if (!rows.some((x) => x.kind === "deposit_invoice")) return recorded("No refund or deposit of this tenancy has these ids.");
+  // PayPal's refund through the tenants' PayPal dispute (a claim the landlord accepted here, an offer they accepted,
+  // PayPal's own decision): it completes or makes that dispute's record, whose amount the dispute itself sets.
+  const tenancyId = rows[0].tenancy_id;
+  const match = deps.store.disputeRefunds ? matchDisputeRefund(refs.refund, amount, await deps.store.disputeRefunds(tenancyId)) : null;
+  if (match && "row" in match) {
+    const res = await writePayment(deps.store, match.row, (cur) => {
+      const ids = list(cur.raw?.refund_ids).map(String);
+      const status = moneyForward(cur.status, incoming);
+      const raw: Obj = { ...(cur.raw ?? {}), refund_ids: refs.refund && !ids.includes(refs.refund) ? [...ids, refs.refund] : ids };
+      mark(raw, e, { status, incoming, before: cur.status });
+      return status === cur.status && same(raw, cur.raw) ? null : { status, raw };
+    });
+    if (!res) return recorded("Already up to date.");
+    await deps.store.audit(tenancyId, "refund_status", {
+      ...source(e), kind: "dispute_refund", refund_id: refs.refund ?? null, amount: amount ?? match.row.amount, status: res.after.status, previous: res.before.status,
+    });
+    return { status: "applied", note: `PayPal's refund through the dispute: ${res.before.status} to ${res.after.status}.` };
+  }
+  if (match && deps.store.addDisputeRefund && amount != null) {
+    await deps.store.addDisputeRefund(tenancyId, {
+      disputeId: match.dispute, refundId: refs.refund ?? null, amount, status: incoming,
+      raw: { dispute_id: match.dispute, refund_ids: refs.refund ? [refs.refund] : [], status_from: statusFrom(e) },
+    });
+    await deps.store.audit(tenancyId, "dispute_refund_recorded", { ...source(e), dispute_id: match.dispute, amount, refund_ids: refs.refund ? [refs.refund] : [], status: incoming });
+    return { status: "applied", note: `PayPal's refund through dispute ${match.dispute}, recorded.` };
+  }
   // A refund made moments ago may be this app's own, its row not written yet: PayPal sends the event again later.
   if (youngerThan(e, deps, OWN_REFUND_GRACE_MS)) {
     throw new RetryLater(`refund ${refs.refund ?? "?"} is not on record yet; it may be this app's own, still being recorded`);
@@ -478,6 +544,8 @@ async function onDispute(e: PayPalEvent, refs: Refs, rows: PaymentRef[], owner: 
       ...source(e), event: what, dispute_id: row.id, reason: row.reason, status: row.status, amount: row.amount, outcome: row.outcome,
     });
   }
+  // The money PayPal returned through it, and once it is resolved, the responses nobody can send any more.
+  if (deps.store.afterDispute) await deps.store.afterDispute(row);
   return { status: "applied", note: `PayPal dispute ${row.id} ${what}${row.status ? ` (${row.status})` : ""}.` };
 }
 

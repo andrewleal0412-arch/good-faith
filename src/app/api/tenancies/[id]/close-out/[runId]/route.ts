@@ -1,4 +1,5 @@
 import { answerApproval } from "@/lib/agent";
+import { openDisputeBlock } from "@/lib/chargeback-store";
 import { db } from "@/lib/db";
 import { tenancyDepositBlock } from "@/lib/demo-pool";
 import { routeTenancy } from "@/lib/workspace";
@@ -18,7 +19,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   // this tenancy's goes on to answerApproval's "No such run."
   if (approved) {
     const { data: run } = await db.from("agent_runs").select("id").eq("id", runId).eq("tenancy_id", id).maybeSingle();
-    const blocked = run ? await tenancyDepositBlock(ws.id, id) : null;
+    const blocked = run ? (await tenancyDepositBlock(ws.id, id)) ?? (await openDisputeBlock(id)) : null;
     if (blocked) return Response.json({ error: blocked }, { status: 409 });
   }
   try {

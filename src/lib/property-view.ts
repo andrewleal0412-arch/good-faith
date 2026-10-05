@@ -27,6 +27,10 @@ export const moveInOpen = (s: TenancySummary) => {
 };
 
 export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
+  // A PayPal dispute or chargeback of the deposit payment, before anything else while PayPal hasn't resolved it.
+  if (s.paypalDispute) {
+    return { label: "PayPal dispute", tone: "red", group: closedOut(s) ? "closed" : s.moveOutDate || s.statementDeliveredAt || s.noticeGivenOn || s.tenantMoveOut ? "move-out" : moveInOpen(s) ? "move-in" : "leased" };
+  }
   if (closedOut(s)) {
     // The tenants' dispute of the statement, while it is live; Closed again once it ends.
     if (s.dispute === "agreed") return { label: "Settlement agreed", tone: "amber", group: "closed" };

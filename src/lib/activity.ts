@@ -84,7 +84,7 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "close_out_finished": return "Finished the close-out";
     // PayPal's own reports, from its webhook (src/lib/paypal-webhook.ts).
     case "deposit_paid": return `PayPal reported the ${d?.kind === "damage_invoice" ? "balance invoice" : "deposit"} paid: ${usd(d?.amount as number)}${d?.method ? ` by ${String(d.method).toLowerCase().replace(/_/g, " ")}` : ""}${d?.capture_id ? ` (payment ${d.capture_id})` : ""}`;
-    case "refund_status": return `PayPal reported the ${d?.kind === "settlement_refund" ? "settlement's refund" : "refund"} ${d?.refund_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
+    case "refund_status": return `PayPal reported the ${d?.kind === "settlement_refund" ? "settlement's refund" : d?.kind === "dispute_refund" ? "refund through the PayPal dispute" : "refund"} ${d?.refund_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
     case "payout_status": return `PayPal reported the ${d?.kind === "settlement_payout" ? "settlement's Payout" : "Payout"} ${d?.payout_batch_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
     case "paypal_refund_unrecorded": return `PayPal reported a ${usd(d?.amount as number)} refund of the deposit payment${d?.refund_id ? ` (refund ${d.refund_id})` : ""} that wasn't sent from here, or whose answer never came back; the close-out waits until it is checked in PayPal`;
     case "deposit_reversed": return `PayPal reversed the deposit payment${d?.capture_id ? ` ${d.capture_id}` : ""} (${usd(d?.amount as number)}), a chargeback or a bank reversal; nothing goes back through PayPal against it`;
@@ -133,9 +133,29 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "settlement_blocked": return `Stopped a settlement payment that didn't match the rules: ${d?.reason}`;
     case "settlement_unconfirmed": return `PayPal didn't confirm the settlement of ${usd(d?.amount as number)}, so it may have gone; checking again sends the same request`;
     case "settlement_rechecked": return `Checked the settlement of ${usd(d?.amount as number)} with PayPal, with the same request as before`;
+    // The tenants' PayPal dispute of the deposit payment and the landlord's response (src/lib/chargeback-store.ts).
+    case "dispute_defense_started": return `Asked the defense agent to prepare a response to PayPal dispute ${d?.dispute_id}`;
+    case "dispute_defense_prepared": return `The defense agent prepared a response to PayPal dispute ${d?.dispute_id}: ${actionWords(d?.action)}${d?.amount != null ? `, ${usd(d.amount as number)} back` : ""}${(d?.adjustments as number) ? `; ${d?.adjustments} part${d?.adjustments === 1 ? "" : "s"} corrected to fit the rules` : ""}`;
+    case "dispute_defense_failed": return `The defense agent couldn't prepare a response to PayPal dispute ${d?.dispute_id}`;
+    case "dispute_response_approved": return `Approved the response to PayPal dispute ${d?.dispute_id}: ${actionWords(d?.action)}${d?.amount != null ? `, ${usd(d.amount as number)} back` : ""}`;
+    case "dispute_response_declined": return `Declined the prepared response to PayPal dispute ${d?.dispute_id}; nothing went to PayPal`;
+    case "dispute_response_blocked": return `Stopped a response to PayPal dispute ${d?.dispute_id} that no longer matched the rules or PayPal: ${d?.reason}`;
+    case "dispute_response_rechecked": return `Checked the response to PayPal dispute ${d?.dispute_id} with PayPal, with the same requests as before`;
+    case "dispute_evidence_sent": return `Sent PayPal the evidence for dispute ${d?.dispute_id} (${d?.files} file${d?.files === 1 ? "" : "s"})`;
+    case "dispute_response_sent": return `PayPal took the response to dispute ${d?.dispute_id}: ${actionWords(d?.action)}${d?.amount != null ? `, ${usd(d.amount as number)} back` : ""}`;
+    case "dispute_response_refused": return `PayPal didn't take the response to dispute ${d?.dispute_id} (${d?.step}); nothing moved`;
+    case "dispute_response_unconfirmed": return `PayPal didn't confirm the response to dispute ${d?.dispute_id} (${d?.step}); checking again sends only what didn't go, with the same requests`;
+    case "dispute_refund_recorded": return `PayPal returned ${usd(d?.amount as number)} to the tenants through dispute ${d?.dispute_id}${d?.outcome ? ` (${String(d.outcome).toLowerCase().replace(/_/g, " ")})` : ""}`;
     default: return action.replace(/_/g, " ");
   }
 }
+
+/** A PayPal dispute response in words. refund_and_evidence is only for rows from before PayPal was found to refuse a
+ *  partial refund while a case is open (2026-10-05); the app no longer makes it. */
+const ACTION_WORDS: Record<string, string> = {
+  refund_and_evidence: "refund what is owed and send evidence for the rest", provide_evidence: "send evidence", accept_claim: "accept the claim", make_offer: "offer a refund",
+};
+const actionWords = (a: unknown) => ACTION_WORDS[String(a)] ?? String(a ?? "a response");
 
 /** A PayPal status in words: "partially refunded", and a payout item PayPal holds ("ONHOLD") as "on hold". */
 const statusWords = (s: unknown) => (s === "ONHOLD" ? "on hold" : String(s).toLowerCase().replace(/_/g, " "));
@@ -155,7 +175,9 @@ export const QUIET_ACTIONS = ["statement_packet_built", "close_out_started", "cl
   // The tenants' dispute while it is still their draft: theirs until they send it.
   "dispute_drafted", "dispute_reopened", "dispute_draft_changed", "dispute_evidence_added", "dispute_evidence_removed", "advocate_case_written",
   // The negotiation's own steps: its outcome and the settlement are what the list shows.
-  "negotiation_started", "negotiation_turn", "settlement_approved", "settlement_rechecked"];
+  "negotiation_started", "negotiation_turn", "settlement_approved", "settlement_rechecked",
+  // A PayPal dispute's response on its way: what PayPal took, or didn't, is what the list shows.
+  "dispute_defense_started", "dispute_response_approved", "dispute_response_rechecked", "dispute_evidence_sent"];
 
 /** The same for one tenancy's own Activity, which keeps the lease check, the tenant link and the tenants opening
  *  their statement. */
@@ -242,6 +264,14 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "settlement_blocked": return "Settlement payment on hold";
     case "settlement_unconfirmed": return "PayPal did not confirm the settlement";
     case "settlement_rechecked": return "Settlement checked with PayPal";
+    case "dispute_defense_prepared": return "PayPal dispute response ready";
+    case "dispute_defense_failed": return "PayPal dispute response not prepared";
+    case "dispute_response_declined": return "PayPal dispute response declined";
+    case "dispute_response_blocked": return "PayPal dispute response stopped";
+    case "dispute_response_sent": return "PayPal dispute response sent";
+    case "dispute_response_refused": return "PayPal didn't take the dispute response";
+    case "dispute_response_unconfirmed": return "PayPal didn't confirm the dispute response";
+    case "dispute_refund_recorded": return `${usd(d?.amount as number)} returned through the PayPal dispute`;
     default: {
       const s = describe(action, d);
       return s.length > 60 ? `${s.slice(0, 57).replace(/\s+\S*$/, "")}...` : s;

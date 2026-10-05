@@ -30,11 +30,12 @@ export const systemPrompt = (pack: StatePack) => pack.ai.closeOutSystem;
  *  database, then a plan recomputed from the database and PayPal right before the call) and an idempotency key: with
  *  `requestId` every call carries PayPal-Request-Id, so the same request sent again returns the first refund instead
  *  of making a second (PayPal keeps refund keys for 45 days). */
-export async function connectPayPal(o: { requestId?: string } = {}) {
+export async function connectPayPal(o: { requestId?: string; disputes?: boolean } = {}) {
   const server = new PayPalAgentToolkit({
     accessToken: await accessToken(),
     configuration: {
-      actions: { invoices: { get: true }, payments: { createRefund: true, getRefunds: true } },
+      // A PayPal dispute's defense (src/lib/chargeback-store.ts) also reads the dispute: list_disputes and get_dispute.
+      actions: { invoices: { get: true }, payments: { createRefund: true, getRefunds: true }, ...(o.disputes ? { disputes: { list: true, get: true } } : {}) },
       context: { sandbox: SANDBOX, ...(o.requestId ? { request_id: o.requestId } : {}) },
     },
   });

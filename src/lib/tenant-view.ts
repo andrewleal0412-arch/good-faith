@@ -7,7 +7,7 @@ import { refreshDepositInvoice, type DepositInvoiceRow } from "./deposit";
 import { isTemplate } from "./workspace";
 import { paidElectronically, returnFailed, wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
-import { settledExtra } from "./refund-rail";
+import { disputeReturns, settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { Standing, StateCode } from "./states/types";
 import type { Category, DeliveryRecord } from "./statement";
@@ -46,6 +46,9 @@ export type TenantView = {
     standing?: Standing; // a claim disputed (Florida) or forfeited after day 14 (New York); absent otherwise
   } | null;
   returned: { amount: number; kind: string; status: string; paypalId: string | null; at: string } | null;
+  // What PayPal returned to them through the PayPal dispute they opened on the deposit payment: before or beside the
+  // statement's refund, which is then what is left. Absent when there is none.
+  viaDispute?: { amount: number; at: string };
   // The settlement of their dispute, once paid: the extra amount back on top of the statement's refund. Absent otherwise.
   settlement?: { amount: number; kind: "refund" | "payout" | null; status: string | null; paypalId: string | null; at: string; example: boolean };
 };
@@ -90,6 +93,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
 
   const a = t.refund_agreement as { text?: string; paypal_email: string; signed_by: string[]; signed_at: string } | null;
   const ret = (payments ?? []).find((p) => p.kind === "refund" || p.kind === "payout") ?? null;
+  const via = disputeReturns((payments ?? []) as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
 
   const notices = (t.notices ?? {}) as Notices;
   const today = pacificToday();
@@ -133,7 +137,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   return {
     ...(settled ? { settlement: {
       // What it added: nothing when the statement's refund was already the whole deposit (settlement.ts).
-      amount: settledExtra({ agreed: Number(settled.amount), depositHeld: deposit?.amount ?? Infinity, refunded: ret && !returnFailed(ret.status as string) ? Number(ret.amount) : 0 }), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
+      amount: settledExtra({ agreed: Number(settled.amount), depositHeld: deposit?.amount ?? Infinity, refunded: (ret && !returnFailed(ret.status as string) ? Number(ret.amount) : 0) + (via?.amount ?? 0) }), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
       status: (settled.paypal_status as string | null) ?? null, paypalId: (settled.paypal_id as string | null) ?? null, at: settled.sent_at as string,
       example: isDemoExample(settled.raw),
     } } : {}),
@@ -151,5 +155,6 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     moveOut: (t.tenant_move_out ?? null) as TenantMoveOut | null,
     statement,
     returned: ret ? { amount: Number(ret.amount), kind: ret.kind, status: ret.status, paypalId: ret.paypal_id, at: ret.created_at } : null,
+    ...(via ? { viaDispute: { amount: via.amount, at: via.at } } : {}),
   };
 }

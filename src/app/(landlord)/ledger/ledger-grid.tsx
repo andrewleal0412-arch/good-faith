@@ -69,6 +69,7 @@ const theme = themeQuartz.withParams({
 type Tab = "all" | "deposits" | "refunds" | "requests" | "deductions";
 const GROUP: Record<LedgerKind, Exclude<Tab, "all">> = {
   payment: "deposits", refund: "refunds", payout: "refunds", deposit_invoice: "requests", damage_invoice: "requests", deduction: "deductions", settlement: "refunds",
+  dispute_refund: "refunds",
 };
 // All is money that moved: deposits in, refunds and payouts out. Invoices are requests, and deductions are what the
 // statement keeps; each has its own tab.
@@ -83,6 +84,7 @@ const TABS: { key: Tab; label: string; has: (k: LedgerKind) => boolean }[] = [
 /** The word the table shows for each kind (the deposit received reads "Deposit"; an invoice is a request). */
 const TYPE: Record<LedgerKind, string> = {
   payment: "Deposit", refund: "Refund", payout: "Payout", deposit_invoice: "Deposit request", damage_invoice: "Balance request", deduction: "Deduction", settlement: "Settlement",
+  dispute_refund: "PayPal dispute",
 };
 
 type Range = { key: string; label: string; from?: string; to?: string };
@@ -120,6 +122,7 @@ function statusOf(r: LedgerRow, back: Map<string, "returned" | "pending">): stri
     }
     case "refund":
     case "payout":
+    case "dispute_refund":
     case "settlement": return r.example ? "Demo example" : r.effect === "returned" ? "Completed" : r.effect === "failed" ? "Failed" : "Pending";
     case "deposit_invoice":
     case "damage_invoice": return /^(paid|marked as paid)/.test(r.status) ? "Paid" : r.status === "sent, not paid" ? "Unpaid" : cap(r.status);
@@ -160,7 +163,7 @@ function AmountCell(p: CustomCellRendererProps<LedgerRow, number>) {
   if (!r) return null;
   const m = r.effect === "failed" ? <Money value={r.amount} className="text-ink-3 line-through" />
     : r.kind === "payment" ? <Money value={r.amount} className="text-green" />
-      : r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" ? <Money value={r.amount} sign="minus" />
+      : r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" || r.kind === "dispute_refund" ? <Money value={r.amount} sign="minus" />
         : <Money value={r.amount} className="text-ink-2" />;
   return <div className="text-right">{m}</div>;
 }
@@ -273,7 +276,7 @@ export function LedgerGrid({ rows, today, units, focusId, q, requestHref }: {
   const back = useMemo(() => {
     const m = new Map<string, "returned" | "pending">();
     for (const r of rows) {
-      if (r.kind !== "refund" && r.kind !== "payout") continue;
+      if (r.kind !== "refund" && r.kind !== "payout" && r.kind !== "dispute_refund") continue;
       if (r.effect === "returned") m.set(r.tenancyId, "returned");
       else if (r.effect === "pending" && !m.has(r.tenancyId)) m.set(r.tenancyId, "pending");
     }

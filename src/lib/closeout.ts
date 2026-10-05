@@ -3,10 +3,10 @@ import { pacificDate, paypalPaidAt, shortDate } from "./dates";
 import { db } from "./db";
 import { depositBlock } from "./demo-pool";
 import { missingDocs, settle, usd, type StoredDeduction } from "./deductions";
-import { wasPaid } from "./invoice-status";
+import { returnFailed, wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
 import { getInvoice, type Invoice } from "./paypal";
-import { railFor, refundOwed, REFUND_WINDOW_DAYS, wholeDepositOwed } from "./refund-rail";
+import { disputeReturns, railFor, refundOwed, REFUND_WINDOW_DAYS, wholeDepositOwed } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { Standing, StatePack } from "./states/types";
 import type { TenantMoveOut } from "./tenant";
@@ -47,7 +47,15 @@ export type CloseOutFacts = {
   wholeDeposit?: boolean;
   // PayPal reversed the deposit payment (a chargeback or a bank reversal), as its webhook reported. Absent otherwise.
   reversed?: { at: string | null };
+  // The tenants opened a PayPal dispute of the deposit payment that PayPal hasn't resolved. Absent otherwise.
+  paypalDispute?: { id: string; status: string; amount: number };
+  // Money PayPal itself returned to the tenants through their PayPal dispute (an accepted claim, an offer, PayPal's
+  // decision): a prior return, so the close-out sends only what is still owed (the plan's amount is the refund less
+  // this). notKept: what of the deductions the statement no longer keeps, once the money back passed the statement's
+  // refund (the landlord accepted a claim for more than was owed). Absent when there is none.
+  viaDispute?: { amount: number; disputeId: string | null; at: string; notKept: number };
 };
+
 
 /** The only citations the agent may use: the tenancy's pack's. It cites from this list, never from memory (it once
  *  mixed up California's (g) and (h)). */
@@ -73,10 +81,13 @@ export type CloseOutState = {
 
 export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   const today = pacificToday();
-  const [{ data: t }, { data: payments }, { data: rows }] = await Promise.all([
+  const [{ data: t }, { data: payments }, { data: rows }, { data: ppDisputes }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, state)").eq("id", tenancyId).single(),
     db.from("payments").select("*").eq("tenancy_id", tenancyId).order("created_at"),
     db.from("deductions").select("*").eq("tenancy_id", tenancyId).order("created_at"),
+    // The tenants' PayPal disputes of the deposit payment (chargeback-store.ts): while one is open, its response is
+    // where money goes back, never the close-out.
+    db.from("paypal_disputes").select("id, status, amount").eq("tenancy_id", tenancyId),
   ]);
   if (!t) throw new Error("No such tenancy.");
   const pack = packFor((t.properties as { state?: string | null } | null)?.state);
@@ -101,6 +112,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   let deposit: CloseOutFacts["deposit"] = null;
   let fetched: Invoice | null = null;
   let reversal: { at?: string | null } | null = null;
+  let paypalDispute: CloseOutFacts["paypalDispute"] = undefined;
   if (inv?.paypal_id) {
     let live: Invoice, isLive = true;
     try {
@@ -129,6 +141,12 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
     if (reversal) {
       blockers.push(`PayPal reversed the deposit payment${reversal.at ? ` on ${shortDate(pacificDate(reversal.at))}` : ""} (a chargeback or a bank reversal), so nothing goes back against it through PayPal. Check the PayPal account before returning any money.`);
     }
+    const openDispute = ((ppDisputes ?? []) as { id: string; status: string | null; amount: number | string | null }[]).find((x) => !!x.status && x.status !== "RESOLVED");
+    if (openDispute) {
+      paypalDispute = { id: openDispute.id, status: openDispute.status!, amount: Number(openDispute.amount ?? 0) };
+      // PayPal's hold doesn't stop the state's clock, and the landlord should know what waiting costs.
+      blockers.push(`The tenants opened a PayPal dispute of the deposit payment (${openDispute.id}, ${usd(paypalDispute.amount)}). Answer it on the Payments tab first: money sent here meanwhile could go back twice.${due ? ` The state's deadline for the statement and refund is ${shortDate(due)}${pack.deadline.tip.cite ? ` (${pack.deadline.tip.cite})` : ""}, and PayPal's hold doesn't pause it.` : ""}`);
+    }
   } else {
     blockers.push("No deposit was collected through PayPal for this tenancy.");
   }
@@ -150,11 +168,14 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   const alreadyReturned = returned
     ? { kind: returned.kind, amount: Number(returned.amount), paypalId: returned.paypal_id, at: returned.created_at }
     : null;
+  // Money PayPal itself sent back through the tenants' PayPal dispute: a prior return, which the plan takes off what
+  // the close-out sends (below), never the close-out itself.
+  const viaDispute = disputeReturns(payments ?? []);
   // A refund PayPal reports on the deposit payment that this app never recorded: one made in the PayPal dashboard, or
   // one whose answer never came back and whose plan then changed (a retry of the same refund carries the same
   // idempotency key and gets the first one back: agent.ts, closeOutRefundKey). Nothing more goes out until a person
-  // has looked.
-  const refundedByPayPal = Number(fetched?.refunds?.refund_amount?.value ?? 0);
+  // has looked. PayPal's refunds through a dispute are on record (dispute refunds) and don't count.
+  const refundedByPayPal = Number(fetched?.refunds?.refund_amount?.value ?? 0) - (viaDispute?.amount ?? 0);
   if (!alreadyReturned && refundedByPayPal > 0.005) {
     blockers.push(`PayPal shows ${usd(refundedByPayPal)} already refunded on the deposit payment, and this app has no record of it (a refund made in PayPal, or one whose answer was lost). Check the PayPal account before returning any money here.`);
   }
@@ -204,14 +225,23 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   });
   if (standing) facts.standing = standing;
   if (reversal) facts.reversed = { at: reversal.at ?? null };
+  if (paypalDispute) facts.paypalDispute = paypalDispute;
   // Forfeited deductions a live dispute holds on file: the close-out returns the whole deposit with them (New York's
   // hard block, which otherwise waits for them to be removed). Its settlement then has nothing more to send
   // (settlement.ts).
   if (wholeDepositOwed({ forfeits: !!standing?.forfeits, disputeLive: !!ctx.disputeLive, alreadyReturned: !!alreadyReturned, depositHeld })) facts.wholeDeposit = true;
+  // What PayPal returned through the tenants' PayPal dispute comes off what is still owed. Past the statement's refund
+  // (a claim accepted for more than was owed), the rest of the deductions isn't kept: notKept, for the statement.
+  if (viaDispute) {
+    const owed = refundOwed(facts);
+    const back = viaDispute.amount + (alreadyReturned && !returnFailed(String(returned?.status ?? "")) ? alreadyReturned.amount : 0);
+    const kept = Math.max(0, depositHeld - owed);
+    facts.viaDispute = { ...viaDispute, notKept: Math.round(Math.max(0, Math.min(kept, back - owed)) * 100) / 100 };
+  }
   // Without a written designation (where the state needs none for a refund of the original payment), a payment that
   // can't be refunded against itself has nowhere lawful to go yet.
   const d = facts.deposit;
-  if (!agreement && !pack.refund.agreementRequired && d && wasPaid(d.status) && refundOwed(facts) > 0 && !alreadyReturned
+  if (!agreement && !pack.refund.agreementRequired && d && wasPaid(d.status) && refundStillOwed(facts) > 0 && !alreadyReturned
     && !(d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS)) {
     blockers.push(pack.refund.noDesignationBlocker);
   }
@@ -219,15 +249,29 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   return { facts, invoice: fetched, workspaceId: t.workspace_id as string, pack, payments: payments ?? [] };
 }
 
+/** What the close-out still sends: the refund owed (refundOwed) less what PayPal already returned through the tenants'
+ *  PayPal dispute. */
+export const refundStillOwed = (f: Pick<CloseOutFacts, "totals" | "wholeDeposit" | "viaDispute">) =>
+  Math.round(Math.max(0, refundOwed(f) - (f.viaDispute?.amount ?? 0)) * 100) / 100;
+
 function plan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
   if (f.blockers.length) return { rail: "blocked", amount: 0, why: "Resolve the blockers first." };
-  const amount = refundOwed(f);
+  const owed = refundOwed(f);
+  const amount = refundStillOwed(f);
+  const via = f.viaDispute;
   if (amount <= 0) {
     return { rail: "nothing_to_refund", amount: 0,
-      why: `Deductions use the whole deposit${f.totals.balanceClaimed ? `, leaving ${usd(f.totals.balanceClaimed)} claimed from the tenants` : ""}. The itemized statement still goes out.` };
+      why: via && owed > 0
+        ? `PayPal returned ${usd(via.amount)} to the tenants through their PayPal dispute${via.disputeId ? ` ${via.disputeId}` : ""}, which covers the ${usd(owed)} refund owed${via.notKept > 0 ? `; ${usd(via.notKept)} of the deductions is not kept` : ""}. Nothing more goes back from here. The itemized statement still goes out.`
+        : `Deductions use the whole deposit${f.totals.balanceClaimed ? `, leaving ${usd(f.totals.balanceClaimed)} claimed from the tenants` : ""}. The itemized statement still goes out.` };
   }
   const p = railPlan(f, pack, amount);
-  return f.wholeDeposit && p.rail !== "blocked" ? { ...p, why: `None of the deductions may be kept, so the whole deposit goes back. ${p.why}` } : p;
+  if (p.rail === "blocked") return p;
+  const lead = [
+    f.wholeDeposit ? "None of the deductions may be kept, so the whole deposit goes back." : "",
+    via ? `PayPal already returned ${usd(via.amount)} through the tenants' PayPal dispute, so ${usd(amount)} of the ${usd(owed)} owed is left to send.` : "",
+  ].filter(Boolean).join(" ");
+  return lead ? { ...p, why: `${lead} ${p.why}` } : p;
 }
 
 function railPlan(f: CloseOutFacts, pack: StatePack, amount: number): CloseOutFacts["plan"] {
@@ -271,7 +315,8 @@ export function guardWithFacts(f: CloseOutFacts, p: RefundIntent) {
   if (f.plan.rail === "blocked") return `Blocked: ${f.blockers.join(" ")}`;
   if (p.rail !== f.plan.rail) return `Blocked: the rules call for ${f.plan.rail.replace(/_/g, " ")}, not ${p.rail.replace(/_/g, " ")}. ${f.plan.why}`;
   if (p.amount !== f.plan.amount.toFixed(2)) {
-    const basis = f.wholeDeposit ? `the whole deposit: the ${usd(f.totals.deductions)} in deductions is forfeited` : `deposit ${usd(f.totals.depositHeld)} minus ${usd(f.totals.deductions)} in deductions`;
+    const basis = (f.wholeDeposit ? `the whole deposit: the ${usd(f.totals.deductions)} in deductions is forfeited` : `deposit ${usd(f.totals.depositHeld)} minus ${usd(f.totals.deductions)} in deductions`)
+      + (f.viaDispute ? `, less the ${usd(f.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute` : "");
     return `Blocked: the refund owed is ${usd(f.plan.amount)} (${basis}), not $${p.amount}.`;
   }
   if (p.rail === "refund_original_payment" && p.captureId !== f.plan.captureId) return `Blocked: the deposit payment is ${f.plan.captureId}, not ${p.captureId}.`;

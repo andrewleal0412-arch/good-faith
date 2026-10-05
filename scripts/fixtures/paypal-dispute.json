@@ -1,0 +1,138 @@
+{
+  "_about": "A real sandbox PayPal dispute (GET /v1/customer/disputes/{id}), recorded 2026-10-05 against a demo copy's own pool deposit, with the parties' emails, names and ids replaced. Used by scripts/chargeback-check.mjs.",
+  "dispute": {
+    "dispute_id": "PP-R-UPH-10190332",
+    "create_time": "2026-10-05T09:53:38.528Z",
+    "update_time": "2026-10-05T10:03:13.109Z",
+    "disputed_transactions": [
+      {
+        "buyer_transaction_id": "9EG306797H288120S",
+        "seller_transaction_id": "4ED0892699461504X",
+        "create_time": "2026-10-04T02:36:20.000Z",
+        "transaction_status": "HELD",
+        "gross_amount": {
+          "currency_code": "USD",
+          "value": "4800.00"
+        },
+        "invoice_number": "INV2-8W4C-ZA4V-9GA4-W6E3",
+        "buyer": {
+          "email": "tenant@example.com",
+          "payer_id": "PAYERID0000X",
+          "name": "Tenant Name"
+        },
+        "seller": {
+          "email": "landlord@example.com",
+          "merchant_id": "MERCHANTID00X",
+          "name": "Landlord Store"
+        },
+        "seller_protection_eligible": true,
+        "seller_protection_type": "EXPANDED_SELLER_PROTECTION"
+      }
+    ],
+    "reason": "UNAUTHORISED",
+    "status": "WAITING_FOR_SELLER_RESPONSE",
+    "dispute_amount": {
+      "currency_code": "USD",
+      "value": "4800.00"
+    },
+    "dispute_state": "REQUIRED_ACTION",
+    "fund_movements": [
+      {
+        "party": "RECEIVER",
+        "amount": {
+          "currency_code": "USD",
+          "value": "4631.99"
+        },
+        "initiated_time": "2026-10-05T09:57:04.000Z",
+        "type": "DEBIT",
+        "reason": "HOLD_PLACED"
+      },
+      {
+        "party": "RECEIVER",
+        "amount": {
+          "currency_code": "USD",
+          "value": "4631.99"
+        },
+        "initiated_time": "2026-10-05T10:03:04.000Z",
+        "type": "CREDIT",
+        "reason": "HOLD_RELEASED"
+      },
+      {
+        "party": "RECEIVER",
+        "amount": {
+          "currency_code": "USD",
+          "value": "4631.99"
+        },
+        "initiated_time": "2026-10-05T10:03:05.000Z",
+        "type": "DEBIT",
+        "reason": "HOLD_PLACED"
+      }
+    ],
+    "dispute_life_cycle_stage": "CHARGEBACK",
+    "dispute_channel": "INTERNAL",
+    "extensions": {
+      "buyer_contacted_time": "2026-10-05T09:58:17.086Z"
+    },
+    "evidences": [
+      {
+        "evidence_type": "CREATE",
+        "notes": "We moved out of 1140 E. Juniper Hollow Ln and our 4,800 dollar security deposit has not come back. We left the unit clean and want the whole deposit returned.",
+        "source": "SUBMITTED_BY_BUYER",
+        "date": "2026-10-05T09:53:38.528Z",
+        "dispute_life_cycle_stage": "CHARGEBACK"
+      },
+      {
+        "evidence_type": "PROOF_OF_FULFILLMENT",
+        "source": "REQUESTED_FROM_SELLER",
+        "date": "2026-10-05T10:03:13.109Z"
+      },
+      {
+        "evidence_type": "PROOF_OF_REFUND",
+        "source": "REQUESTED_FROM_SELLER",
+        "date": "2026-10-05T10:03:13.109Z"
+      },
+      {
+        "evidence_type": "OTHER",
+        "source": "REQUESTED_FROM_SELLER",
+        "date": "2026-10-05T10:03:13.109Z"
+      }
+    ],
+    "seller_response_due_date": "2026-10-16T03:59:59.000Z",
+    "offer": {
+      "buyer_requested_amount": {
+        "currency_code": "USD",
+        "value": "4800.00"
+      }
+    },
+    "refund_details": {
+      "allowed_refund_amount": {
+        "currency_code": "USD",
+        "value": "4800.00"
+      }
+    },
+    "allowed_response_options": {
+      "accept_claim": {
+        "accept_claim_types": [
+          "REFUND"
+        ]
+      }
+    },
+    "links": [
+      {
+        "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-UPH-10190332",
+        "rel": "self",
+        "method": "GET"
+      },
+      {
+        "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-UPH-10190332/accept-claim",
+        "rel": "accept_claim",
+        "method": "POST"
+      },
+      {
+        "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-UPH-10190332/provide-evidence",
+        "rel": "provide_evidence",
+        "method": "POST"
+      }
+    ]
+  }
+}

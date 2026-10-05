@@ -1,4 +1,5 @@
 import { startCloseOut } from "@/lib/agent";
+import { openDisputeBlock } from "@/lib/chargeback-store";
 import { tenancyDepositBlock } from "@/lib/demo-pool";
 import { takeAllowance } from "@/lib/limits";
 import { routeTenancy } from "@/lib/workspace";
@@ -13,8 +14,9 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   if (ws instanceof Response) return ws;
   // A demo copy made when the day's sandbox deposits were used up, or the Texas unit's copy (its deposit is the
   // template's), can't send its refund, so the agent isn't started for it (no Claude call is spent on a refund that
-  // would be blocked). Everything else on the copy still works.
-  const blocked = await tenancyDepositBlock(ws.id, id);
+  // would be blocked). Everything else on the copy still works. Nor while the tenants' PayPal dispute of the deposit
+  // payment is open: its response is where money goes back then (src/lib/chargeback-store.ts).
+  const blocked = (await tenancyDepositBlock(ws.id, id)) ?? (await openDisputeBlock(id));
   if (blocked) return Response.json({ error: blocked }, { status: 409 });
   // Today's allowance, checked before the agent's first Claude call. The approval that resumes this run is part of
   // the same run and isn't counted again.

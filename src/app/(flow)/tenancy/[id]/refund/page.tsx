@@ -123,7 +123,7 @@ function Review({ v, statute, record }: { v: RefundView; statute: string; record
   const note = awaiting ? `This ${word} will be sent today through PayPal.`
     : r.demoBlock && !r.blockers.length ? `This demo copy can't send the ${word}.`
     : blocked ? "Nothing can be sent until the checks below pass."
-      : nothing ? "The deductions use the whole deposit, so no money goes back."
+      : nothing ? (r.viaDispute ? "PayPal already returned what is owed through the tenants' PayPal dispute, so no more money goes back." : "The deductions use the whole deposit, so no money goes back.")
         : "Prepared by the agent and sent only when you approve it.";
 
   const method: [ReactNode, ReactNode, ReactNode?][] = blocked || nothing ? [] : [
@@ -155,8 +155,9 @@ function Review({ v, statute, record }: { v: RefundView; statute: string; record
       <Divider />
       <Rows rows={[
         ...partyRows(v),
-        ["Amount", usd(r.amount), r.forfeited ? `The whole ${usd(r.depositHeld)} deposit: the ${usd(r.deductions)} in deductions is forfeited`
-          : `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`],
+        ["Amount", usd(r.amount), (r.forfeited ? `The whole ${usd(r.depositHeld)} deposit: the ${usd(r.deductions)} in deductions is forfeited`
+          : `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`)
+          + (r.viaDispute ? `, less ${usd(r.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute${r.viaDispute.notKept > 0 ? ` (${usd(r.viaDispute.notKept)} of the deductions not kept)` : ""}` : "")],
         ...method,
       ]} />
       <Divider />

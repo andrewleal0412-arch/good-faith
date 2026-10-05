@@ -75,24 +75,34 @@ async function moveOutTemplate() {
 }
 
 async function rows() {
-  const { data, error } = await db.from("demo_deposit_pool").select("invoice_id, amount, paid_at, claimed_by, claimed_at, created_at").order("paid_at");
+  const { data, error } = await db.from("demo_deposit_pool").select("invoice_id, amount, paid_at, claimed_by, claimed_at, disputed_at, created_at").order("paid_at");
   if (error) fail(`Couldn't read the pool: ${error.message}`);
   const cutoff = Date.now() - FRESH_DAYS * 86_400_000;
   const all = data ?? [];
+  // A deposit the tenants disputed with PayPal (disputed_at) is used for good, claimed or not.
   return {
     all,
-    ready: all.filter((r) => !r.claimed_by && Date.parse(r.paid_at) > cutoff),
-    stale: all.filter((r) => !r.claimed_by && Date.parse(r.paid_at) <= cutoff),
+    ready: all.filter((r) => !r.claimed_by && !r.disputed_at && Date.parse(r.paid_at) > cutoff),
+    stale: all.filter((r) => !r.claimed_by && !r.disputed_at && Date.parse(r.paid_at) <= cutoff),
     claimed: all.filter((r) => r.claimed_by),
   };
 }
 
 async function status() {
   const p = await rows();
-  console.log(`Demo deposit pool: ${p.ready.length} ready, ${p.claimed.length} claimed by demo copies, ${p.stale.length} too old to refund (over ${FRESH_DAYS} days).`);
+  // Claims held by a copy that no longer exists: used deposits the sweep kept (a refund or a PayPal dispute went
+  // against them), never given to another copy.
+  const ids = [...new Set(p.claimed.map((r) => r.claimed_by))];
+  const { data: live, error } = ids.length ? await db.from("workspaces").select("id").in("id", ids) : { data: [] };
+  if (error) fail(`Couldn't read the workspaces: ${error.message}`);
+  const exists = new Set((live ?? []).map((w) => w.id));
+  const orphaned = p.claimed.filter((r) => !exists.has(r.claimed_by));
+  console.log(`Demo deposit pool: ${p.ready.length} ready, ${p.claimed.length} claimed by demo copies (${orphaned.length} of them by copies that no longer exist), ${p.stale.length} too old to refund (over ${FRESH_DAYS} days).`);
   for (const r of p.all) {
-    const state = r.claimed_by ? `claimed ${longDate(pacificDate(r.claimed_at))}` : Date.parse(r.paid_at) > Date.now() - FRESH_DAYS * 86_400_000 ? "ready" : "too old";
-    console.log(`  ${r.invoice_id}  ${usd(r.amount)}  paid ${longDate(pacificDate(r.paid_at))}  ${state}`);
+    const state = r.claimed_by ? `claimed ${longDate(pacificDate(r.claimed_at))}${exists.has(r.claimed_by) ? "" : " by a copy that no longer exists (used)"}`
+      : r.disputed_at ? "disputed with PayPal (used)"
+        : Date.parse(r.paid_at) > Date.now() - FRESH_DAYS * 86_400_000 ? "ready" : "too old";
+    console.log(`  ${r.invoice_id}  ${usd(r.amount)}  paid ${longDate(pacificDate(r.paid_at))}  ${state}${r.disputed_at && r.claimed_by ? ", disputed with PayPal" : ""}`);
   }
   if (!p.ready.length) console.log("  The next demo copy will have no deposit of its own. Fill it with: npm run demo:pool -- --fill 4");
 }

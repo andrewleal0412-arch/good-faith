@@ -94,6 +94,10 @@ export type Statement = {
   wear?: { item: string; room: string }[];
   // The settlement of the tenants' dispute, once paid: the amended statement. Absent otherwise.
   settlement?: StatementSettlement;
+  // Money PayPal returned to the tenants through their PayPal dispute of the deposit payment, before or beside the
+  // statement's refund (which is then what is left); notKept: the deductions it covered past the refund owed. Absent
+  // when there is none.
+  viaDispute?: { amount: number; disputeId: string | null; at: string | null; notKept: number };
 };
 
 /** A settled dispute as the amended statement records it: who accepted and approved it and when, each charge the
@@ -202,18 +206,24 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     note: pack.statement.documentsNote(totals.documentsRequired, repairAndCleaning, deductions.some((d) => d.category !== "rent")),
   };
 
-  // 10. The refund: what PayPal already sent, or what the plan calls for.
+  // 10. The refund: what PayPal already sent, or what the plan calls for. Money PayPal returned through the tenants'
+  // PayPal dispute is a prior return (s.viaDispute): the refund here is what went, or is still owed, on top of it.
   const ret = facts.alreadyReturned;
+  const via = facts.viaDispute;
   const agreement = facts.refundAgreement;
   const paypalEmail = agreement?.paypalEmail ?? null;
   let refund: Statement["refund"];
   const base = { paypalEmail, payees: tenants, agreement: agreement ? { signedBy: agreement.signedBy, signedAt: agreement.signedAt } : null };
+  const owedNow = Math.max(0, Math.round(((facts.standing?.forfeits ? totals.depositHeld : totals.refund) - (via?.amount ?? 0)) * 100) / 100);
   if (ret) {
     refund = {
       ...base, amount: ret.amount, state: "sent", paypalId: ret.paypalId, sentAt: ret.at,
       method: ret.kind === "payout" ? `PayPal Payout to ${paypalEmail ?? "the designated PayPal account"}` : "PayPal refund of the original deposit payment",
       note: "",
     };
+  } else if (via && totals.depositHeld > 0 && owedNow <= 0) {
+    refund = { ...base, amount: 0, state: "none", paypalId: null, sentAt: null,
+      method: `Nothing more is owed: PayPal returned ${usd(via.amount)} to the tenants through their PayPal dispute${via.disputeId ? ` ${via.disputeId}` : ""}${via.at ? ` on ${longDate(pacificDate(via.at))}` : ""}.`, note: "" };
   } else if (totals.depositHeld === 0) {
     refund = { ...base, amount: 0, state: "none", paypalId: null, sentAt: null, method: "No security was received through PayPal, so there is nothing to refund.", note: "" };
   } else if (totals.refund <= 0 && !facts.standing?.forfeits) {
@@ -222,7 +232,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     // Forfeited deductions (New York after day 14) leave the whole security owed back, whatever they come to.
     const plan = facts.plan;
     refund = {
-      ...base, amount: facts.standing?.forfeits ? totals.depositHeld : totals.refund, state: "due", paypalId: null, sentAt: null,
+      ...base, amount: owedNow, state: "due", paypalId: null, sentAt: null,
       method: plan.rail === "payout" ? `PayPal Payout to ${plan.email}, to be sent`
         : plan.rail === "refund_original_payment" ? "PayPal refund of the original deposit payment, to be sent"
           : pack.statement.refundDueMethod({ electronic: !!security?.electronic, paypalEmail }),
@@ -250,6 +260,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     checklist: [],
   };
   if (facts.standing) s.standing = facts.standing;
+  if (via) s.viaDispute = { amount: via.amount, disputeId: via.disputeId, at: via.at || null, notKept: via.notKept };
   // The amended statement: a settlement of the tenants' dispute that was paid (or needed no money). Only then; one
   // agreed and not yet approved changes nothing here.
   const { data: settled } = await db.from("settlements").select("amount, terms, tenant_name, tenant_accepted_at, landlord_approved_at, sent_at, rail, paypal_id, paypal_status, raw")
@@ -261,14 +272,15 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
       .map((l) => ({ ...l, adjustment: Math.round((l.keep - l.amount) * 100) / 100 })).filter((l) => l.adjustment !== 0);
     const keptAfter = Math.round(deductions.reduce((t, d) => t + keepOf(d.id, d.amount), 0) * 100) / 100;
     // What it added to the money back: nothing when the statement's refund was already the whole deposit.
-    const amount = settledExtra({ agreed: Number(settled.amount), depositHeld: facts.deposit?.amount ?? Infinity, refunded: refund.state === "sent" ? refund.amount : 0 });
+    const refunded = (refund.state === "sent" ? refund.amount : 0) + (via?.amount ?? 0);
+    const amount = settledExtra({ agreed: Number(settled.amount), depositHeld: facts.deposit?.amount ?? Infinity, refunded });
     s.settlement = {
       amount, acceptedBy: (settled.tenant_name as string | null) ?? null, acceptedAt: (settled.tenant_accepted_at as string | null) ?? null,
       approvedAt: (settled.landlord_approved_at as string | null) ?? null, sentAt: (settled.sent_at as string | null) ?? null,
       rail: (settled.rail as StatementSettlement["rail"]) ?? null, paypalId: (settled.paypal_id as string | null) ?? null, paypalStatus: (settled.paypal_status as string | null) ?? null,
       lines, adjustment: Math.round(lines.reduce((t, l) => t + l.adjustment, 0) * 100) / 100, keptAfter,
       refundSent: refund.state === "sent",
-      returnedInAll: Math.round(((refund.state === "sent" ? refund.amount : 0) + amount) * 100) / 100,
+      returnedInAll: Math.round((refunded + amount) * 100) / 100,
       balanceAfter: Math.max(0, Math.round((keptAfter - totals.depositHeld) * 100) / 100),
       example: isDemoExample(settled.raw),
     };

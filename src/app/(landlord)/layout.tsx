@@ -9,6 +9,7 @@ import { stepLink } from "@/lib/property-view";
 import { streetLine } from "@/lib/ledger";
 import { disputeAlerts } from "@/lib/negotiation";
 import { paypalAlerts } from "@/lib/paypal-webhook-store";
+import { paypalDisputeAlerts } from "@/lib/chargeback-store";
 import { accountName, loadUnits, type UnitRow } from "@/lib/units";
 import { packFor, SUPPORTED } from "@/lib/states";
 import { currentWorkspace, type Workspace } from "@/lib/workspace";
@@ -63,6 +64,12 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
       alerts.unshift(...(await disputeAlerts(ws.id)).map((a) => ({ ...a, sub: streetLine(a.sub) })));
     } catch (e) {
       console.error("App shell: couldn't load the disputes", e);
+    }
+    // And the tenants' PayPal disputes of their deposit payments: one to answer, a response to approve or to check.
+    try {
+      alerts.unshift(...(await paypalDisputeAlerts(ws.id)).map((a) => ({ title: a.title, sub: `${streetLine(a.sub)}${a.due ? `, respond by ${longDate(a.due)}` : ""}`, href: a.href, tone: a.tone })));
+    } catch (e) {
+      console.error("App shell: couldn't load the PayPal disputes", e);
     }
   }
 

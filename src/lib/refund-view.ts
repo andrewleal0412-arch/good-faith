@@ -62,6 +62,9 @@ export type RefundView = {
     balanceClaimed: number;
     standing?: string; // how the claimed amount stands when it is not a plain deduction ("Claimed, disputed"); absent in California
     forfeited?: boolean; // the deductions are forfeited (New York after day 14), so the whole deposit goes back
+    // What PayPal already returned through the tenants' PayPal dispute, which comes off the amount; notKept: the
+    // deductions it covered past the refund owed. Absent when there is none.
+    viaDispute?: { amount: number; disputeId: string | null; notKept: number };
     rail: Rail;
     why: string;
     method: string | null; // how the tenants paid, PayPal's code
@@ -150,9 +153,9 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean,
     tip: { title: forfeit.label, body: forfeit.note },
   } : {
     key: "amount", label: f.standing ? `Deposit less the amount ${f.standing.label.toLowerCase()}` : "Deposit less deductions",
-    value: `${usd(f.totals.depositHeld)} less ${usd(f.totals.deductions)}`,
+    value: `${usd(f.totals.depositHeld)} less ${usd(f.totals.deductions)}${f.viaDispute ? `, less ${usd(f.viaDispute.amount)} through the PayPal dispute` : ""}`,
     state: matches ? "ok" : "fail",
-    tip: { title: "The refund", body: "What is left of the deposit after the itemized deductions goes back to the tenants.", cite: pack.deadline.tip.cite },
+    tip: { title: "The refund", body: `What is left of the deposit after the itemized deductions goes back to the tenants.${f.viaDispute ? " What PayPal already returned through the tenants' PayPal dispute counts toward it." : ""}`, cite: pack.deadline.tip.cite },
   });
   const t = f.tenancy;
   out.push({
@@ -263,8 +266,10 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
     ...base,
     sent: null,
     review: {
-      // What goes back: the whole deposit once the deductions are forfeited (New York after day 14), else the rest.
-      amount: pending?.amount ?? (f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
+      // What goes back: the whole deposit once the deductions are forfeited (New York after day 14), else the rest; less
+      // what PayPal already returned through the tenants' PayPal dispute.
+      amount: pending?.amount ?? Math.max(0, Math.round(((f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund) - (f.viaDispute?.amount ?? 0)) * 100) / 100), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
+      ...(f.viaDispute ? { viaDispute: { amount: f.viaDispute.amount, disputeId: f.viaDispute.disputeId, notKept: f.viaDispute.notKept } } : {}),
       balanceClaimed: f.totals.balanceClaimed, ...(f.standing && !f.standing.forfeits ? { standing: f.standing.label } : {}), ...(f.standing?.forfeits ? { forfeited: true } : {}),
       rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
       blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),

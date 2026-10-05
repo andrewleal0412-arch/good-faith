@@ -24,6 +24,8 @@ export function Settlement(p: {
   wear: WearRow[];
   returned: { amount: number; kind: string; id: string; at: string } | null;
   forfeited?: { label: string; note: string } | null; // New York after day 14: the deductions come back off, the whole deposit is owed
+  // What PayPal returned through the tenants' PayPal dispute, and the deductions it covered past the refund owed.
+  viaDispute?: { amount: number; notKept: number } | null;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -43,6 +45,10 @@ export function Settlement(p: {
   const s = settle(p.depositHeld ?? 0, p.deductions, pack);
   const tip = pack.documents.settlementTip(s.documentsRequired);
   const locked = !!p.returned;
+  // The close-out's own refund or Payout (a dispute's refund that covers what is owed stands in for it as `returned`).
+  const own = p.returned && p.returned.kind !== "dispute_refund" ? p.returned : null;
+  const via = p.viaDispute ?? null;
+  const stillOwed = own ? Math.round(((p.depositHeld ?? 0) - own.amount - (via?.amount ?? 0)) * 100) / 100 : 0;
   const num = (d: StoredDeduction) => (d.finding?.id ? p.numbers[d.finding.id] : undefined);
   // Rows in finding order, so the table reads in the same order as the cards above; anything without a finding last.
   const rows = [
@@ -150,14 +156,19 @@ export function Settlement(p: {
               <dd className="text-right"><Money value={s.total} sign="plus" /></dd>
             </>
           )}
+          {/* PayPal's refund through the tenants' PayPal dispute: past the refund owed, the deductions it covered aren't kept. */}
+          {via && via.notKept > 0 && (
+            <><dt className="text-right text-ink-3">Not kept, after the PayPal dispute</dt><dd className="text-right"><Money value={via.notKept} sign="plus" /></dd></>
+          )}
+          {via && <><dt className="text-right text-ink-3">Through the PayPal dispute</dt><dd className="text-right"><Money value={via.amount} sign="minus" /></dd></>}
           <dt className="mt-0.5 border-t border-line pt-2 text-right font-medium leading-6 text-ink">
-            {s.balanceClaimed > 0 && !p.forfeited ? "Balance claimed" : p.returned ? "Refunded" : p.forfeited ? "Owed back" : "Refund due"}
+            {s.balanceClaimed > 0 && !p.forfeited ? "Balance claimed" : own ? "Refunded" : p.forfeited ? "Owed back" : via ? "Left to refund" : "Refund due"}
           </dt>
           <dd className="mt-0.5 border-t border-line pt-2 text-right text-lg font-medium">
-            <Money value={s.balanceClaimed > 0 && !p.forfeited ? s.balanceClaimed : p.returned ? p.returned.amount : p.forfeited ? p.depositHeld ?? 0 : s.refund} />
+            <Money value={s.balanceClaimed > 0 && !p.forfeited ? s.balanceClaimed : own ? own.amount : Math.max(0, Math.round(((p.forfeited ? p.depositHeld ?? 0 : s.refund) - (via?.amount ?? 0)) * 100) / 100)} />
           </dd>
-          {p.forfeited && p.returned && (p.depositHeld ?? 0) - p.returned.amount > 0.005 && (
-            <><dt className="text-right text-ink-3">Still owed</dt><dd className="text-right"><Money value={Math.round(((p.depositHeld ?? 0) - p.returned.amount) * 100) / 100} /></dd></>
+          {p.forfeited && own && stillOwed > 0.005 && (
+            <><dt className="text-right text-ink-3">Still owed</dt><dd className="text-right"><Money value={stillOwed} /></dd></>
           )}
         </dl>
       </div>

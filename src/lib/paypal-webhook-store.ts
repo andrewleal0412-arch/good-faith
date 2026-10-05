@@ -1,4 +1,5 @@
 import "server-only";
+import { readDispute, type DisputeRead } from "./chargeback";
 import { audit, db } from "./db";
 import { usd } from "./deductions";
 import type { PaymentRef, PayPalEvent, WebhookStore } from "./paypal-webhook";
@@ -105,16 +106,100 @@ export const webhookStore: WebhookStore = {
     return { previousStatus: (old?.status as string | null) ?? null };
   },
 
+  async afterDispute(row) {
+    await disputeAftermath(row.tenancy_id, row.raw);
+  },
+
+  async disputeRefunds(tenancyId) {
+    const [pays, disputes] = await Promise.all([
+      db.from("payments").select(PAYMENT_COLS).eq("tenancy_id", tenancyId).eq("kind", "dispute_refund").order("created_at"),
+      db.from("paypal_disputes").select("id, status, raw").eq("tenancy_id", tenancyId),
+    ]);
+    return {
+      rows: rows("dispute refunds", pays).map((r) => ref(r as Row)),
+      disputes: rows("paypal disputes", disputes).map((d) => ({ id: d.id as string, status: (d.status as string | null) ?? null, raw: (d.raw as Record<string, unknown> | null) ?? {} })),
+    };
+  },
+
+  async addDisputeRefund(tenancyId, o) {
+    // One record per dispute: if one appeared meanwhile, this refund only joins its ids.
+    const { data: had } = await db.from("payments").select("id, raw").eq("tenancy_id", tenancyId).eq("kind", "dispute_refund").eq("paypal_id", o.disputeId).maybeSingle();
+    if (had) {
+      const ids = Array.isArray((had.raw as { refund_ids?: unknown } | null)?.refund_ids) ? ((had.raw as { refund_ids: string[] }).refund_ids) : [];
+      if (o.refundId && !ids.includes(o.refundId)) {
+        const { error } = await db.from("payments").update({ raw: { ...((had.raw as Record<string, unknown> | null) ?? {}), refund_ids: [...ids, o.refundId] } }).eq("id", had.id);
+        if (error) throw new Error(`dispute refund: ${error.message}`);
+      }
+      return;
+    }
+    const { error } = await db.from("payments").insert({ tenancy_id: tenancyId, kind: "dispute_refund", paypal_id: o.disputeId, amount: o.amount, status: o.status, raw: o.raw });
+    if (error) throw new Error(`dispute refund: ${error.message}`);
+  },
+
   async audit(tenancyId, action, detail) {
     await audit(tenancyId, "system", action, detail);
   },
 };
 
+/* ---------- What follows a PayPal dispute ---------- */
+
+const cents = (n: number) => Math.round(n * 100) / 100;
+
+/** What follows PayPal's word on a dispute, from its webhook or from Check PayPal (chargeback-store.ts): the money it
+ *  returned through it, and once it is resolved, the prepared responses nobody can send any more. */
+export async function disputeAftermath(tenancyId: string, raw: unknown) {
+  const d = readDispute(raw);
+  if (!d.id) return;
+  await recordDisputeOutcome(tenancyId, d);
+  if (!d.open) await retireResponses(d.id);
+}
+
+/** Money PayPal itself sent back through the dispute (a claim the landlord accepted, an offer the tenants accepted,
+ *  PayPal's own decision), in payments once, as one dispute refund per dispute: the refunds PayPal lists on the dispute
+ *  (refund_details.transactions), or its outcome once resolved. A refund PayPal lists that is already on record as the
+ *  close-out's or a settlement's, or that it made before the dispute opened, is not the dispute's and is left out, so
+ *  money that went back before the dispute is never counted twice. A pending record an acceptance made is completed. */
+export async function recordDisputeOutcome(tenancyId: string, d: DisputeRead) {
+  const { data, error } = await db.from("payments").select("id, kind, paypal_id, amount, status, raw").eq("tenancy_id", tenancyId)
+    .in("kind", ["refund", "settlement_refund", "dispute_refund"]);
+  if (error) throw new Error(`dispute refund: ${error.message}`);
+  const pays = (data ?? []) as { id: string; kind: string; paypal_id: string | null; amount: number | string; status: string; raw: Record<string, unknown> | null }[];
+  const ours = new Set(pays.filter((p) => p.kind !== "dispute_refund" && p.paypal_id).map((p) => p.paypal_id));
+  const opened = d.createdAt ? Date.parse(d.createdAt) : NaN;
+  const counted = d.refunds.filter((r) => !ours.has(r.id) && !(Number.isFinite(opened) && r.at && Date.parse(r.at) < opened));
+  const listed = cents(counted.reduce((t, r) => t + r.amount, 0));
+  const refunded = listed > 0 ? listed : !d.open && d.outcome?.refunded ? cents(d.outcome.refunded) : 0;
+  if (refunded <= 0) return;
+  const row = pays.find((p) => p.kind === "dispute_refund" && p.paypal_id === d.id);
+  const had = Array.isArray(row?.raw?.refund_ids) ? (row!.raw!.refund_ids as string[]) : [];
+  const ids = [...new Set([...had, ...counted.map((r) => r.id)])];
+  const raw = { dispute_id: d.id, refund_ids: ids, outcome: d.outcome?.code ?? null, status_from: { source: "paypal", at: d.updatedAt ?? new Date().toISOString() } };
+  if (row) {
+    if (row.status === "COMPLETED" && Math.abs(Number(row.amount) - refunded) < 0.005 && ids.length === had.length) return;
+    const { error: ue } = await db.from("payments").update({ status: "COMPLETED", amount: refunded, raw: { ...(row.raw ?? {}), ...raw } }).eq("id", row.id);
+    if (ue) throw new Error(`dispute refund: ${ue.message}`);
+  } else {
+    const { error: ie } = await db.from("payments").insert({ tenancy_id: tenancyId, kind: "dispute_refund", paypal_id: d.id, amount: refunded, status: "COMPLETED", raw });
+    if (ie) throw new Error(`dispute refund: ${ie.message}`);
+  }
+  await audit(tenancyId, "system", "dispute_refund_recorded", { source: "paypal", dispute_id: d.id, amount: refunded, refund_ids: ids, outcome: raw.outcome });
+}
+
+/** A dispute PayPal resolved: a response still waiting for the landlord's approval, or one PayPal never confirmed,
+ *  can't be sent any more, so it is retired with the reason (and a new one can't be prepared either). */
+export async function retireResponses(disputeId: string) {
+  const at = new Date().toISOString();
+  await db.from("paypal_dispute_responses").update({ status: "superseded", error: "PayPal resolved the dispute first, so this response was never sent.", updated_at: at })
+    .eq("dispute_id", disputeId).eq("status", "ready");
+  await db.from("paypal_dispute_responses").update({ status: "superseded", error: "PayPal resolved the dispute before it confirmed this response.", updated_at: at })
+    .eq("dispute_id", disputeId).eq("status", "unknown");
+}
+
 /* ---------- The bell ---------- */
 
 export type PayPalAlert = { tenancyId: string; title: string; sub: string; href: string; tone: "green" | "amber" | "red" };
 
-const ALERT_ACTIONS = ["deposit_paid", "refund_status", "payout_status", "paypal_refund_unrecorded", "deposit_reversed", "paypal_dispute"];
+const ALERT_ACTIONS = ["deposit_paid", "refund_status", "payout_status", "paypal_refund_unrecorded", "deposit_reversed", "paypal_dispute", "dispute_refund_recorded"];
 
 /** What PayPal reported lately for this workspace's tenancies, newest first: good news for two days, anything that
  *  needs a look for a week. Only entries a verified webhook made (detail.source "paypal"). */
@@ -158,6 +243,7 @@ function alertFor(action: string, d: Record<string, unknown>): { title: string; 
     case "paypal_dispute":
       return d.event === "resolved" ? { title: "PayPal dispute resolved", tone: "green", tab: "payments" }
         : { title: d.event === "created" ? "PayPal dispute opened" : "PayPal dispute updated", tone: "red", tab: "payments" };
+    case "dispute_refund_recorded": return { title: amount ? `${amount} returned through the PayPal dispute` : "Returned through the PayPal dispute", tone: "amber", tab: "payments" };
     default: return null;
   }
 }

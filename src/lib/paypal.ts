@@ -163,6 +163,82 @@ export async function sendPayout(opts: { email: string; amount: number; note: st
   return { id: r.batch_header.payout_batch_id, status: r.batch_header.batch_status, batch_status: r.batch_header.batch_status, sender_batch_id: opts.batchId };
 }
 
+/* ---------- PayPal disputes (v1/customer/disputes) ---------- */
+
+// The tenants' PayPal disputes and chargebacks of the deposit payment. The app reads them through PayPal's Agent
+// Toolkit (list_disputes, get_dispute over MCP: src/lib/chargeback-store.ts); these are the writes, which the toolkit
+// doesn't offer in a form the app can use (v1.11.0 has no provide-evidence or make-offer, and its accept_dispute_claim
+// takes no amount and checks its note against the dispute-id pattern, so a note with a space is refused). Each carries
+// a PayPal-Request-Id from the approved response (gf-dispute-<response id>-<step>), though PayPal's Disputes API
+// doesn't declare that header: the guard against a step going twice is the read of the dispute before any resend.
+
+/** A PayPal dispute id as PayPal writes them (PP-D-27803, PP-R-UPH-10190332), safe in a URL path. */
+export const isDisputeId = (id: unknown): id is string => typeof id === "string" && /^PP-[A-Z0-9][A-Z0-9-]{2,60}$/.test(id);
+
+const disputePath = (id: string, action?: string) => {
+  if (!isDisputeId(id)) throw new PayPalRefused(`Not a PayPal dispute id: ${String(id).slice(0, 40)}`);
+  return `/v1/customer/disputes/${id}${action ? `/${action}` : ""}`;
+};
+
+/** The dispute as PayPal has it now (REST; the app's own reads go through the Agent Toolkit first). */
+export const getDisputeRest = (id: string) => paypal<Record<string, unknown>>("GET", disputePath(id), undefined, { timeoutMs: TIMEOUT_MS });
+
+/** Accept the tenants' claim: PayPal refunds them from the landlord's account and closes the dispute in their favor.
+ *  REFUND is the whole disputed amount; PARTIAL_REFUND, where PayPal offers it, the amount given. */
+export async function acceptDisputeClaim(id: string, o: { note: string; type: "REFUND" | "PARTIAL_REFUND"; amount?: number; requestId: string }) {
+  return paypal<Record<string, unknown>>("POST", disputePath(id, "accept-claim"), {
+    note: o.note,
+    accept_claim_type: o.type,
+    ...(o.type === "PARTIAL_REFUND" && o.amount != null ? { refund_amount: { currency_code: "USD", value: o.amount.toFixed(2) } } : {}),
+  }, { requestId: o.requestId, timeoutMs: TIMEOUT_MS });
+}
+
+/** Offer the tenants a refund to settle the dispute (only while PayPal offers make_offer, in an inquiry). Nothing moves
+ *  unless they accept it in PayPal. */
+export async function makeDisputeOffer(id: string, o: { note: string; amount: number; requestId: string }) {
+  return paypal<Record<string, unknown>>("POST", disputePath(id, "make-offer"), {
+    note: o.note, offer_type: "REFUND", offer_amount: { currency_code: "USD", value: o.amount.toFixed(2) },
+  }, { requestId: o.requestId, timeoutMs: TIMEOUT_MS });
+}
+
+export type EvidenceFile = { name: string; type: string; data: Uint8Array };
+
+/** The multipart body PayPal's evidence calls take, as its documentation's request writes it (`-F 'input=<json>;
+ *  type=application/json' -F 'file1=@<file>'`): an "input" field holding the JSON, typed application/json and with no
+ *  file name, then the files as file1, file2, ... under the names the JSON's documents list. Built by hand because
+ *  FormData gives a typed part a file name, and a parser may then read the JSON as one more file. File names come from
+ *  evidenceName (letters, digits, dots and dashes), so none needs quoting. A check reads the body back without calling
+ *  PayPal. */
+export function evidenceBody(input: unknown, files: EvidenceFile[], boundary = `gf-${globalThis.crypto.randomUUID()}`): { body: Uint8Array<ArrayBuffer>; contentType: string } {
+  const enc = new TextEncoder();
+  const parts: Uint8Array[] = [];
+  const head = (disposition: string, type: string) => enc.encode(`--${boundary}\r\nContent-Disposition: form-data; ${disposition}\r\nContent-Type: ${type}\r\n\r\n`);
+  parts.push(head('name="input"', "application/json"), enc.encode(JSON.stringify(input)), enc.encode("\r\n"));
+  files.forEach((f, i) => parts.push(head(`name="file${i + 1}"; filename="${f.name.replace(/["\r\n\\]/g, "-")}"`, f.type), f.data, enc.encode("\r\n")));
+  parts.push(enc.encode(`--${boundary}--\r\n`));
+  const body = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) { body.set(p, at); at += p.length; }
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
+/** Send the landlord's evidence (provide-evidence, while PayPal asks the seller for it) or supporting information
+ *  (provide-supporting-info, while PayPal reviews the case), with its files. The PayPal-Request-Id goes with it, but
+ *  PayPal's Disputes API doesn't promise to honor it: what keeps a resend from acting twice is that "Check with
+ *  PayPal" reads the dispute first and sends only what it doesn't show (chargeback-store.ts). */
+export async function sendDisputeEvidence(id: string, o: { route: "provide-evidence" | "provide-supporting-info"; input: unknown; files: EvidenceFile[]; requestId: string }) {
+  const { body, contentType } = evidenceBody(o.input, o.files);
+  const r = await fetch(`${BASE}${disputePath(id, o.route)}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await accessToken()}`, "PayPal-Request-Id": o.requestId, "Content-Type": contentType },
+    body: new Blob([body]),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new PayPalRefused(`PayPal POST ${o.route} -> ${r.status}: ${text.slice(0, 300)}`, r.status, text.slice(0, 4000));
+  return (text ? JSON.parse(text) : {}) as Record<string, unknown>;
+}
+
 /** The headers PayPal signs every webhook delivery with. */
 export const WEBHOOK_HEADERS = ["paypal-auth-algo", "paypal-cert-url", "paypal-transmission-id", "paypal-transmission-sig", "paypal-transmission-time"] as const;
 

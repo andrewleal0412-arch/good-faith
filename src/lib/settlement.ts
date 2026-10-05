@@ -1,12 +1,12 @@
 import "server-only";
 import { connectPayPal, mcpJson } from "./agent";
-import { closeOutState, paidAgo } from "./closeout";
+import { closeOutState, paidAgo, refundStillOwed } from "./closeout";
 import { audit, db } from "./db";
 import { depositBlock } from "./demo-pool";
 import { usd } from "./deductions";
 import { returnFailed, wasPaid } from "./invoice-status";
 import { PayPalRefused, SANDBOX, sendPayout, type Invoice } from "./paypal";
-import { railFor, refundOwed, REFUND_WINDOW_DAYS } from "./refund-rail";
+import { railFor, REFUND_WINDOW_DAYS } from "./refund-rail";
 
 // The settlement's money: once the tenants accepted and the landlord approved, the amount agreed on top of the
 // statement's refund goes back through PayPal. The rail is the close-out's own rule (railFor, refund-rail.ts, read
@@ -68,18 +68,21 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   // PayPal reversed the deposit payment (its webhook said so): nothing can go back against it, and the landlord no
   // longer holds it.
   if (f.reversed) return { blocked: "PayPal reversed the deposit payment (a chargeback or a bank reversal), so nothing goes back through PayPal. Check the PayPal account first." };
+  // The tenants disputed the payment with PayPal: the dispute's response is where money goes back while it is open.
+  if (f.paypalDispute) return { blocked: `The tenants opened a PayPal dispute of the deposit payment (${f.paypalDispute.id}). Answer it on the Payments tab first: a settlement paid meanwhile could go back twice.` };
   if (!f.refundAgreement && pack.refund.agreementRequired) return { blocked: pack.refund.noAgreementBlocker };
   // The settlement goes back on top of the statement's refund, so that refund goes first: the amended statement then
   // records two payments that were both sent. Where the deductions are forfeited and a live dispute holds them (New
   // York after day 14), that refund is the whole deposit (refund-rail.ts, refundOwed).
-  const owed = refundOwed(f);
+  // What PayPal already returned through the tenants' PayPal dispute counts toward that refund (refundStillOwed).
+  const owed = refundStillOwed(f);
   if (owed > 0 && !f.alreadyReturned) {
     return { blocked: `Send the statement's refund of ${usd(owed)} first (Review refund): the settlement goes back on top of it.` };
   }
 
   // Once the whole deposit went back (the close-out's refund of the whole deposit, when its deductions were forfeited
   // under a live dispute), the settlement has nothing left to send: it records what was agreed and moves no money.
-  const back = cents(payments.filter((p) => ["refund", "payout", "settlement_refund", "settlement_payout"].includes(p.kind) && !returnFailed(p.status))
+  const back = cents(payments.filter((p) => ["refund", "payout", "settlement_refund", "settlement_payout", "dispute_refund"].includes(p.kind) && !returnFailed(p.status))
     .reduce((s, p) => s + Number(p.amount), 0));
   if (f.totals.depositHeld - back <= 0.005) {
     return { rail: "none", amount: 0, why: `The whole deposit, ${usd(f.totals.depositHeld)}, already went back to the tenants, so the settlement moves no more money.` };
@@ -90,7 +93,7 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   const live = invoice as InvoiceWithRefunds;
   const paid = Number(live.payments?.paid_amount?.value ?? inv.amount);
   const refundedByPayPal = Number(live.refunds?.refund_amount?.value ?? 0);
-  const refundedByUs = payments.filter((p) => (p.kind === "refund" || p.kind === "settlement_refund") && !returnFailed(p.status))
+  const refundedByUs = payments.filter((p) => (p.kind === "refund" || p.kind === "settlement_refund" || p.kind === "dispute_refund") && !returnFailed(p.status))
     .reduce((s, p) => s + Number(p.amount), 0);
   const remaining = cents(paid - Math.max(refundedByPayPal, refundedByUs));
 

@@ -10,7 +10,7 @@ import type { ClientPack } from "./states/types";
 // the grid can filter on it and the CSV can go to an accountant or a small claims clerk as it is. Pure, so the grid
 // (in the browser) and the tenancy page (on the server) read the same rows. The database query is in ledger-load.ts.
 
-export type LedgerKind = "deposit_invoice" | "payment" | "deduction" | "refund" | "payout" | "damage_invoice" | "settlement";
+export type LedgerKind = "deposit_invoice" | "payment" | "deduction" | "refund" | "payout" | "damage_invoice" | "settlement" | "dispute_refund";
 
 export const KIND_LABEL: Record<LedgerKind, string> = {
   deposit_invoice: "Deposit invoice",
@@ -20,6 +20,7 @@ export const KIND_LABEL: Record<LedgerKind, string> = {
   payout: "Payout",
   damage_invoice: "Balance invoice",
   settlement: "Settlement",
+  dispute_refund: "PayPal dispute",
 };
 
 /** What a row does to the money held for the tenants, which is what the totals add up. The security stays the
@@ -235,6 +236,18 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         status: effect === "returned" ? (refund ? "completed" : "sent") : words(p.status),
         ...pack.ledger.refundTag, ...mark,
       });
+    } else if (p.kind === "dispute_refund") {
+      // Money PayPal itself sent back to the tenants through their PayPal dispute of the deposit payment (a claim the
+      // landlord accepted, an offer they accepted, PayPal's decision): pending until PayPal resolves the dispute.
+      const effect: LedgerEffect = returnCompleted(p.status) ? "returned" : returnFailed(p.status) ? "failed" : "pending";
+      const mark = reported(p.raw);
+      row({
+        id: p.id, date, at: p.created_at, kind: "dispute_refund", amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
+        detail: withMark(`Returned by PayPal through the tenants' PayPal dispute ${p.paypal_id ?? ""}`.trim() + timing(t.move_out_date, date, pack), mark),
+        summary: "Through the tenants' PayPal dispute",
+        status: effect === "returned" ? "completed" : words(p.status),
+        ...pack.ledger.refundTag, ...mark,
+      });
     } else if (p.kind === "damage_invoice") {
       row({
         id: p.id, date, at: p.created_at, kind: "damage_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
@@ -298,11 +311,12 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
 }
 
 /** What a tenancy's rows say is still owed back to its tenants: the deposit collected less every deduction, drafts
- *  included (the refund the close-out would send), while no refund or payout has gone out. Zero once one has, or when
- *  the deductions use the whole deposit. */
+ *  included (the refund the close-out would send), less what PayPal returned through the tenants' PayPal dispute,
+ *  while no refund or payout has gone out. Zero once one has, or when the deductions use the whole deposit. */
 export function owedBack(rows: LedgerRow[]): number {
   if (rows.some((r) => (r.kind === "refund" || r.kind === "payout") && r.effect !== "failed")) return 0;
   const collected = rows.filter((r) => r.effect === "collected").reduce((s, r) => s + r.amount, 0);
   const deducted = rows.filter((r) => r.kind === "deduction").reduce((s, r) => s + r.amount, 0);
-  return Math.max(0, cents(collected - deducted));
+  const viaDispute = rows.filter((r) => r.kind === "dispute_refund" && r.effect !== "failed").reduce((s, r) => s + r.amount, 0);
+  return Math.max(0, cents(collected - deducted - viaDispute));
 }

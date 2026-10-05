@@ -7,6 +7,7 @@ import { paidElectronically, returnFailed } from "./invoice-status";
 import { byUrgency, liveDispute, nextStep, type NextStep, type TenancySummary } from "./next-step";
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
+import { disputeReturns } from "./refund-rail";
 import { packFor } from "./states/server";
 import { tenantMoveOutSentOn, type TenantMoveOut } from "./tenant";
 import { currentWorkspace, DEMO_ACCOUNT, signedUrlsFor } from "./workspace";
@@ -45,6 +46,9 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
   const inv = payments.find((p) => p.kind === "deposit_invoice") ?? null;
   // A refund PayPal refused or reversed returned nothing, so it does not close the tenancy out (the ledger counts the same way).
   const returned = payments.find((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status)) ?? null;
+  // Money PayPal sent back through the tenants' PayPal dispute: a prior return, which comes off what is left to return
+  // (refundLeft), so the unit stays open while anything is still owed.
+  const via = disputeReturns(payments);
   const terms = t.lease_terms;
   const pack = packFor(t.properties?.state);
   const agreement: RefundAgreementSummary | null = t.refund_agreement
@@ -85,6 +89,7 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
     moveOutPhotos: photos.filter((p) => p.phase === "move_out_before").length,
     deductions: deductions.map((d) => ({ category: d.category, amount: Number(d.amount) })),
     returned: returned ? { amount: Number(returned.amount), kind: returned.kind } : null,
+    ...(via ? { viaDispute: via.amount } : {}),
     notices: t.notices ?? {},
     refundNotice: refundNoticeStatus(agreement, evidence, pack),
     tenantMoveOut: t.tenant_move_out
@@ -102,18 +107,20 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
  *  workspace first (pageTenancy, routeTenancy). Its live dispute is read as the units page reads it, so the next step
  *  agrees with the tenancy page (New York's day-14 step changes under a dispute). */
 export async function loadUnit(id: string): Promise<TenancySummary | null> {
-  const [{ data: t }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }] = await Promise.all([
+  const [{ data: t }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }, { data: ppDisputes }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("id", id).single(),
     db.from("payments").select("kind, paypal_id, amount, status, raw").eq("tenancy_id", id).order("created_at"),
     db.from("photos").select("phase").eq("tenancy_id", id),
     db.from("deductions").select("category, amount").eq("tenancy_id", id),
     db.from("disputes").select("status").eq("tenancy_id", id).in("status", ["open", "negotiating", "agreed"]).limit(1),
+    db.from("paypal_disputes").select("id").eq("tenancy_id", id).neq("status", "RESOLVED").limit(1),
   ]);
   if (!t) return null;
   const dispute = liveDispute((disputes as { status: string }[] | null)?.[0]?.status);
   return {
     ...summarizeTenancy(t as TenancyRow, (payments ?? []) as PaymentRow[], (photos ?? []) as PhotoRow[], (deductions ?? []) as DeductionRow[]),
     ...(dispute ? { dispute } : {}),
+    ...(ppDisputes?.length ? { paypalDispute: true } : {}),
   };
 }
 
@@ -130,15 +137,18 @@ export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow
   const today = pacificToday();
   const ws = await currentWorkspace();
   if (!ws) return { today, units: [], upcoming: [], owners: [] };
-  const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }] = await Promise.all([
+  const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }, { data: ppDisputes }] = await Promise.all([
     db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("workspace_id", ws.id).order("created_at"),
     db.from("payments").select("tenancy_id, kind, paypal_id, amount, status, raw, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).order("created_at"),
     db.from("photos").select("tenancy_id, phase, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
     db.from("deductions").select("tenancy_id, category, amount, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
     // The tenants' disputes still live (a draft stays theirs), for the status chip.
     db.from("disputes").select("tenancy_id, status, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).in("status", ["open", "negotiating", "agreed"]),
+    // The tenants' PayPal disputes of their deposit payments that PayPal hasn't resolved (chargeback-store.ts).
+    db.from("paypal_disputes").select("tenancy_id, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).neq("status", "RESOLVED"),
   ]);
   const disputeOf = new Map(((disputes ?? []) as { tenancy_id: string; status: string }[]).map((d) => [d.tenancy_id, liveDispute(d.status)]));
+  const paypalDisputed = new Set(((ppDisputes ?? []) as { tenancy_id: string }[]).map((d) => d.tenancy_id));
   const inOrder: UnitRow[] = ((rows ?? []) as TenancyRow[]).map((t) => {
     const summary = {
       ...summarizeTenancy(t,
@@ -146,6 +156,7 @@ export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow
         ((photos ?? []) as (PhotoRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
         ((deductions ?? []) as (DeductionRow & { tenancy_id: string })[]).filter((d) => d.tenancy_id === t.id)),
       dispute: disputeOf.get(t.id) ?? null,
+      ...(paypalDisputed.has(t.id) ? { paypalDispute: true } : {}),
     };
     return { summary, next: nextStep(summary, today), events: tenancyEvents(summary) };
   });

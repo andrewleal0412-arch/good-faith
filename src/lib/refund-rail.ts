@@ -4,6 +4,8 @@
 // one, and with enough of it left), else a Payout to the account they named in writing, else nowhere yet. Pure: the
 // callers read the facts from the database and PayPal, and word the reasons for their own page.
 
+import { returnFailed } from "./invoice-status";
+
 /** PayPal policy, not law: a payment can be refunded against itself for 180 days; after that the money goes out as a
  *  Payout. */
 export const REFUND_WINDOW_DAYS = 180;
@@ -51,3 +53,11 @@ export const wholeDepositOwed = (o: { forfeits: boolean; disputeLive: boolean; a
  *  settlement reads the same figure for the refund that must go before it. */
 export const refundOwed = (f: { totals: { depositHeld: number; refund: number }; wholeDeposit?: boolean }) =>
   (f.wholeDeposit ? f.totals.depositHeld : f.totals.refund);
+
+/** Money PayPal returned through the tenants' PayPal disputes, from a tenancy's payments: every dispute refund that
+ *  didn't fail (one an accepted claim left pending counts: PayPal sends it). Null when there is none. */
+export function disputeReturns(payments: { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at?: string }[]) {
+  const rows = payments.filter((p) => p.kind === "dispute_refund" && !returnFailed(p.status));
+  if (!rows.length) return null;
+  return { amount: Math.round(rows.reduce((s, p) => s + Number(p.amount), 0) * 100) / 100, disputeId: rows[0].paypal_id, at: rows[0].created_at ?? "" };
+}
