@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { InfoTip } from "@/components/info-tip";
 import { Card, EmptyState, PageHead, StatusChip, Table, Td, Th, trClass, type Tone } from "@/components/ui";

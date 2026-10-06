@@ -103,26 +103,68 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
   };
 }
 
-/** One tenancy's summary, for the calendar feed and the notice drafts. Callers check the tenancy is in the session's
- *  workspace first (pageTenancy, routeTenancy). Its live dispute is read as the units page reads it, so the next step
- *  agrees with the tenancy page (New York's day-14 step changes under a dispute). */
-export async function loadUnit(id: string): Promise<TenancySummary | null> {
-  const [{ data: t }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }, { data: ppDisputes }] = await Promise.all([
-    db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("id", id).single(),
-    db.from("payments").select("kind, paypal_id, amount, status, raw").eq("tenancy_id", id).order("created_at"),
-    db.from("photos").select("phase").eq("tenancy_id", id),
-    db.from("deductions").select("category, amount").eq("tenancy_id", id),
-    db.from("disputes").select("status").eq("tenancy_id", id).in("status", ["open", "negotiating", "agreed"]).limit(1),
-    db.from("paypal_disputes").select("id").eq("tenancy_id", id).neq("status", "RESOLVED").limit(1),
-  ]);
-  if (!t) return null;
-  const dispute = liveDispute((disputes as { status: string }[] | null)?.[0]?.status);
+/** The tenancy columns the summary reads (not the findings, the lease's flags or its file: a row is several kB with
+ *  them), with its property. */
+const TENANCY_COLS = "id, status, tenants, monthly_rent, start_date, end_date, notice_given_on, notice_given_by, planned_move_out, move_out_date, "
+  + "move_out_inspected_at, statement_delivered_at, statement_delivery, refund_agreement, lease_terms, notices, tenant_move_out, created_at, "
+  + "properties(address, city, owner_name, state)";
+/** And the rows under it that the summary, the ledger and the thumbnails read, embedded in the same request
+ *  (PostgREST follows each table's tenancy_id): the payments and photos in the order they were made; the deductions
+ *  twice, as the summary always read them (category and amount, in the table's own order) and as the ledger lists them
+ *  (in the order they were made), so neither reads them differently than before. Disputes only while live (a draft
+ *  stays the tenants'), PayPal disputes only while PayPal hasn't resolved them. */
+const UNDER = "payments(id, kind, paypal_id, amount, status, raw, created_at), photos(phase, room, storage_path, created_at), "
+  + "deductions(category, amount), ledger_deductions:deductions(id, category, room, item, amount, is_estimate, created_at), disputes(status), paypal_disputes(id, status)";
+const LIVE_DISPUTES = ["open", "negotiating", "agreed"];
+
+/** A tenancy with the rows under it, as one embedded read returns it. */
+export type TenancyWithRows = TenancyRow & {
+  created_at: string;
+  tenants: { name: string; email?: string | null }[];
+  payments: (PaymentRow & { id: string; created_at: string })[];
+  photos: { phase: string; room: string; storage_path: string; created_at: string }[];
+  deductions: { category: string; amount: number | string }[];
+  ledger_deductions: { id: string; category: string; room: string | null; item: string; amount: number | string; is_estimate: boolean | null; created_at: string }[];
+  disputes: { status: string }[];
+  paypal_disputes: { id: string; status: string | null }[];
+};
+
+const tenanciesWithRows = () => db.from("tenancies").select(`${TENANCY_COLS}, ${UNDER}`)
+  .order("created_at", { referencedTable: "payments" }).order("created_at", { referencedTable: "photos" })
+  .order("created_at", { referencedTable: "ledger_deductions" })
+  .in("disputes.status", LIVE_DISPUTES).neq("paypal_disputes.status", "RESOLVED");
+
+const summaryOf = (t: TenancyWithRows): TenancySummary => {
+  const dispute = liveDispute(t.disputes?.[0]?.status);
   return {
-    ...summarizeTenancy(t as TenancyRow, (payments ?? []) as PaymentRow[], (photos ?? []) as PhotoRow[], (deductions ?? []) as DeductionRow[]),
-    ...(dispute ? { dispute } : {}),
-    ...(ppDisputes?.length ? { paypalDispute: true } : {}),
+    ...summarizeTenancy(t, t.payments ?? [], t.photos ?? [], t.deductions ?? []),
+    dispute: dispute ?? null,
+    ...(t.paypal_disputes?.length ? { paypalDispute: true } : {}),
   };
+};
+
+/** One tenancy's summary, for the calendar feed and the notice drafts, in one read. Callers check the tenancy is in
+ *  the session's workspace first (pageTenancy, routeTenancy). Its live dispute is read as the units page reads it, so
+ *  the next step agrees with the tenancy page (New York's day-14 step changes under a dispute). */
+export async function loadUnit(id: string): Promise<TenancySummary | null> {
+  const { data: t } = await tenanciesWithRows().eq("id", id).maybeSingle();
+  if (!t) return null;
+  const s = summaryOf(t as unknown as TenancyWithRows);
+  // As before: no dispute key at all when none is live.
+  if (!s.dispute) delete (s as { dispute?: unknown }).dispute;
+  return s;
 }
+
+/** Every tenancy in the session's workspace with the rows under it (its payments, photos, deductions and live
+ *  disputes), in one request. Cached per request, so the app shell, the page, the ledger and the thumbnails share it.
+ *  Filtered by the session's workspace in the query itself, so another workspace's rows never leave the database. */
+export const workspaceTenancies = cache(async (): Promise<{ rows: TenancyWithRows[]; error: string | null }> => {
+  const ws = await currentWorkspace();
+  if (!ws) return { rows: [], error: null };
+  const { data, error } = await tenanciesWithRows().eq("workspace_id", ws.id).order("created_at");
+  if (error) console.error("workspace read failed:", error.message);
+  return { rows: (data ?? []) as unknown as TenancyWithRows[], error: error ? error.message : null };
+});
 
 export type UnitRow = { summary: TenancySummary; next: NextStep; events: CalendarEvent[] };
 export type Upcoming = CalendarEvent & { tenancyId: string; daysAway: number };
@@ -131,33 +173,12 @@ export type Upcoming = CalendarEvent & { tenancyId: string; daysAway: number };
 export const UPCOMING_DAYS = 120;
 
 /** Every unit in the session's workspace, most urgent first. Cached per request, so the app shell's notifications and
- *  the page share one read. The rows under the tenancies are read through them (an inner join on the tenancy's
- *  workspace), so another workspace's payments, photos and deductions never leave the database. */
+ *  the page share one read (workspaceTenancies). */
 export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow[]; upcoming: Upcoming[]; owners: string[] }> => {
   const today = pacificToday();
-  const ws = await currentWorkspace();
-  if (!ws) return { today, units: [], upcoming: [], owners: [] };
-  const [{ data: rows }, { data: payments }, { data: photos }, { data: deductions }, { data: disputes }, { data: ppDisputes }] = await Promise.all([
-    db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("workspace_id", ws.id).order("created_at"),
-    db.from("payments").select("tenancy_id, kind, paypal_id, amount, status, raw, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).order("created_at"),
-    db.from("photos").select("tenancy_id, phase, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
-    db.from("deductions").select("tenancy_id, category, amount, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id),
-    // The tenants' disputes still live (a draft stays theirs), for the status chip.
-    db.from("disputes").select("tenancy_id, status, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).in("status", ["open", "negotiating", "agreed"]),
-    // The tenants' PayPal disputes of their deposit payments that PayPal hasn't resolved (chargeback-store.ts).
-    db.from("paypal_disputes").select("tenancy_id, tenancies!inner(workspace_id)").eq("tenancies.workspace_id", ws.id).neq("status", "RESOLVED"),
-  ]);
-  const disputeOf = new Map(((disputes ?? []) as { tenancy_id: string; status: string }[]).map((d) => [d.tenancy_id, liveDispute(d.status)]));
-  const paypalDisputed = new Set(((ppDisputes ?? []) as { tenancy_id: string }[]).map((d) => d.tenancy_id));
-  const inOrder: UnitRow[] = ((rows ?? []) as TenancyRow[]).map((t) => {
-    const summary = {
-      ...summarizeTenancy(t,
-        ((payments ?? []) as (PaymentRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
-        ((photos ?? []) as (PhotoRow & { tenancy_id: string })[]).filter((p) => p.tenancy_id === t.id),
-        ((deductions ?? []) as (DeductionRow & { tenancy_id: string })[]).filter((d) => d.tenancy_id === t.id)),
-      dispute: disputeOf.get(t.id) ?? null,
-      ...(paypalDisputed.has(t.id) ? { paypalDispute: true } : {}),
-    };
+  const { rows } = await workspaceTenancies();
+  const inOrder: UnitRow[] = rows.map((t) => {
+    const summary = summaryOf(t);
     return { summary, next: nextStep(summary, today), events: tenancyEvents(summary) };
   });
   // The owners the leases name, oldest tenancy first: a fixed order, so the account the shell shows never depends on
@@ -179,17 +200,20 @@ export async function accountName(owners: string[]): Promise<string | null> {
 }
 
 /** One move-in photo per tenancy for its thumbnail (the living room when there is one), as short-lived signed URLs.
- *  Only tenancies in the session's workspace. */
+ *  Only tenancies in the session's workspace: the photos come from workspaceTenancies, so this costs only the signing. */
 export async function loadThumbnails(ids: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const ws = await currentWorkspace();
   if (!ids.length || !ws) return out;
-  const { data } = await db.from("photos").select("tenancy_id, room, storage_path, tenancies!inner(workspace_id)").eq("phase", "move_in")
-    .in("tenancy_id", ids).eq("tenancies.workspace_id", ws.id).order("created_at");
+  const want = new Set(ids);
   const pick = new Map<string, { room: string; path: string }>();
-  for (const p of (data ?? []) as { tenancy_id: string; room: string; storage_path: string }[]) {
-    const had = pick.get(p.tenancy_id);
-    if (!had || (!/living/i.test(had.room) && /living/i.test(p.room))) pick.set(p.tenancy_id, { room: p.room, path: p.storage_path });
+  for (const t of (await workspaceTenancies()).rows) {
+    if (!want.has(t.id)) continue;
+    for (const p of t.photos ?? []) {
+      if (p.phase !== "move_in") continue;
+      const had = pick.get(t.id);
+      if (!had || (!/living/i.test(had.room) && /living/i.test(p.room))) pick.set(t.id, { room: p.room, path: p.storage_path });
+    }
   }
   const paths = ids.map((id) => pick.get(id)?.path).filter((x): x is string => !!x);
   if (!paths.length) return out;

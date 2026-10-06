@@ -22,7 +22,8 @@ export type DeductionInput = {
   usefulLifeYears?: number | null;
 };
 
-export const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const AMOUNT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const usd = (n: number) => `$${AMOUNT.format(n)}`;
 const cents = (n: number) => Math.round(n * 100) / 100;
 const yrs = (n: number) => `${n} year${n === 1 ? "" : "s"}`;
 

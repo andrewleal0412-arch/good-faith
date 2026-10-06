@@ -169,7 +169,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
                   <a href={`/api/t/${token}/photos/${p.id}`} target="_blank" rel="noreferrer" aria-label={`${p.room}, move-in photo`}
                     className="block rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand-100">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`/api/t/${token}/photos/${p.id}`} alt="" loading="lazy" className="aspect-square w-full rounded-md border border-line bg-surface object-cover" />
+                    <img decoding="async" src={`/api/t/${token}/photos/${p.id}`} alt="" loading="lazy" className="aspect-square w-full rounded-md border border-line bg-surface object-cover" />
                   </a>
                   <p className="mt-1 truncate text-xs text-ink-3" title={p.room}>{p.room}</p>
                 </li>

@@ -1,11 +1,12 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, use, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { ConfirmDialog } from "./confirm";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { Menu } from "./menu";
+import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
 import { Avatar, Notice, Wordmark } from "./ui";
 
 // The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Insights, Documents, then the Workflows group),
@@ -13,17 +14,23 @@ import { Avatar, Notice, Wordmark } from "./ui";
 // the sandbox shows), notifications, help and the avatar. At phone width the sidebar becomes a drawer.
 
 export type ShellAlert = { title: string; sub: string; href: string; tone: "red" | "amber" | "green" };
-export type ShellData = {
+/** The parts of the chrome that come from the database, streamed in after the frame (src/app/(landlord)/layout.tsx). */
+export type ShellChrome = {
   account: string; // a demo copy's "Harbor View Rentals"; the owner's GOOD_FAITH_ACCOUNT or oldest tenancy's owner (accountName)
   initials: string;
   owners: string[]; // every owner on file, for the account card
-  sandbox: boolean;
   alerts: ShellAlert[];
   paypal: ShellAlert[]; // what PayPal reported lately through its webhook: payments, refunds, payouts, disputes
   disclaimer: string;
   rules: { label: string; href: string }[]; // the Help menu's deposit-law guides, one per state the workspace rents in
+};
+type ShellProps = {
+  sandbox: boolean;
   signOut: boolean; // the demo access gate is on, so there is a session to end (src/proxy.ts)
   startOver: boolean; // this is a visitor's private copy of the demo, which can be replaced by a fresh one
+  account: { account: string; initials: string } | null; // known before any read (a demo copy, or GOOD_FAITH_ACCOUNT)
+  chrome: Promise<ShellChrome>;
+  children: ReactNode;
 };
 
 const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) => boolean } | { group: string })[] = [
@@ -37,11 +44,48 @@ const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) =>
   { href: "/move-outs", icon: "key", label: "Move-outs", match: (p) => p.startsWith("/move-outs") },
 ];
 
-export function AppShell({ data, children }: { data: ShellData; children: ReactNode }) {
+export function AppShell({ sandbox, signOut, startOver, account, chrome, children }: ShellProps) {
   const path = usePathname();
   const [drawer, setDrawer] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
+  // The page a click is opening, shown as that page's skeleton in the same frame as the click, until the address
+  // changes (src/components/skeletons.tsx). The page then renders in the layout's one Suspense boundary, in a
+  // transition, so it replaces the skeleton the moment it is ready. A click that only changes the page's filters
+  // (Properties' status filter) dims the page instead.
+  const query = useSearchParams().toString();
+  const here = `${path}${query ? `?${query}` : ""}`;
+  const [pending, setPending] = useState<{ to: string; from: string; same: boolean } | null>(null);
+  const [seen, setSeen] = useState(here);
+  if (seen !== here) {
+    setSeen(here);
+    setPending(null);
+  }
+  const live = pending && pending.from === here ? pending : null;
+  const opening = live && !live.same ? skeletonFor(live.to) : null;
+  const flow = live && !live.same ? flowSkeletonFor(live.to) : null;
+
+  // Any click on a link to another landlord page: the sidebar, the record header, a table row; and a search. A click
+  // that opens a new tab, a file, an API route, or the address already shown leaves things as they are, and so does one
+  // between a property's tabs, which the property page opens itself (tenancy/[id]/tab-state.tsx).
+  const opens = (href: string) => {
+    const url = new URL(href, window.location.href);
+    if (url.origin !== window.location.origin) return;
+    // Spelled as `here` is (a space as +), so the address already shown is recognized, and the pending state, which
+    // ends when the address changes, never waits on one that won't.
+    const qs = url.searchParams.toString();
+    const to = `${url.pathname}${qs ? `?${qs}` : ""}`;
+    if (to === here || (!skeletonFor(to) && !flowSkeletonFor(to))) return;
+    const same = url.pathname === path;
+    if (same && path.startsWith("/tenancy/")) return;
+    setPending({ to, from: here, same });
+  };
+  const onClickCapture = (e: MouseEvent<HTMLElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
+    opens(a.href);
+  };
 
   // The phone drawer is a modal: focus moves into it, Escape closes it, and focus goes back to the menu button.
   useEffect(() => {
@@ -61,10 +105,14 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
     return () => { document.removeEventListener("keydown", key); back?.focus(); };
   }, [drawer]);
 
+  // The sidebar marks the page being opened at once, not when it arrives.
+  const navPath = opening && pending ? pending.to.split("?")[0] : path;
+  const side = { path: navPath, account, chrome, signOut, startOver, sandbox };
+
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)] print:block">
+    <div className="min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)] print:block" onClickCapture={onClickCapture}>
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-line bg-canvas px-3 pb-3 pt-4 md:flex print:hidden">
-        <Sidebar path={path} data={data} />
+        <Sidebar {...side} />
       </aside>
 
       {drawer && (
@@ -75,7 +123,7 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
               className="absolute right-2.5 top-3.5 inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface">
               <Icon name="x" />
             </button>
-            <Sidebar path={path} data={data} onNavigate={() => setDrawer(false)} />
+            <Sidebar {...side} onNavigate={() => setDrawer(false)} />
           </aside>
         </div>
       )}
@@ -88,51 +136,92 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
           </button>
           <Link href="/units" className="md:hidden"><Wordmark /></Link>
           <Suspense fallback={<div className="hidden h-9 w-[400px] md:block" />}>
-            <Search />
+            <Search onSearch={opens} />
           </Suspense>
           <div className="ml-auto flex items-center gap-1.5">
             <button type="button" aria-label="Search" onClick={() => window.dispatchEvent(new Event("gf:search"))}
               className="inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface md:hidden">
               <Icon name="search" />
             </button>
-            <span className="mr-2 hidden items-center gap-2 text-sm text-ink-2 lg:inline-flex" title={data.sandbox ? "PayPal sandbox: no real money moves" : "Live PayPal"}>
+            <span className="mr-2 hidden items-center gap-2 text-sm text-ink-2 lg:inline-flex" title={sandbox ? "PayPal sandbox: no real money moves" : "Live PayPal"}>
               Test mode
-              <span aria-hidden className={`relative h-4 w-7 rounded-full ${data.sandbox ? "bg-brand" : "bg-line"}`}>
-                <span className={`absolute top-0.5 size-3 rounded-full bg-white shadow-sm ${data.sandbox ? "left-3.5" : "left-0.5"}`} />
+              <span aria-hidden className={`relative h-4 w-7 rounded-full ${sandbox ? "bg-brand" : "bg-line"}`}>
+                <span className={`absolute top-0.5 size-3 rounded-full bg-white shadow-sm ${sandbox ? "left-3.5" : "left-0.5"}`} />
               </span>
-              <span className="sr-only">{data.sandbox ? "on" : "off"}</span>
+              <span className="sr-only">{sandbox ? "on" : "off"}</span>
             </span>
-            <Menu label="Notifications" width={320} buttonClass="relative inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface"
-              trigger={<><Icon name="bell" />{data.alerts.length + data.paypal.length > 0 && <span className="absolute right-[9px] top-2 size-1.5 rounded-full bg-brand ring-2 ring-white" />}</>}>
-              <div className="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-3">Needs you</div>
-              {data.alerts.length ? data.alerts.map((a, i) => <AlertRow key={i} a={a} />)
-                : <p className="px-2.5 pb-2.5 text-sm text-ink-3">Nothing needs you right now.</p>}
-              {data.paypal.length > 0 && (
-                <>
-                  <div className="mt-1 flex items-center gap-1.5 border-t border-line-2 px-2.5 pb-1 pt-2.5 text-xs font-medium text-ink-3"><PayPalMark size={12} />From PayPal</div>
-                  {data.paypal.map((a, i) => <AlertRow key={i} a={a} />)}
-                </>
-              )}
-            </Menu>
-            <Menu label="Help" width={300} buttonClass="hidden size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface md:inline-flex"
-              trigger={<Icon name="help" />}
-              items={[
-                { label: "Check a lease", href: "/lease", icon: "file-check" },
-                ...data.rules.map((r) => ({ label: r.label, href: r.href, icon: "arrow-up-right" as const, newTab: true })),
-              ]}>
-              <p className="border-t border-line-2 px-2.5 pb-2 pt-2.5 text-xs text-ink-3">{data.disclaimer}</p>
-            </Menu>
+            <Suspense fallback={<span aria-hidden className={`${iconButton} relative`}><Icon name="bell" /></span>}>
+              <Bell chrome={chrome} />
+            </Suspense>
+            <Suspense fallback={<span aria-hidden className={`${iconButton} max-md:hidden`}><Icon name="help" /></span>}>
+              <Help chrome={chrome} />
+            </Suspense>
             <Menu label="Account" width={260} buttonClass="inline-flex rounded-full outline-none focus-visible:ring-3 focus-visible:ring-brand-100"
-              trigger={<Avatar initials={data.initials} />}>
-              {(close) => <AccountCard data={data} close={close} />}
+              trigger={<AccountAvatar account={account} chrome={chrome} />}>
+              {(close) => <AccountCard {...side} close={close} />}
             </Menu>
           </div>
         </header>
-        <main className="w-full max-w-content px-4 pb-12 pt-5 md:px-7 md:pt-7 print:max-w-none print:p-0">{children}</main>
+        <main className="w-full max-w-content px-4 pb-12 pt-5 md:px-7 md:pt-7 print:max-w-none print:p-0">
+          {/* The page stays mounted while the next one is opened, under its skeleton; a filter being applied dims it,
+              after a moment, so a quick answer doesn't flicker. */}
+          <div aria-busy={live?.same || undefined} className={opening ? "hidden" : live?.same ? "block opacity-60 transition-opacity delay-150 duration-150" : "contents"}>{children}</div>
+          {opening}
+        </main>
       </div>
-      {data.startOver && <StartOver />}
+      {startOver && <StartOver />}
+      {/* A focused flow (the refund review) has no shell: its skeleton covers the page until it arrives. */}
+      {flow && <div className="fixed inset-0 z-50 overflow-y-auto bg-canvas">{flow}</div>}
     </div>
   );
+}
+
+const iconButton = "inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface";
+
+/** The bell: what needs the landlord, then what PayPal reported. */
+function Bell({ chrome }: { chrome: Promise<ShellChrome> }) {
+  const data = use(chrome);
+  return (
+    <Menu label="Notifications" width={320} buttonClass={`relative ${iconButton}`}
+      trigger={<><Icon name="bell" />{data.alerts.length + data.paypal.length > 0 && <span className="absolute right-[9px] top-2 size-1.5 rounded-full bg-brand ring-2 ring-white" />}</>}>
+      <div className="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-3">Needs you</div>
+      {data.alerts.length ? data.alerts.map((a, i) => <AlertRow key={i} a={a} />)
+        : <p className="px-2.5 pb-2.5 text-sm text-ink-3">Nothing needs you right now.</p>}
+      {data.paypal.length > 0 && (
+        <>
+          <div className="mt-1 flex items-center gap-1.5 border-t border-line-2 px-2.5 pb-1 pt-2.5 text-xs font-medium text-ink-3"><PayPalMark size={12} />From PayPal</div>
+          {data.paypal.map((a, i) => <AlertRow key={i} a={a} />)}
+        </>
+      )}
+    </Menu>
+  );
+}
+
+/** Help: the lease check, each state's deposit-law guide, the disclaimer. */
+function Help({ chrome }: { chrome: Promise<ShellChrome> }) {
+  const data = use(chrome);
+  return (
+    <Menu label="Help" width={300} buttonClass={`hidden ${iconButton.replace("inline-flex ", "")} md:inline-flex`}
+      trigger={<Icon name="help" />}
+      items={[
+        { label: "Check a lease", href: "/lease", icon: "file-check" },
+        ...data.rules.map((r) => ({ label: r.label, href: r.href, icon: "arrow-up-right" as const, newTab: true })),
+      ]}>
+      <p className="border-t border-line-2 px-2.5 pb-2 pt-2.5 text-xs text-ink-3">{data.disclaimer}</p>
+    </Menu>
+  );
+}
+
+/** The account's initials: at once when the account is known before any read, otherwise when the chrome arrives. */
+function AccountAvatar({ account, chrome }: { account: ShellProps["account"]; chrome: Promise<ShellChrome> }) {
+  if (account) return <Avatar initials={account.initials} />;
+  return <Suspense fallback={<Avatar initials="" />}><ChromeAvatar chrome={chrome} /></Suspense>;
+}
+function ChromeAvatar({ chrome }: { chrome: Promise<ShellChrome> }) {
+  return <Avatar initials={use(chrome).initials} />;
+}
+function ChromeAccountName({ chrome }: { chrome: Promise<ShellChrome> }) {
+  return <>{use(chrome).account}</>;
 }
 
 /** The question behind the account menu's Start over: a fresh copy of the demo for this browser. It lives outside the
@@ -189,7 +278,9 @@ function StartOver() {
   );
 }
 
-function Sidebar({ path, data, onNavigate }: { path: string; data: ShellData; onNavigate?: () => void }) {
+type SideProps = { path: string; account: ShellProps["account"]; chrome: Promise<ShellChrome>; signOut: boolean; startOver: boolean; sandbox: boolean };
+
+function Sidebar({ onNavigate, ...p }: SideProps & { onNavigate?: () => void }) {
   return (
     <>
       <Link href="/units" onClick={onNavigate} className="flex items-center px-2.5 pb-5 pt-1"><Wordmark /></Link>
@@ -197,8 +288,8 @@ function Sidebar({ path, data, onNavigate }: { path: string; data: ShellData; on
         {NAV.map((n, i) => "group" in n ? (
           <div key={i} className="px-2.5 pb-1.5 pt-4 text-xs font-medium text-ink-3">{n.group}</div>
         ) : (
-          <Link key={n.href} href={n.href} onClick={onNavigate} aria-current={n.match(path) ? "page" : undefined}
-            className={`flex h-9 items-center gap-2.5 rounded-md px-2.5 text-base ${n.match(path)
+          <Link key={n.href} href={n.href} onClick={onNavigate} aria-current={n.match(p.path) ? "page" : undefined}
+            className={`flex h-9 items-center gap-2.5 rounded-md px-2.5 text-base ${n.match(p.path)
               ? "bg-brand-50 font-medium text-brand-700 [&_svg]:text-brand" : "text-ink-2 hover:bg-surface hover:text-ink [&_svg]:text-ink-3"}`}>
             <Icon name={n.icon} />
             {n.label}
@@ -213,39 +304,39 @@ function Sidebar({ path, data, onNavigate }: { path: string; data: ShellData; on
         <Menu label="Account" side="top" align="start" width={232}
           buttonClass="flex h-10 w-full items-center gap-2.5 rounded-md px-2 text-left hover:bg-surface"
           trigger={<>
-            <Avatar initials={data.initials} />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{data.account}</span>
+            <AccountAvatar account={p.account} chrome={p.chrome} />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {p.account ? p.account.account : <Suspense fallback={<span className="text-ink-3">Account</span>}><ChromeAccountName chrome={p.chrome} /></Suspense>}
+            </span>
             <Icon name="updown" className="size-3.5 text-ink-4" />
           </>}>
-          {(close) => <AccountCard data={data} close={close} />}
+          {(close) => <AccountCard {...p} close={close} />}
         </Menu>
       </div>
     </>
   );
 }
 
-function AccountCard({ data, close }: { data: ShellData; close: () => void }) {
+function AccountCard(p: SideProps & { close: () => void }) {
   return (
     <div className="p-1.5">
       <div className="flex items-center gap-2.5 px-1 py-1.5">
-        <Avatar initials={data.initials} />
+        <AccountAvatar account={p.account} chrome={p.chrome} />
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{data.account}</div>
+          <div className="truncate text-sm font-medium">
+            {p.account ? p.account.account : <Suspense fallback={<span className="text-ink-3">Account</span>}><ChromeAccountName chrome={p.chrome} /></Suspense>}
+          </div>
           <div className="text-xs text-ink-3">Landlord</div>
         </div>
       </div>
       <div className="mt-1 flex items-center gap-2 rounded-sm bg-surface px-2.5 py-2 text-xs text-ink-2">
-        <PayPalMark size={14} />PayPal {data.sandbox ? "sandbox" : "live"}<span className="ml-auto size-[7px] rounded-full bg-green-dot" />
+        <PayPalMark size={14} />PayPal {p.sandbox ? "sandbox" : "live"}<span className="ml-auto size-[7px] rounded-full bg-green-dot" />
       </div>
-      {data.owners.length > 1 && (
-        <div className="mt-2 px-1 text-xs text-ink-3">
-          Owners on file: {data.owners.join(", ")}
-        </div>
-      )}
-      {data.signOut && (
+      <Suspense fallback={null}><Owners chrome={p.chrome} /></Suspense>
+      {p.signOut && (
         <form method="post" action="/api/access/sign-out" className="mt-1.5 border-t border-line-2 pt-1.5">
-          {data.startOver && (
-            <button type="button" role="menuitem" onClick={() => { close(); window.dispatchEvent(new Event("gf:start-over")); }}
+          {p.startOver && (
+            <button type="button" role="menuitem" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:start-over")); }}
               className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 hover:bg-surface hover:text-ink">
               <Icon name="restart" className="size-[15px] text-ink-3" />Start over
             </button>
@@ -260,16 +351,23 @@ function AccountCard({ data, close }: { data: ShellData; close: () => void }) {
   );
 }
 
+function Owners({ chrome }: { chrome: Promise<ShellChrome> }) {
+  const { owners } = use(chrome);
+  if (owners.length <= 1) return null;
+  return <div className="mt-2 px-1 text-xs text-ink-3">Owners on file: {owners.join(", ")}</div>;
+}
+
 /** Search across properties and tenants: it filters the Properties table, or on Payments the payments grid. Cmd+K or
- *  Ctrl+K focuses it. */
-function Search() {
+ *  Ctrl+K focuses it. Enter answers at once, as a click does: the results page's skeleton, or the page dimmed while it
+ *  filters (onSearch, the shell's pending state). */
+function Search({ onSearch }: { onSearch: (to: string) => void }) {
   const router = useRouter();
   const params = useSearchParams();
   const path = usePathname();
   const field = useRef<HTMLInputElement>(null);
   const [mobile, setMobile] = useState(false);
   const onLedger = path === "/ledger";
-  const current = path === "/units" || onLedger ? params.get("q") ?? "" : "";
+  const current = path === "/units" || path === "/" || onLedger ? params.get("q") ?? "" : "";
 
   useEffect(() => {
     const focus = () => { setMobile(true); setTimeout(() => field.current?.focus(), 0); };
@@ -288,7 +386,9 @@ function Search() {
     const base = onLedger ? "/ledger" : "/units";
     const keep = onLedger && params.get("tenancy") ? [`tenancy=${encodeURIComponent(params.get("tenancy")!)}`] : [];
     const qs = [...keep, ...(q ? [`q=${encodeURIComponent(q)}`] : [])].join("&");
-    router.push(qs ? `${base}?${qs}` : base);
+    const to = qs ? `${base}?${qs}` : base;
+    onSearch(to);
+    router.push(to);
     setMobile(false);
   }
 

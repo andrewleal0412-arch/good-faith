@@ -195,7 +195,7 @@ export function MoveInSteps(p: Props) {
               {moveIn.map((x) => x.url && (
                 <figure key={x.id} className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={x.url} alt={x.room} className="aspect-[4/3] w-full rounded-md object-cover" />
+                  <img loading="lazy" decoding="async" src={x.url} alt={x.room} className="aspect-[4/3] w-full rounded-md object-cover" />
                   <figcaption className="absolute left-1.5 top-1.5 max-w-[calc(100%-12px)] truncate rounded-xs bg-white/95 px-1.5 text-xs font-medium text-ink">{x.room}</figcaption>
                 </figure>
               ))}

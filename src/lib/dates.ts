@@ -1,11 +1,25 @@
 // Calendar-date helpers shared by the rules, the pages and the .ics feed. Dates are YYYY-MM-DD strings. Civ. Code
 // 1950.5 counts calendar days, so every date is handled at noon UTC and never slips across a day boundary.
+//
+// The formatters are made once: toLocaleDateString with options builds a new Intl formatter on every call, which was
+// the app's own biggest cost on the server (a page formats hundreds of dates). Same locale and options, same output.
+
+const PACIFIC_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" });
+const SHORT = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const SHORT_NO_YEAR = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const LONG = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+const PACIFIC_TIME = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
+const PACIFIC_PARTS = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles", hourCycle: "h23",
+  year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+});
+const noonUtc = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`);
 
 /** Today's date in California, where the tenancies are. */
-export const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+export const pacificToday = () => PACIFIC_DAY.format(new Date());
 
 /** The Pacific calendar date of a timestamp. */
-export const pacificDate = (ts: string) => new Date(ts).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+export const pacificDate = (ts: string) => PACIFIC_DAY.format(new Date(ts));
 
 export function addDays(iso: string, n: number): string {
   const d = new Date(`${iso}T12:00:00Z`);
@@ -17,16 +31,12 @@ export function addDays(iso: string, n: number): string {
 export const daysBetween = (from: string, to: string) =>
   Math.round((Date.parse(`${to.slice(0, 10)}T12:00:00Z`) - Date.parse(`${from.slice(0, 10)}T12:00:00Z`)) / 86_400_000);
 
-export const longDate = (iso: string) =>
-  new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+export const longDate = (iso: string) => LONG.format(noonUtc(iso));
 
-export const shortDate = (iso: string) =>
-  new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+export const shortDate = (iso: string) => SHORT.format(noonUtc(iso));
 
 /** A list's date column: "Oct 1" within today's year, "Oct 1, 2025" for any other year. */
-export const dayLabel = (iso: string, today: string) => (iso.slice(0, 4) === today.slice(0, 4)
-  ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-  : shortDate(iso));
+export const dayLabel = (iso: string, today: string) => (iso.slice(0, 4) === today.slice(0, 4) ? SHORT_NO_YEAR.format(noonUtc(iso)) : shortDate(iso));
 
 /** A real calendar date in YYYY-MM-DD: it has to survive a round trip through Date, so 2026-02-31 is refused. */
 export function realDate(d: unknown): d is string {
@@ -44,8 +54,7 @@ export function whenText(daysLeft: number, deadline = true): string {
 }
 
 /** The Pacific clock time of a timestamp, e.g. "2:14 PM". */
-export const pacificTime = (ts: string) =>
-  new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
+export const pacificTime = (ts: string) => PACIFIC_TIME.format(new Date(ts));
 
 /** A timestamp as one phrase, e.g. "Oct 1, 2026 at 2:14 PM" (Pacific). */
 export const atText = (ts: string) => `${shortDate(pacificDate(ts))} at ${pacificTime(ts)}`;
@@ -54,10 +63,7 @@ export const atText = (ts: string) => `${shortDate(pacificDate(ts))} at ${pacifi
 function pacificWallClock(wall: string): string | null {
   const asUtc = new Date(`${wall.slice(0, 19)}Z`);
   if (Number.isNaN(asUtc.getTime())) return null;
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles", hourCycle: "h23",
-    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  }).formatToParts(asUtc).map((x) => [x.type, Number(x.value)]));
+  const p = Object.fromEntries(PACIFIC_PARTS.formatToParts(asUtc).map((x) => [x.type, Number(x.value)]));
   const offset = asUtc.getTime() - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
   return new Date(asUtc.getTime() + offset).toISOString();
 }

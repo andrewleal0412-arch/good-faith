@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { ComponentProps } from "react";
 
 // Three button styles and nothing else: primary (the one indigo action on a view), secondary (gray surface, like

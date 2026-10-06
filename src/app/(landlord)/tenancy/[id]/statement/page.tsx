@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
@@ -444,7 +444,7 @@ function Deduction({ pack, d, urls }: { pack: StatePack; d: StatementDeduction; 
                 <figure key={`${p.role}-${p.path}`} className="min-w-0">
                   {urls.get(`photos/${p.path}`) ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={urls.get(`photos/${p.path}`)!} alt={`${d.item}, ${p.label}`} className="aspect-[4/3] w-full rounded-md border border-line object-cover" />
+                    <img decoding="async" src={urls.get(`photos/${p.path}`)!} alt={`${d.item}, ${p.label}`} className="aspect-[4/3] w-full rounded-md border border-line object-cover" />
                   ) : (
                     <div className="flex aspect-[4/3] w-full items-center justify-center rounded-md bg-surface text-xs text-ink-3">Not available</div>
                   )}

@@ -98,6 +98,14 @@ export async function disputeFacts(tenancyId: string): Promise<DisputeFacts | nu
     db.from("payments").select("kind, amount, status, created_at").eq("tenancy_id", tenancyId).order("created_at"),
   ]);
   if (!t) return null;
+  return factsFrom(tenancyId, t, (rows ?? []) as Record<string, unknown>[], (payments ?? []) as FactsPayment[]);
+}
+
+type FactsPayment = { kind: unknown; amount: unknown; status: unknown; created_at: unknown };
+
+/** disputeFacts from rows already read: the tenancy (with its property's address, owner and state), its deductions
+ *  and its payments, each in the order they were made. The tenancy page reads them all in one request already. */
+export function factsFrom(tenancyId: string, t: Record<string, unknown>, rows: Record<string, unknown>[], payments: FactsPayment[]): DisputeFacts {
   const prop = t.properties as unknown as { address: string; owner_name: string | null; state?: string | null } | null;
   const pack = packFor(prop?.state);
   const inv = (payments ?? []).find((p) => p.kind === "deposit_invoice");
@@ -429,24 +437,27 @@ export type LandlordDisputeView = {
   settlement: { accepted: boolean; acceptedBy: string | null; paying: boolean; wholeFirst: boolean } | null;
 };
 
-export async function loadLandlordDispute(tenancyId: string): Promise<LandlordDisputeView | null> {
-  const d = await sentDispute(tenancyId);
+/** `facts` and `sent` let a page that reads the dispute and its facts for something else too (the tenancy page: the
+ *  negotiation and the deductions grid) read them once. */
+export async function loadLandlordDispute(tenancyId: string, facts: () => Promise<DisputeFacts | null> = () => disputeFacts(tenancyId),
+  sent: () => Promise<DisputeRow | null> = () => sentDispute(tenancyId)): Promise<LandlordDisputeView | null> {
+  const d = await sent();
   if (!d) return null;
-  const [facts, { data: turn }, { data: s }] = await Promise.all([
-    disputeFacts(tenancyId),
+  const [f, { data: turn }, { data: s }] = await Promise.all([
+    facts(),
     db.from("negotiation_turns").select("actor, proposal, amount_back, checks").eq("dispute_id", d.id).eq("n", 1).maybeSingle(),
     d.status === "agreed"
       ? db.from("settlements").select("status, tenant_accepted_at, tenant_name, paypal_status").eq("dispute_id", d.id).neq("status", "cancelled").maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
-  if (!facts) return null;
+  if (!f) return null;
   const proposal = ((turn?.proposal ?? []) as { deduction_id: string; keep: number }[]);
   // The advocate's case only when it is what the tenants sent (turn 1 by their agent); a draft case they didn't send
   // stays theirs.
   const c = d.advocate && turn?.actor === "agent" ? stripBasis(d.advocate) : null;
   return {
     status: d.status, openedBy: d.opened_by, sentAt: d.sent_at, askedBack: num(d.asked_back), message: d.message,
-    lines: lineViews(facts).map((l) => {
+    lines: lineViews(f).map((l) => {
       const p = proposal.find((x) => x.deduction_id === l.id);
       const a = c?.lines.find((x) => x.id === l.id);
       return {
@@ -457,11 +468,11 @@ export async function loadLandlordDispute(tenancyId: string): Promise<LandlordDi
     advocate: c,
     firstTurn: turn ? { actor: turn.actor as string, amountBack: num(turn.amount_back), checks: turn.checks } : null,
     evidence: (d.evidence ?? []).map((e) => ({ id: e.id, name: e.name, deductionId: e.deduction_id, path: e.path })),
-    totals: facts.ranges.totals, late: facts.ranges.late,
+    totals: f.ranges.totals, late: f.ranges.late,
     settlement: s ? {
       accepted: !!s.tenant_accepted_at, acceptedBy: (s.tenant_name as string | null) ?? null,
       paying: s.status === "sending" || (s.status === "failed" && s.paypal_status === "NO_RESPONSE"),
-      wholeFirst: wholeDepositFirst(d.status, facts),
+      wholeFirst: wholeDepositFirst(d.status, f),
     } : null,
   };
 }

@@ -126,7 +126,7 @@ export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }:
       <div ref={frameRef} className="relative h-[240px] w-full overflow-hidden rounded-md bg-surface-2 sm:h-[320px]">
         {before.url && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img ref={inRef} onLoad={inLoad} src={before.url} alt={`${room} at move-in`} className="absolute inset-0 size-full object-cover"
+          <img loading="lazy" decoding="async" ref={inRef} onLoad={inLoad} src={before.url} alt={`${room} at move-in`} className="absolute inset-0 size-full object-cover"
             style={{ objectPosition: position(inShape, frameShape, focus) }} />
         )}
         <Marks markers={hotMarker} which="moveInBox" shape={inShape} frame={frameShape} focus={focus} hot={hot} />
@@ -134,7 +134,7 @@ export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }:
         <div className="absolute inset-0" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
           {after.url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} className="absolute inset-0 size-full object-cover"
+            <img loading="lazy" decoding="async" ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} className="absolute inset-0 size-full object-cover"
               style={{ objectPosition: position(outShape, frameShape, focus) }} />
           )}
           <Marks markers={markers} which="box" shape={outShape} frame={frameShape} focus={focus} hot={hot} />
@@ -163,7 +163,7 @@ export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }:
       <figure className="relative m-0 aspect-[3/2] overflow-hidden rounded-md bg-surface-2">
         {before.url && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img ref={inRef} onLoad={inLoad} src={before.url} alt={`${room} at move-in`} className="size-full object-cover"
+          <img loading="lazy" decoding="async" ref={inRef} onLoad={inLoad} src={before.url} alt={`${room} at move-in`} className="size-full object-cover"
             style={{ objectPosition: position(inShape, FRAME, focus) }} />
         )}
         <Marks markers={markers.filter((m) => m.id === hot)} which="moveInBox" shape={inShape} frame={FRAME} focus={focus} hot={hot} />
@@ -172,7 +172,7 @@ export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }:
       <figure className="relative m-0 aspect-[3/2] overflow-hidden rounded-md bg-surface-2">
         {after.url && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} className="size-full object-cover"
+          <img loading="lazy" decoding="async" ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} className="size-full object-cover"
             style={{ objectPosition: position(outShape, FRAME, focus) }} />
         )}
         <Marks markers={markers} which="box" shape={outShape} frame={FRAME} focus={focus} hot={hot} onHot={onHot} />

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, EmptyState, Fact, FactStrip, Money, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
 import { atText, pacificDate, shortDate } from "@/lib/dates";

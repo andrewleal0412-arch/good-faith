@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { AgGridProvider, AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
 import type {

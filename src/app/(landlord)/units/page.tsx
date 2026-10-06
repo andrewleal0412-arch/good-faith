@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { ButtonLink } from "@/components/button";
 import { Icon, PayPalMark } from "@/components/icons";
@@ -70,11 +70,13 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   const filter = (typeof sp.filter === "string" ? sp.filter : "all") as StatusGroup | "all";
   const q = typeof sp.q === "string" ? sp.q.trim().toLowerCase() : "";
 
-  const { today, units, upcoming, owners } = await loadUnits();
+  // Every read at once: the units and the ledger share the request's one workspace read (the shell's too), the
+  // thumbnails are only signed once it is in, and the activity and the disputes don't wait for it.
   const ws = await currentWorkspace();
-  const [ledger, thumbs, log, disputes] = await Promise.all([
+  const [{ today, units, upcoming, owners }, ledger, thumbs, log, disputes] = await Promise.all([
+    loadUnits(),
     loadLedger(),
-    loadThumbnails(units.map((u) => u.summary.id)),
+    loadUnits().then((u) => loadThumbnails(u.units.map((x) => x.summary.id))),
     loadRecentActivity(40, QUIET_ACTIONS),
     ws ? Promise.all([
       disputeAlerts(ws.id).catch((e) => { console.error("Properties: couldn't load the disputes", e); return [] as DisputeAlert[]; }),

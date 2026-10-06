@@ -1,10 +1,13 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
+import { keepAliveFetch } from "./http";
 
 // Server-only Supabase client with the secret key. Row level security is on with no policies, so nothing but this
-// server can read or write: no lease, photo or payment is reachable with a public key.
+// server can read or write: no lease, photo or payment is reachable with a public key. Its requests go over the
+// shared keep-alive pool (http.ts), so a click after a pause doesn't open its connections again.
 export const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, {
   auth: { persistSession: false, autoRefreshToken: false },
+  global: { fetch: keepAliveFetch },
 });
 
 export type Actor = "agent" | "landlord" | "tenant" | "system";

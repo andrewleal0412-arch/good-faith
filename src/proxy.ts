@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_MESSAGES as M, gate, readSession, sameOrigin, SESSION_COOKIE } from "@/lib/session";
+import { PATH_HEADER } from "@/lib/page-path";
 import { REQUEST_LIMIT } from "@/lib/uploads";
 
 // The demo access gate (Next.js 16 Proxy, Node.js runtime). Every page and API route needs the signed session cookie
@@ -19,6 +20,13 @@ const isPublic = (p: string) => PUBLIC_EXACT.has(p) || p.startsWith("/t/") || p.
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const api = pathname.startsWith("/api/");
+  // On to the app; a page is told its own address (PATH_HEADER), whatever the browser sent in that header.
+  const onward = () => {
+    if (api) return NextResponse.next();
+    const headers = new Headers(req.headers);
+    headers.set(PATH_HEADER, pathname);
+    return NextResponse.next({ request: { headers } });
+  };
 
   if (api && req.method !== "GET" && req.method !== "HEAD") {
     // A write sent by a page on another site is refused, whatever cookie the browser attaches (SameSite=Lax already
@@ -34,13 +42,13 @@ export function proxy(req: NextRequest) {
 
   if (isPublic(pathname)) return NextResponse.next();
   const g = gate();
-  if (g.mode === "off") return NextResponse.next();
+  if (g.mode === "off") return onward();
   if (g.mode === "unconfigured") {
     if (api) return Response.json({ error: M.unconfigured }, { status: 503 });
     // The access page, at the address that was asked for, says the demo is not configured.
     return NextResponse.rewrite(new URL("/access", req.url));
   }
-  if (readSession(req.cookies.get(SESSION_COOKIE)?.value, g.secret)) return NextResponse.next();
+  if (readSession(req.cookies.get(SESSION_COOKIE)?.value, g.secret)) return onward();
 
   if (api) return Response.json({ error: M.signedOut }, { status: 401 });
   const to = new URL("/access", req.url);

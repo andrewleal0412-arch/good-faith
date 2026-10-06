@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 
@@ -37,7 +37,9 @@ export function StatusChip({ tone, children, dot = true, size = "md", className 
 
 /* ---------- Money ---------- */
 
-const fmt = (n: number) => Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// One number formatter for every amount on a page (toLocaleString with options builds a new one on each call).
+const AMOUNT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n: number) => AMOUNT.format(Math.abs(n));
 
 /** An amount in tabular figures. `cents="small"` raises the cents at 60%, as Mercury's balance does: used for the one
  *  hero number of a view and the stat tiles. On a phone, where a strip's hero is no bigger than its neighbours,
@@ -290,5 +292,5 @@ export function Thumb({ src, size = 36, className }: { src: string | null; size?
     );
   }
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="" style={style} className={cx("shrink-0 rounded-sm border border-line object-cover", className)} />;
+  return <img loading="lazy" decoding="async" src={src} alt="" style={style} className={cx("shrink-0 rounded-sm border border-line object-cover", className)} />;
 }

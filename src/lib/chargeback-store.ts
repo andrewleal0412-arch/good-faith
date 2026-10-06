@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import sharp from "sharp";
 import { allowedCitations, type CasePhoto, type LoadPhoto } from "./advocate";
 import { connectPayPal, mcpJson } from "./agent";
@@ -774,7 +775,7 @@ export async function loadPayPalDispute(tenancyId: string, ws: Workspace): Promi
 export type PayPalDisputeAlert = { tenancyId: string; title: string; sub: string; due: string | null; href: string; tone: "red" | "amber" };
 
 /** The bell's entries for open PayPal disputes in a workspace: one to answer, a response to approve, one to check. */
-export async function paypalDisputeAlerts(workspaceId: string): Promise<PayPalDisputeAlert[]> {
+async function loadPaypalDisputeAlerts(workspaceId: string): Promise<PayPalDisputeAlert[]> {
   const { data } = await db.from("paypal_disputes").select("id, tenancy_id, status, seller_response_due:raw->>seller_response_due_date, tenancies!inner(workspace_id, properties(address))")
     .eq("tenancies.workspace_id", workspaceId).neq("status", "RESOLVED").limit(10);
   const rows = (data ?? []) as unknown as { id: string; tenancy_id: string; status: string | null; seller_response_due: string | null; tenancies: { properties: { address: string } | null } | null }[];
@@ -795,6 +796,8 @@ export async function paypalDisputeAlerts(workspaceId: string): Promise<PayPalDi
   }
   return out;
 }
+/** paypalDisputeAlerts for the workspace, read once per request: the app shell's bell and the Properties page share it. */
+export const paypalDisputeAlerts = cache(loadPaypalDisputeAlerts);
 
 /** The banner every tab of a property shows while its PayPal dispute is open: the claim, PayPal's date and where the
  *  response stands. Two small reads. */

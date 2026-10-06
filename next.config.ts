@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
   devIndicators: false,
   // No x-powered-by header (Next's own error pages sent it while the app's routes didn't).
   poweredByHeader: false,
+  // No gzip in Node: the hosted demo sits behind Render's Cloudflare edge, which compresses every response itself
+  // (Brotli or gzip, whichever the browser takes; checked on 2026-10-05), so compressing here only spent the small
+  // server's CPU, on every page and on every script a new browser downloads (docs/PERFORMANCE.md). A host without such
+  // an edge would want this back on.
+  compress: false,
+  // The keep-alive HTTP pool (src/lib/http.ts) loads undici from node_modules as Node does, not bundled.
+  serverExternalPackages: ["undici"],
   experimental: {
     // Next buffers a request body before the proxy runs, so the route can read it too, and keeps at most this much of
     // it in memory (the rest is cut off, not refused). No route takes more than the upload budget plus its form

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import type { LanguageModel } from "ai";
 import { allowedCitations } from "./advocate";
 import { isDemoExample } from "./copy";
@@ -377,10 +378,11 @@ export type LoadedNegotiation = NegotiationView & {
 
 /** A side's view of the negotiation over the tenancy's sent dispute, or null before one was sent. The landlord's page
  *  gets its policy, its agent's limit notes and whether this copy of the demo can pay; the tenants' never does. */
-export async function loadNegotiation(tenancyId: string, side: Side): Promise<LoadedNegotiation | null> {
-  const d = await negotiationDispute(tenancyId);
+export async function loadNegotiation(tenancyId: string, side: Side, readFacts: () => Promise<DisputeFacts | null> = () => disputeFacts(tenancyId),
+  readDispute: () => Promise<DisputeRow | null> = () => sentDispute(tenancyId)): Promise<LoadedNegotiation | null> {
+  const d = (await readDispute()) as NegotiationRow | null;
   if (!d) return null;
-  const [facts, turns, s] = await Promise.all([disputeFacts(tenancyId), loadTurns(d.id), loadSettlement(d.id)]);
+  const [facts, turns, s] = await Promise.all([readFacts(), loadTurns(d.id), loadSettlement(d.id)]);
   if (!facts) return null;
   const payBlock = side === "landlord" && d.workspace_id && d.status === "agreed" && s && s.status !== "sent"
     ? await tenancyDepositBlock(d.workspace_id, tenancyId) : null;
@@ -393,7 +395,7 @@ export type DisputeAlert = { tenancyId: string; title: string; sub: string; href
 /** The bell's (and the Properties page's) dispute entries for a workspace: a dispute waiting on the landlord's answer,
  *  a settlement the tenants accepted that waits on the landlord's approval (not in a demo copy that can't pay one), a
  *  payment PayPal never confirmed, and a negotiator that stopped to ask before going past its limit. */
-export async function disputeAlerts(workspaceId: string): Promise<DisputeAlert[]> {
+async function loadDisputeAlerts(workspaceId: string): Promise<DisputeAlert[]> {
   const { data } = await db.from("disputes").select("tenancy_id, status, negotiation_status, negotiation_outcome, settlements(status, tenant_accepted_at, paypal_status, updated_at), tenancies(properties(address))")
     .eq("workspace_id", workspaceId).in("status", ["open", "negotiating", "agreed"]).order("updated_at", { ascending: false }).limit(10);
   type S = { status: SettlementRow["status"]; tenant_accepted_at: string | null; paypal_status: string | null; updated_at: string };
@@ -414,3 +416,5 @@ export async function disputeAlerts(workspaceId: string): Promise<DisputeAlert[]
   }
   return out;
 }
+/** disputeAlerts for the workspace, read once per request: the app shell's bell and the Properties page share it. */
+export const disputeAlerts = cache(loadDisputeAlerts);

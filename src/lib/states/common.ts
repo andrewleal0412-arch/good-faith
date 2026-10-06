@@ -5,7 +5,8 @@
 import { addDays, daysBetween, longDate, pacificDate } from "../dates";
 import type { NoticeMethod } from "../notices";
 
-export const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const AMOUNT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const usd = (n: number) => `$${AMOUNT.format(n)}`;
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 export const list = (xs: string[]) => xs.join(", ");
 /** A deposit as a share of the rent: "1 month's rent", "1.5 months' rent". */

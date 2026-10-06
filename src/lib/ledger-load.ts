@@ -1,9 +1,11 @@
 import "server-only";
+import { cache } from "react";
 import { pacificToday } from "./dates";
 import type { Notices } from "./notices";
 import { packFor } from "./states/server";
 import { db } from "./db";
 import { ledgerRows, streetLine, type LedgerDeduction, type LedgerPayment, type LedgerRow, type LedgerTenancy } from "./ledger";
+import { workspaceTenancies } from "./units";
 import { currentWorkspace } from "./workspace";
 
 // The whole ledger from the database alone: no PayPal round trip per row, so a status is as last stored (the tenancy
@@ -26,33 +28,31 @@ export type LedgerDetail = {
 export type Ledger = { today: string; rows: LedgerRow[]; units: LedgerUnit[]; details: Record<string, LedgerDetail> };
 
 /** The ledger, or the reason it could not be read. A query error is never shown as an empty ledger: to a landlord that
- *  would read as the records being gone. */
-export async function loadLedger(): Promise<Ledger | { error: string }> {
+ *  would read as the records being gone. The tenancies and the payments and deductions under them come from the
+ *  request's one workspace read (workspaceTenancies, shared with the shell and the page); only Payments asks for
+ *  `details` (true), the PayPal webhook deliveries behind each row, which is one more read. */
+export const loadLedger = cache(async (details = false): Promise<Ledger | { error: string }> => {
   // The session's workspace only: its tenancies, and the payments and deductions read through them.
   const ws = await currentWorkspace();
   if (!ws) return { today: pacificToday(), rows: [], units: [], details: {} };
-  const [tenancies, payments, deductions, events] = await Promise.all([
-    db.from("tenancies").select("id, tenants, monthly_rent, move_out_date, end_date, planned_move_out, notices, statement_delivered_at, lease_terms, properties(address, city, state)")
-      .eq("workspace_id", ws.id).order("created_at"),
-    db.from("payments").select("id, tenancy_id, kind, paypal_id, amount, status, raw, created_at, tenancies!inner(workspace_id)")
-      .eq("tenancies.workspace_id", ws.id).order("created_at"),
-    db.from("deductions").select("id, tenancy_id, category, room, item, amount, is_estimate, created_at, tenancies!inner(workspace_id)")
-      .eq("tenancies.workspace_id", ws.id).order("created_at"),
+  const [snap, events] = await Promise.all([
+    workspaceTenancies(),
     // PayPal's webhook deliveries matched to this workspace, newest first: the details panel lists those that touched a
     // row. A failed read only leaves that list empty.
-    db.from("paypal_webhook_events").select("id, event_type, resource_id, tenancy_id, received_at, status, note")
-      .eq("workspace_id", ws.id).order("received_at", { ascending: false }).limit(500),
+    details
+      ? db.from("paypal_webhook_events").select("id, event_type, resource_id, tenancy_id, received_at, status, note")
+        .eq("workspace_id", ws.id).order("received_at", { ascending: false }).limit(500)
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  const failed = [tenancies.error, payments.error, deductions.error].find(Boolean);
-  if (failed) {
-    console.error("ledger: database read failed:", failed.message);
+  if (snap.error) {
+    console.error("ledger: database read failed:", snap.error);
     return { error: "The ledger could not be loaded from the database. Refresh the page; if it keeps happening, check the Supabase connection." };
   }
-  const ts = (tenancies.data ?? []) as unknown as (LedgerTenancy & { end_date: string | null; planned_move_out: string | null; notices: Notices | null })[];
-  const ps = (payments.data ?? []) as (LedgerPayment & { tenancy_id: string })[];
-  const ds = (deductions.data ?? []) as (LedgerDeduction & { tenancy_id: string })[];
+  const ts = snap.rows as unknown as (LedgerTenancy & { end_date: string | null; planned_move_out: string | null; notices: Notices | null })[];
+  const ps = snap.rows.flatMap((t) => t.payments.map((p) => ({ ...p, tenancy_id: t.id }))) as unknown as (LedgerPayment & { tenancy_id: string })[];
+  const ds = snap.rows.flatMap((t) => t.ledger_deductions.map((d) => ({ ...d, tenancy_id: t.id }))) as unknown as (LedgerDeduction & { tenancy_id: string })[];
   // A stable sort, so each tenancy's own order (invoice before its payment) survives the merge.
-  const rows = ts.flatMap((t) => ledgerRows(t, ps.filter((p) => p.tenancy_id === t.id), ds.filter((d) => d.tenancy_id === t.id)))
+  const rows = snap.rows.flatMap((t, i) => ledgerRows(ts[i], ps.filter((p) => p.tenancy_id === t.id), ds.filter((d) => d.tenancy_id === t.id)))
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   const units = ts.map((t) => {
     const street = streetLine(t.properties?.address ?? t.lease_terms?.propertyAddress ?? "Address not recorded");
@@ -66,8 +66,8 @@ export async function loadLedger(): Promise<Ledger | { error: string }> {
     };
   });
   const evs = events.error ? [] : (events.data ?? []) as WebhookEventRow[];
-  return { today: pacificToday(), rows, units, details: ledgerDetails(rows, ps, evs) };
-}
+  return { today: pacificToday(), rows, units, details: details ? ledgerDetails(rows, ps, evs) : {} };
+});
 
 type WebhookEventRow = { id: string; event_type: string; resource_id: string | null; tenancy_id: string | null; received_at: string; status: string; note: string | null };
 

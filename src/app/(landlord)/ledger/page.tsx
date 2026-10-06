@@ -19,7 +19,7 @@ export default async function LedgerPage({ searchParams }: PageProps<"/ledger">)
   const focusId = typeof sp.tenancy === "string" ? sp.tenancy.toLowerCase() : null;
   const q = typeof sp.q === "string" ? sp.q.trim().slice(0, 120) : "";
   const view = typeof sp.view === "string" ? sp.view : null;
-  const [ledger, { units }] = await Promise.all([loadLedger(), loadUnits()]);
+  const [ledger, { units }] = await Promise.all([loadLedger(true), loadUnits()]);
   // Request deposit opens the unit still waiting for its invoice, or the lease check when every unit has one.
   const waiting = units.find((u) => u.summary.agreement && !u.summary.deposit) ?? units.find((u) => !u.summary.deposit);
   const requestHref = waiting ? tabHref(waiting.summary.id, "overview", "move-in") : "/lease";

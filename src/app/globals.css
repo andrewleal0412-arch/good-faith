@@ -192,3 +192,23 @@
     break-after: avoid;
   }
 }
+
+/* Loading skeletons (src/components/skeletons.tsx): gray bones in the page's own frame. They start to pulse only after
+   a short delay, so a fast answer never flickers, and never with reduced motion. */
+@layer components {
+  .gf-bone {
+    background-color: var(--color-surface-2);
+    border-radius: var(--radius-xs);
+    animation: gf-pulse 1.6s ease-in-out 0.4s infinite;
+  }
+}
+@keyframes gf-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gf-bone {
+    animation: none !important;
+  }
+}

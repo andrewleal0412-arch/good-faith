@@ -1,11 +1,11 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { notFound } from "next/navigation";
 import { longDate, pacificToday } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { statementDue, usd } from "@/lib/deductions";
 import { wasPaid } from "@/lib/invoice-status";
-import { dueOf, packOf } from "@/lib/next-step";
-import { ABANDONED_PROPERTY_TEXT, inspectionWindowCloses, inspectionWindowOpens, kindFromSlug, recordFor } from "@/lib/notices";
+import { dueOf } from "@/lib/next-step";
+import { ABANDONED_PROPERTY_TEXT, inspectionWindowCloses, inspectionWindowOpens } from "@/lib/notices";
 import type { DraftBlock, RecordDef, StatePack } from "@/lib/states/types";
 import { loadUnit } from "@/lib/units";
 import { pageTenancy } from "@/lib/workspace";
@@ -15,6 +15,7 @@ import { Card, CardHead, StatusChip } from "@/components/ui";
 import { streetLine } from "@/lib/ledger";
 import { NoticeGivenForm } from "../../notice-given-form";
 import { PrintButton } from "./print-button";
+import { noticeOf } from "@/lib/notice-page";
 
 export const dynamic = "force-dynamic";
 
@@ -29,12 +30,9 @@ const Blank = ({ w = "w-40" }: { w?: string }) => <span className={`inline-block
 export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/notices/[kind]">) {
   const { id, kind: slug } = await params;
   await pageTenancy(id);
-  const t = await loadUnit(id);
-  if (!t) notFound();
-  const pack = packOf(t);
-  const kind = kindFromSlug(slug, pack);
-  const info = kind ? recordFor(pack, kind) : null;
-  if (!kind || !info) notFound();
+  const found = await noticeOf(id, slug);
+  if (!found) notFound();
+  const { t, pack, kind, info } = found;
 
   const today = pacificToday();
   const given = t.notices[kind] ?? null;

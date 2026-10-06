@@ -1,11 +1,38 @@
 "use client";
 
+import { lazy, Suspense, useSyncExternalStore } from "react";
 import { InfoTip } from "@/components/info-tip";
+import { Bone } from "@/components/skeletons";
 import { Card, CardHead } from "@/components/ui";
 import type { EditLimits } from "@/lib/deduction-edit";
 import { settle } from "@/lib/deductions";
 import { packFor } from "@/lib/states";
-import { DeductionsGrid, type GridDeduction, type TotalLine } from "./deductions-grid";
+import type { GridDeduction, TotalLine } from "./deductions-grid";
+
+// AG Grid is most of a property page's JavaScript, and only this card uses it: it loads with the card (the Move-out
+// tab), not with the page, and the card holds the grid's height in gray rows until it is in. AG Grid draws its rows
+// in the browser only, so the server's HTML and the browser's first render show the gray rows as well.
+const DeductionsGrid = lazy(() => import("./deductions-grid").then((m) => ({ default: m.DeductionsGrid })));
+const noSubscribe = () => () => {};
+
+/** The grid's place while its code loads: its header, a line per room and a row per charge, at the grid's own heights. */
+function GridBones({ rooms, rows, totals }: { rooms: number; rows: number; totals: TotalLine[] }) {
+  return (
+    <div data-skeleton="" aria-busy="true">
+      <span role="status" className="sr-only">Loading the deductions</span>
+      <div className="flex h-10 items-center gap-6 border-b border-line px-5"><Bone w={90} h={10} /><Bone w={64} h={10} className="ml-auto" /></div>
+      {Array.from({ length: rooms + rows }, (_, i) => (
+        <div key={i} className={`flex items-center gap-3 border-b border-line-2 px-5 ${i < rooms ? "h-9 bg-surface" : "h-14"}`}>
+          <Bone w={i < rooms ? 120 : `${54 - (i % 3) * 8}%`} h={i < rooms ? 10 : 13} />
+          {i >= rooms && <Bone w={72} h={13} className="ml-auto" />}
+        </div>
+      ))}
+      {totals.map((t) => (
+        <div key={t.key} className={`flex items-center px-5 ${t.strong ? "h-12" : "h-[34px]"}`}><Bone w={110} h={11} /><Bone w={72} h={13} className="ml-auto" /></div>
+      ))}
+    </div>
+  );
+}
 
 /** A wear-and-tear finding, listed at $0.00 so the tenant sees what was looked at and not charged. */
 export type WearRow = { id: string; n: number; item: string; full: string; room: string; photos: number };
@@ -58,6 +85,11 @@ export function Settlement(p: {
   };
 
   const count = p.deductions.length;
+  const inBrowser = useSyncExternalStore(noSubscribe, () => true, () => false);
+  const bones = (
+    <GridBones rooms={new Set([...p.deductions.map((d) => d.room ?? ""), ...p.wear.map((w) => w.room)]).size} rows={count + p.wear.length}
+      totals={totals(settle(p.depositHeld ?? 0, p.deductions, pack))} />
+  );
   return (
     <Card>
       <CardHead title="Deductions" meta={count ? `${count} item${count === 1 ? "" : "s"}` : undefined}
@@ -69,6 +101,8 @@ export function Settlement(p: {
             {!locked && p.edit.allowed && <span className="mt-1.5 block">Change an invoice, hours, rate, age or useful life in its cell; the amount is worked out again, held to the lawful range.</span>}
           </InfoTip>
         } />
+      {inBrowser ? (
+      <Suspense fallback={bones}>
       <DeductionsGrid
         tenancyId={p.tenancyId}
         pack={pack}
@@ -82,6 +116,8 @@ export function Settlement(p: {
         limits={p.edit.limits}
         totals={totals}
       />
+      </Suspense>
+      ) : bones}
     </Card>
   );
 }

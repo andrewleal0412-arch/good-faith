@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { keepAliveFetch } from "./http";
 
 // PayPal REST in the sandbox (PAYPAL_ENVIRONMENT=SANDBOX). Invoices collect the deposit; at move-out the agent returns
 // it through PayPal's Agent Toolkit (a refund of the original payment) or, past PayPal's refund window, a Payout.
@@ -27,7 +28,7 @@ const TIMEOUT_MS = 20_000;
 /** OAuth access token (client credentials), cached until a minute before it expires. */
 export async function accessToken(): Promise<string> {
   if (cached && Date.now() < cached.until) return cached.token;
-  const r = await fetch(`${BASE}/v1/oauth2/token`, {
+  const r = await keepAliveFetch(`${BASE}/v1/oauth2/token`, {
     method: "POST",
     headers: {
       Authorization: "Basic " + Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString("base64"),
@@ -48,7 +49,7 @@ export async function accessToken(): Promise<string> {
  *  2026-10-05: two creates with one key made two invoices), so the deposit invoice is made once by its invoice number
  *  instead (depositInvoiceNumber). `timeoutMs` stops waiting on a read that hangs. */
 export async function paypal<T = Record<string, unknown>>(method: string, path: string, body?: unknown, o: { requestId?: string; timeoutMs?: number } = {}): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
+  const r = await keepAliveFetch(`${BASE}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json",

@@ -1,23 +1,23 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { cache } from "react";
+import { cache, type ReactNode } from "react";
 import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
 import { RulesChip } from "@/components/rules-chip";
-import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBox, Table, Tabs, Td, Th, Thumb, trClass } from "@/components/ui";
+import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBox, Table, Td, Th, Thumb, trClass } from "@/components/ui";
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
 import { returnFailed, wasPaid } from "@/lib/invoice-status";
 import { db } from "@/lib/db";
-import { DEMO_DEPOSIT_DATE, tenancyDepositBlock } from "@/lib/demo-pool";
+import { DEMO_DEPOSIT_DATE, depositBlock } from "@/lib/demo-pool";
 import { settle, usd, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
-import { refreshDepositInvoice } from "@/lib/deposit";
+import { refreshDepositInvoice, type DepositInvoiceRow } from "@/lib/deposit";
 import { disputeBanner, loadPayPalDispute } from "@/lib/chargeback-store";
-import { deductionsLock, disputeFacts, loadLandlordDispute } from "@/lib/disputes";
+import { deductionsLock, factsFrom, loadLandlordDispute, sentDispute, type DisputeRow } from "@/lib/disputes";
 import { limitsFor } from "@/lib/deduction-edit";
 import { loadNegotiation } from "@/lib/negotiation";
 import { dayLabel, daysBetween, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
@@ -26,13 +26,13 @@ import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
 import { closedOut, dueLabelOf, dueOf, inspectionExcused, liveDispute, nextStep, notKeptAfterDispute, refundLeft } from "@/lib/next-step";
 import { disputeReturns } from "@/lib/refund-rail";
 import { NOTICE_SLUG, describeNoticeGiven, listedRecords, noticeInfoFor, recordsFor, type NoticeKind, type Notices } from "@/lib/notices";
-import { keepUnit, propertyStatus, splitAddress, stepLink, tabHref, TABS, type TabKey } from "@/lib/property-view";
+import { keepUnit, propertyStatus, splitAddress, stepLink, tabHref, tabOf, type TabKey } from "@/lib/property-view";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
 import { packFor, refundRecordWords } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
 import { deliveryLine, describeDelivery, type DeliveryRecord } from "@/lib/statement";
 import { describeTenantMoveOut, type TenantMoveOut } from "@/lib/tenant";
-import { activeTenantLink, demoTenantPath } from "@/lib/tenant-links";
+import { tenantLinkView } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
 import { currentWorkspace, isTemplate, isUuid, signedUrlsFor, type Workspace } from "@/lib/workspace";
 import { MoneyTimeline } from "./money";
@@ -44,17 +44,28 @@ import { DisputeBanner, DisputeCard } from "./dispute";
 import { Negotiation } from "./negotiation";
 import { NoticeSection } from "./notice";
 import { Settlement } from "./settlement";
+import { OnTab, TabBar, TabPanel, TabState } from "./tab-state";
 import { TenantLinkPanel } from "./tenant-link";
 
 export const dynamic = "force-dynamic";
 
-/** The tenancy row with its property, read once per request (the page title and the page share it), and only when it
- *  is in the session's workspace: a tenancy in another visitor's copy reads exactly like one that doesn't exist. */
+type Row = Record<string, unknown> & { id: string; created_at: string };
+type PaymentRecord = DepositInvoiceRow & Row & { kind: string };
+
+/** The tenancy row with its property and the rows under it (its payments, photos and deductions, each in the order it
+ *  was made), in one read, once per request (the page title and the page share it), and only when it is in the
+ *  session's workspace: a tenancy in another visitor's copy reads exactly like one that doesn't exist. */
 const loadTenancy = cache(async (id: string) => {
   const ws = await currentWorkspace();
   if (!ws || !isUuid(id)) return null;
-  const { data } = await db.from("tenancies").select("*, properties(*)").eq("id", id).eq("workspace_id", ws.id).maybeSingle();
-  return data ? { ...data, ws } : null;
+  const { data } = await db.from("tenancies").select("*, properties(*), payments(*), photos(*), deductions(*)").eq("id", id).eq("workspace_id", ws.id)
+    .order("created_at", { referencedTable: "payments" }).order("created_at", { referencedTable: "photos" }).order("created_at", { referencedTable: "deductions" })
+    .maybeSingle();
+  if (!data) return null;
+  const { payments, photos, deductions, ...t } = data as Record<string, unknown> & { payments: PaymentRecord[] | null; photos: Row[] | null; deductions: Row[] | null };
+  return { ...t, payments: payments ?? [], photos: photos ?? [], deductions: deductions ?? [], ws } as Record<string, unknown> & {
+    id: string; ws: Workspace; payments: PaymentRecord[]; photos: Row[]; deductions: Row[];
+  };
 });
 
 export async function generateMetadata({ params }: PageProps<"/tenancy/[id]">): Promise<Metadata> {
@@ -66,43 +77,48 @@ export async function generateMetadata({ params }: PageProps<"/tenancy/[id]">): 
 // One property: the record header (photo, address, status, the statement and the one primary action) over five tabs.
 // Overview holds move-in and the activity; Move-out the notice, the photos, the deductions and the refund; Payments
 // the money; Documents every paper the law asks for; Tenants the people, their agreement and their private link.
+// Every tab is in the one response, so switching between them needs no request (tab-state.tsx); the tab the address
+// names is the one in the HTML.
 
 export default async function TenancyPage({ params, searchParams }: PageProps<"/tenancy/[id]">) {
   const { id } = await params;
   const sp = await searchParams;
-  const tab: TabKey = TABS.some((x) => x.key === sp.tab) ? (sp.tab as TabKey) : "overview";
+  const tab: TabKey = tabOf(sp.tab);
 
-  // One round of reads, all at once. Each tab loads what it shows: the activity on Overview, the latest close-out run on
-  // Move-out, the tenant link on Tenants. The rest (payments, photos, deductions) feeds the record header's status on
-  // every tab. Nothing read here is used, refreshed or signed before the tenancy itself is found in the session's
-  // workspace (loadTenancy); for any other id the page is the not-found page.
-  const [t, { data: payments }, { data: photos }, { data: deductionRows }, { data: log }, { data: runs }, tenantLink, dispute, negotiation, tenantPath, ppBanner] = await Promise.all([
+  // One round of reads, all at once, for every tab: the tenancy and the rows under it (the record header's status on
+  // every tab), the activity for Overview, the latest close-out run, the dispute and its negotiation for Move-out, the
+  // tenant link for Tenants. The dispute's facts (the statement's deductions and their lawful ranges) come from the
+  // tenancy's own rows, and the dispute is read once, for the dispute card, the negotiation and the deductions grid.
+  // Nothing read here is used, refreshed or signed before the tenancy itself is found in the session's workspace
+  // (loadTenancy); for any other id the page is the not-found page. Payments' PayPal reads come after, in their own
+  // tab (PaymentsTab).
+  const facts = () => loadTenancy(id).then((x) => (x ? factsFrom(id, x, x.deductions, x.payments) : null));
+  let sentRead: Promise<DisputeRow | null> | undefined;
+  const sent = () => (sentRead ??= sentDispute(id));
+  const [t, { data: log }, { data: runs }, link, dispute, negotiation, ppBanner, template] = await Promise.all([
     loadTenancy(id),
-    db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
-    db.from("photos").select("*").eq("tenancy_id", id).order("created_at"),
-    db.from("deductions").select("*").eq("tenancy_id", id).order("created_at"),
-    tab === "overview"
-      ? db.from("audit_log").select("*").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(40)
-      : Promise.resolve({ data: [] }),
-    tab === "move-out"
-      ? db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1)
-      : Promise.resolve({ data: [] }),
-    tab === "tenants" ? activeTenantLink(id) : Promise.resolve(null),
+    db.from("audit_log").select("id, actor, action, detail, created_at").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(40),
+    db.from("agent_runs").select("id, status, pending, error, created_at").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1),
+    // The tenant link, and in a demo copy, where one person plays both sides, the tenants' page it opens ("Open the
+    // tenant's view").
+    currentWorkspace().then((w) => (w ? tenantLinkView(w, id) : { link: null, demoPath: null })),
     // The tenants' dispute once they sent it (a draft stays theirs): the banner on every tab, the card on Move-out;
     // and the negotiation over it, on Move-out.
-    loadLandlordDispute(id),
-    tab === "move-out" ? loadNegotiation(id, "landlord") : Promise.resolve(null),
-    // In a demo copy, where one person plays both sides: the tenants' page, for "Open the tenant's view".
-    tab === "move-out" || tab === "tenants" ? currentWorkspace().then((w) => (w ? demoTenantPath(w, id) : null)) : Promise.resolve(null),
+    loadLandlordDispute(id, facts, sent),
+    loadNegotiation(id, "landlord", facts, sent),
     // The tenants' PayPal dispute of the deposit payment, while PayPal hasn't resolved it: the banner on every tab.
     disputeBanner(id).catch(() => null),
+    isTemplate(id),
   ]);
   if (!t) notFound();
-  // On Payments: the PayPal dispute itself (open or resolved), with the response the defense agent prepared.
-  const paypalDispute = tab === "payments" ? await loadPayPalDispute(id, t.ws).catch((e) => { console.error("PayPal dispute view failed", e); return null; }) : null;
+  const tenantLink = link.link;
+  const tenantPath = link.demoPath;
 
-  const deductions = (deductionRows ?? []).map((d) => ({ ...d, amount: Number(d.amount) })) as StoredDeduction[];
-  const photoRows = (photos ?? []) as { id: string; storage_path: string; phase: string; room: string; taken_at: string | null; created_at: string }[];
+  const payments = t.payments;
+  const photos = t.photos;
+  const deductionRows = t.deductions;
+  const deductions = deductionRows.map((d) => ({ ...d, amount: Number(d.amount) })) as unknown as StoredDeduction[];
+  const photoRows = photos as unknown as { id: string; storage_path: string; phase: string; room: string; taken_at: string | null; created_at: string }[];
   const moveInRows = photoRows.filter((x) => x.phase === "move_in");
   const thumbRow = moveInRows.find((x) => /living/i.test(x.room)) ?? moveInRows[0] ?? null;
   // Move-out findings in page order and numbered; rooms the comparison looked at and found nothing in, by their first
@@ -116,30 +132,28 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       return i && o ? [{ r, i, o }] : [];
     }) : [];
 
-  // Two slow calls, run together and only for the tabs that show them. PayPal's live invoice status, so "Paid" shows
-  // the moment the tenant pays: on Overview and Move-out while the deposit is not yet stored as paid (once it is, they
-  // show only that it was paid, which a refund does not change), and always on Payments, whose rows name the refund
-  // state PayPal reports. Documents and Tenants read it as stored, like the Properties page. The refreshed row takes
-  // the stored one's place in the list the summary reads. And the photos' signed links, in one request: the header's
-  // thumbnail on every tab, the move-in photos on Overview, the move-out photos and every finding's pair on Move-out.
-  const storedInvoice = (payments ?? []).find((p) => p.kind === "deposit_invoice");
-  const refresh = !!storedInvoice && (tab === "payments" || ((tab === "overview" || tab === "move-out") && !wasPaid(storedInvoice.status)));
+  // PayPal's live invoice status, so "Paid" shows the moment the tenant pays: while the deposit is not yet stored as
+  // paid (once it is, the header, Overview and Move-out show only that it was paid, which a refund does not change),
+  // and when the page opens on Payments, whose rows name the refund state PayPal reports. Opened on another tab, the
+  // Payments tab asks PayPal itself, after the rest of the page (PaymentsTab). The refreshed row takes the stored
+  // one's place in the list the summary reads. And the photos' signed links, in one request: the header's thumbnail,
+  // the move-in photos on Overview, the move-out photos and every finding's pair on Move-out.
+  const storedInvoice = payments.find((p) => p.kind === "deposit_invoice");
+  const refresh = !!storedInvoice && (tab === "payments" || !wasPaid(storedInvoice.status));
   const toSign = [
     ...(thumbRow ? [thumbRow.storage_path] : []),
-    ...(tab === "overview" ? moveInRows.map((x) => x.storage_path) : []),
-    ...(tab === "move-out" ? [
-      ...photoRows.filter((x) => x.phase === "move_out_before").map((x) => x.storage_path),
-      ...stored.flatMap((f) => [f.moveInPath, f.moveOutPath]),
-      ...quietPairs.flatMap(({ i, o }) => [i.storage_path, o.storage_path]),
-      ...(dispute?.evidence ?? []).map((e) => e.path),
-    ] : []),
+    ...moveInRows.map((x) => x.storage_path),
+    ...photoRows.filter((x) => x.phase === "move_out_before").map((x) => x.storage_path),
+    ...stored.flatMap((f) => [f.moveInPath, f.moveOutPath]),
+    ...quietPairs.flatMap(({ i, o }) => [i.storage_path, o.storage_path]),
+    ...(dispute?.evidence ?? []).map((e) => e.path),
   ];
   const [invoice, urlOf] = await Promise.all([
-    refresh ? refreshDepositInvoice(storedInvoice, { store: !(await isTemplate(id)) }) : Promise.resolve(storedInvoice ?? null),
+    refresh ? refreshDepositInvoice(storedInvoice, { store: !template }) : Promise.resolve(storedInvoice ?? null),
     signedUrlsFor(t.ws, "photos", toSign),
   ]);
   const invoiceStatus: string | null = invoice?.status ?? null;
-  const paymentRows = (payments ?? []).map((p) => (invoice && p.id === invoice.id ? invoice : p));
+  const paymentRows = payments.map((p) => (invoice && p.id === invoice.id ? invoice : p));
 
   const url = (path: string | null | undefined) => (path ? urlOf.get(path) ?? null : null);
   const photoViews = photoRows.map((p) => ({ id: p.id, phase: p.phase, room: p.room, url: url(p.storage_path) }));
@@ -167,10 +181,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const wearRows = stored.filter((f) => f.id && f.classification === "wear_and_tear" && f.status !== "dismissed")
     .map((f) => ({ id: f.id!, n: f.n, item: findingTitle(f), full: f.item, room: f.room, photos: (f.moveInPath ? 1 : 0) + (f.moveOutPath ? 1 : 0) }));
   const paid = wasPaid(invoiceStatus);
-  const own = (payments ?? []).find((x) => x.kind === "refund" || x.kind === "payout");
+  const own = payments.find((x) => x.kind === "refund" || x.kind === "payout");
   // Money PayPal itself returned through the tenants' PayPal dispute (an accepted claim, PayPal's decision): a prior
   // return. It stands for the refund only once it covers what is owed; until then the rest still goes from here.
-  const via = disputeReturns((payments ?? []) as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
+  const via = disputeReturns(payments as unknown as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
 
   // The latest close-out run and the amount of any refund it is waiting on. The review page re-checks it against the
   // rules; this page only says where it stands.
@@ -184,7 +198,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const pack = packFor(prop.state);
   const contacts = (t.tenants ?? []) as { name: string; email: string | null }[];
   // The same summary the Properties page reads: the status, the next step and the dates for the calendar.
-  const summary = { ...summarizeTenancy(t, paymentRows, photos ?? [], deductions), dispute: liveDispute(dispute?.status), ...(ppBanner ? { paypalDispute: true } : {}) };
+  const summary = {
+    ...summarizeTenancy(t as unknown as Parameters<typeof summarizeTenancy>[0], paymentRows, photos as unknown as { phase: string }[], deductions),
+    dispute: liveDispute(dispute?.status), ...(ppBanner ? { paypalDispute: true } : {}),
+  };
   const today = pacificToday();
   const next = nextStep(summary, today);
   const status = propertyStatus(summary, next);
@@ -219,29 +236,37 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // same range engine the tenants' dispute and the edit route run). Read only once the deductions are final or while a
   // dispute the tenants sent is open (deductionsLock, the rule the deduction routes refuse by), and for the demo's
   // templates.
-  const template = tab === "move-out" && inspected ? await isTemplate(id) : false;
-  const editFacts = tab === "move-out" && inspected && !own ? await disputeFacts(id).catch((e) => { console.error("deduction limits failed", e); return null; }) : null;
+  const templateLocked = inspected && template;
+  const editFacts = inspected && !own ? (() => {
+    try {
+      return factsFrom(id, t, deductionRows, payments);
+    } catch (e) {
+      console.error("deduction limits failed", e);
+      return null;
+    }
+  })() : null;
   const lock = deductionsLock({
     payments: paymentRows.map((p) => ({ kind: p.kind as string, amount: p.amount as number | string, status: (p.status as string | null) ?? null })),
     disputes: dispute ? [dispute.status] : [], refundOwed: held != null ? money.refund : null,
   });
   const editing = {
-    allowed: !returned && !lock && !template && !!editFacts,
-    reason: template ? "This is the template every demo copy is made from, so its deductions don't change. A copy's do."
+    allowed: !returned && !lock && !templateLocked && !!editFacts,
+    reason: templateLocked ? "This is the template every demo copy is made from, so its deductions don't change. A copy's do."
       : lock && !returned ? lock.message
         : !returned && !editFacts ? "The deductions couldn't be checked against their lawful range just now, so they can't be changed. Refresh to try again." : null,
     limits: Object.fromEntries((editFacts?.deductions ?? []).map((d) => [d.id, limitsFor(editFacts!.ranges.lines.find((l) => l.id === d.id), {
       delivered: !!t.statement_delivered_at && !!t.statement_delivery, amount: d.amount, guidanceCite: pack.copy.guidanceCite,
     })])),
   };
-  // This unit's money events, from the refreshed invoice row and the deductions, as the Payments ledger lists them.
-  const moneyRows = ledgerRows(t, paymentRows, (deductionRows ?? []) as LedgerDeduction[]);
+  // This unit's money events, from the invoice row as the header reads it and the deductions, as the Payments ledger
+  // lists them (the Payments tab lists them from PayPal's latest word).
+  const moneyRows = ledgerRows(t as unknown as Parameters<typeof ledgerRows>[0], paymentRows as unknown as Parameters<typeof ledgerRows>[1], deductionRows as unknown as LedgerDeduction[]);
   const paidOn = moneyRows.find((r) => r.kind === "payment")?.date ?? null;
   // A demo copy's deposit is a real sandbox payment made for the demo, so PayPal dates it recently, not at move-in.
   const demoDepositTip = t.ws.kind === "demo" && paidOn
     ? <InfoTip title="A sandbox payment">{DEMO_DEPOSIT_DATE}</InfoTip> : undefined;
   // Activity: short titles, the quiet bookkeeping left out, runs of deductions or photos folded into one line.
-  const activity = foldActivity((log ?? []).filter((e) => !QUIET_ON_RECORD.includes(e.action))
+  const activity = foldActivity((log ?? []).filter((e) => !QUIET_ON_RECORD.includes(e.action as string))
     .map((e) => ({ id: e.id as string, tenancyId: id, actor: e.actor as string, action: e.action as string, detail: e.detail as Record<string, unknown> | null, createdAt: e.created_at as string })),
   () => summary.tenants, 40);
 
@@ -260,9 +285,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     sub: ppBanner.dueDate ? `PayPal's date ${shortDate(ppBanner.dueDate)}, ${whenText(daysBetween(today, ppBanner.dueDate), true)}` : undefined,
     tip: `The tenants asked PayPal for ${usd(ppBanner.amount)} of the deposit back. The refund waits until the dispute is answered${due ? `; the state's deadline, ${shortDate(due)}, doesn't` : ""}.`,
   } : null;
-  const primary = answerDispute ? (tab === "payments" ? null : answerDispute)
-    : reviewRefund ? { label: "Review refund", href: `/tenancy/${id}/refund` }
-      : !closed && step.label !== "View" && step.label !== "View statement" ? step : null;
+  const primary = answerDispute
+    ?? (reviewRefund ? { label: "Review refund", href: `/tenancy/${id}/refund` } : !closed && step.label !== "View" && step.label !== "View statement" ? step : null);
+  const primaryOnPayments = answerDispute ? null : primary;
+  // Whether a tab's cards show their buttons as secondary: the same on every tab but Payments.
   const quiet = !!primary;
   const hasStatement = inspected || !!t.move_out_date;
   const statementLabel = t.statement_delivered_at ? "Statement" : "Statement draft";
@@ -277,6 +303,16 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     ...(pack.records.some((r) => r.menu) ? [{ divider: true } as MenuItem] : []),
     ...pack.records.filter((r) => r.menu).map((r) => ({ label: r.menu!, href: `/tenancy/${id}/notices/${NOTICE_SLUG[r.kind]}`, icon: "doc" as const })),
   ];
+  const actions = (primary: { label: string; href: string } | null) => (
+    <div className={`flex items-center gap-2 ${primary ? "max-sm:w-full" : "max-sm:self-start"}`}>
+      {hasStatement && (
+        <ButtonLink href={`/tenancy/${id}/statement`} className="max-sm:hidden"><Icon name="doc" />{statementLabel}</ButtonLink>
+      )}
+      {primary && <ButtonLink variant="primary" href={primary.href} className="max-sm:flex-1">{primary.label}</ButtonLink>}
+      <Menu label="More actions" items={more} buttonClass="inline-flex size-[34px] items-center justify-center rounded-md bg-surface-2 text-ink hover:bg-surface-3" />
+    </div>
+  );
+  const tenantsLabel = summary.tenants.join(" and ") || "The tenants";
 
   // The notice and its dates: first on the tab before the comparison, last after it.
   const notice = (
@@ -302,8 +338,241 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     </section>
   );
 
-  return (
+  const overview: ReactNode = (
     <>
+      <FactStrip cols={4} className="mb-6">
+          <Fact label={returned || closed || reversal ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
+            sub={reversedSub ?? (held != null ? (returned ? `${returned.kind === "dispute_refund" ? "Returned through the PayPal dispute" : "Refunded"} ${shortDate(pacificDate(returned.created_at))}`
+              : via ? `${usd(via.amount)} returned through the PayPal dispute` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested")} />
+          <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
+          <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date as string) : <span className="text-ink-3">Not stated</span>} sub={t.end_date ? "Fixed term" : undefined} />
+          <Fact label="Lease end" value={t.end_date ? shortDate(t.end_date as string) : "Month to month"} sub={t.move_out_date ? `Moved out ${shortDate(t.move_out_date as string)}` : t.planned_move_out ? `Moving out ${shortDate(t.planned_move_out as string)}` : "No notice"} />
+      </FactStrip>
+
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_288px]">
+      <div className="flex min-w-0 flex-col gap-6">
+        <Card id="move-in" className="scroll-mt-24">
+          <CardHead title="Move-in" meta={moveInMeta(pack, { agreement: !!agreement, paid, photos: moveIn.length > 0, notices: summary.notices })} />
+          <MoveInSteps
+            tenancyId={id}
+            state={pack.code}
+            notices={summary.notices}
+            tenants={summary.tenants}
+            flagCounts={{
+              violations: flags.filter((f) => f.severity === "violation").length,
+              warnings: flags.filter((f) => f.severity === "warning").length,
+            }}
+            agreement={agreement}
+            lawful={terms ? lawfulDeposit(terms, pack) : null}
+            invoice={invoice ? { id: invoice.paypal_id as string, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
+              payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null,
+              fromPayPal: moneyRows.find((r) => r.kind === "deposit_invoice")?.fromPayPal ?? null, reversed: !!reversal } : null}
+            photos={photoViews}
+            quiet={quiet}
+            locked={!!t.move_out_date || closed}
+          />
+        </Card>
+
+        <Card>
+          <CardHead title="Activity" />
+          <div className="px-5 py-1">
+            {activity.slice(0, 8).map((a) => <LogRow key={a.entry.id} a={a} today={today} />)}
+            {activity.length > 8 && (
+              <details className="group">
+                <summary className="flex cursor-pointer list-none items-center gap-1 border-t border-line-2 py-3 text-sm font-medium text-brand hover:underline group-open:hidden">
+                  Show {activity.length - 8} more<Icon name="chev-down" className="size-3.5" />
+                </summary>
+                <div className="border-t border-line-2">{activity.slice(8).map((a) => <LogRow key={a.entry.id} a={a} today={today} />)}</div>
+              </details>
+            )}
+            {!activity.length && <p className="py-3 text-sm text-ink-3">Nothing yet.</p>}
+          </div>
+        </Card>
+      </div>
+
+      <div className="flex flex-col gap-4 max-lg:order-first">
+        <Card>
+          <CardHead title="Next step" right={disputeStep ? <InfoTip align="end" title="PayPal dispute">{disputeStep.tip}</InfoTip>
+            : next.cite || next.detail ? (
+            <InfoTip align="end" title={next.label} cite={next.cite ?? undefined}>{next.detail}</InfoTip>
+          ) : undefined} />
+          <div className="flex flex-col gap-2 p-4">
+            {disputeStep ? (
+              <StepBox icon={disputeStep.icon} title={disputeStep.title} sub={disputeStep.sub} href={disputeStep.href} />
+            ) : next.level === "done" ? (
+              <p className="flex items-center gap-2 text-sm text-green"><Icon name="check" className="size-3.5" />Closed out</p>
+            ) : (
+              <StepBox icon={step.icon} title={step.label === "View" ? next.label : step.title}
+                sub={next.due && next.daysLeft != null ? `${next.dueLabel ? `${next.dueLabel} ` : ""}${shortDate(next.due)}, ${whenText(next.daysLeft, next.deadline)}` : undefined}
+                href={step.href} />
+            )}
+            {next.also.length > 0 && (
+              <ul className="mt-1 flex flex-col gap-1.5 text-xs text-ink-3">
+                {next.also.map((a) => <li key={a} className="flex items-start gap-2"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-dot" />{a.charAt(0).toUpperCase() + a.slice(1)}</li>)}
+              </ul>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">Dates</span>
+            {events.length > 0 && <a href={`/api/tenancies/${id}/calendar`} className="ml-auto text-sm text-brand hover:underline">Add to calendar</a>}
+          </div>
+          {events.length ? (
+            <KV align="right" className="mt-3" rows={events.map((e) => [<span key={e.kind} title={e.label}>{e.label.split(",")[0]}</span>, shortDate(e.date)])} />
+          ) : (
+            <p className="mt-2 text-sm text-ink-3">{closed ? "Closed out. No dates left." : "Set the lease end or record a notice."}</p>
+          )}
+        </Card>
+      </div>
+    </div>
+    </>
+  );
+
+  const moveOut: ReactNode = (
+    <div className="flex flex-col gap-7">
+      <FactStrip cols={4}>
+        <Fact label={reversal ? "Deposit" : "Deposit held"} info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
+          sub={reversedSub ?? (held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid")} />
+        <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
+          info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />
+        <Fact label={returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : via ? "Left to refund" : "Refund due"} big
+          value={<Money value={returned ? Number(returned.amount) : forfeited ? Math.max(0, Math.round(((held ?? 0) - (via?.amount ?? 0)) * 100) / 100)
+            : money.balanceClaimed > 0 ? money.balanceClaimed : via ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
+          sub={forfeited && returned && (held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0)) * 100) / 100)} still owed`
+            : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(pacificDate(returned.created_at))}` : `By PayPal, ${shortDate(pacificDate(returned.created_at))}`)
+              : via ? `After ${usd(via.amount)} through the PayPal dispute` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
+        <Fact label={dueLabelOf(summary)}
+          info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
+          value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
+          sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(pacificDate(t.statement_delivered_at as string))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out as string)}` : "No move-out yet"} />
+      </FactStrip>
+
+      {dispute && <DisputeCard v={dispute} photoUrl={(p) => url(p)} tenantsLabel={tenantsLabel} />}
+      {dispute && negotiation && (
+        <Negotiation tenancyId={id} v={negotiation} quiet={quiet}
+          tenantsLabel={tenantsLabel} landlordLabel={prop.owner_name ?? "The landlord"} />
+      )}
+
+      {/* Before the comparison the notice and its dates lead; after it, the photos and the money do, and the notice
+          record moves to the foot of the tab. */}
+      {!inspected && notice}
+
+      <section id="photos" className="scroll-mt-24">
+        <MoveOut
+          tenancyId={id}
+          state={pack.code}
+          rooms={[...new Set(moveIn.map((x) => x.room))]}
+          moveOutPhotos={photoViews.filter((x) => x.phase === "move_out_before")}
+          findings={findings}
+          quietRooms={quietRooms}
+          inspectedAt={inspectedAt}
+          moveOutDate={t.move_out_date as string | null}
+          locked={!!returned}
+          quiet={quiet}
+        />
+      </section>
+
+      {inspected && (
+        <section id="deductions" className="scroll-mt-24">
+          <Settlement
+            tenancyId={id}
+            state={pack.code}
+            depositHeld={held}
+            deductions={deductions}
+            numbers={numbers}
+            wear={wearRows}
+            edit={editing}
+            returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id as string, at: returned.created_at } : null}
+            viaDispute={via ? { amount: via.amount, notKept } : null}
+            forfeited={forfeited ? { label: forfeited.label, note: forfeited.note } : null}
+          />
+        </section>
+      )}
+
+      {inspected && (
+        <section id="refund" className="scroll-mt-24">
+          <CloseOut
+            tenancyId={id}
+            tenants={summary.tenants}
+            due={Math.max(0, Math.round(((forfeited ? held ?? 0 : money.refund) - (via?.amount ?? 0)) * 100) / 100)}
+            returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id as string, on: pacificDate(returned.created_at) } : null}
+            viaDispute={via ? { amount: via.amount, id: via.disputeId, notKept } : null}
+            run={run ? { status: run.status as string, error: run.error as string | null, at: run.created_at ? pacificDate(run.created_at as string) : null, pendingAmount } : null}
+            tenantView={tenantPath ? { href: tenantPath, delivered: !!t.statement_delivered_at, disputed: !!dispute } : null}
+          />
+        </section>
+      )}
+
+      {inspected && notice}
+    </div>
+  );
+
+  const tenants: ReactNode = (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHead title="Tenants" meta={`${contacts.length}`} />
+        {/* Below 1024px: each tenant as a list row, and the one refund account under them. */}
+        <ul className="lg:hidden">
+          {contacts.map((c) => {
+            const signed = agreement?.signed_by.includes(c.name);
+            return (
+              <li key={c.name} className="flex items-center gap-3 border-b border-line-2 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{c.name}</div>
+                  <div className="truncate text-xs text-ink-3">{c.email ?? "No email on file"}</div>
+                </div>
+                {signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}
+              </li>
+            );
+          })}
+          <li className="flex items-center gap-3 px-4 py-3 text-sm">
+            <span className="text-ink-3">Refund to</span>
+            <span className="ml-auto min-w-0 truncate">{agreement ? `PayPal, ${agreement.paypal_email}` : <span className="text-ink-3">{refundRecordWords(pack).none}</span>}</span>
+          </li>
+        </ul>
+        <div className="max-lg:hidden">
+        <Table minWidth={560}>
+          <thead><tr><Th first>Name</Th><Th>Email</Th><Th>{refundRecordWords(pack).name}</Th><Th last>Refund to</Th></tr></thead>
+          <tbody>
+            {contacts.map((c) => {
+              const signed = agreement?.signed_by.includes(c.name);
+              return (
+                <tr key={c.name} className={trClass}>
+                  <Td first className="font-medium">{c.name}</Td>
+                  <Td>{c.email ?? <span className="text-ink-3">Not on file</span>}</Td>
+                  <Td>{signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}</Td>
+                  <Td last>{agreement ? <span className="inline-flex items-center gap-1.5">PayPal, {agreement.paypal_email}</span> : <span className="text-ink-3">{refundRecordWords(pack).none}</span>}</Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Table>
+        </div>
+      </Card>
+
+      {tenantMoveOut && (
+        <Card className="p-5">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            From the tenant link
+            <InfoTip title="What the tenants sent">{describeTenantMoveOut(tenantMoveOut)}.</InfoTip>
+          </div>
+          <KV className="mt-3" rows={[
+            ["Moving out", shortDate(tenantMoveOut.planned_move_out)],
+            ["Forwarding address", tenantMoveOut.forwarding_address],
+          ]} />
+        </Card>
+      )}
+
+      <section id="tenant-link" className="scroll-mt-24">
+        <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} demoHref={tenantPath} />
+      </section>
+    </div>
+  );
+
+  return (
+    <TabState id={id}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         {/* On a phone the back button and the menu sit level with the address's first line, not centered on the block. */}
         <Link href="/units" aria-label="Back to Properties"
@@ -322,274 +591,62 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             <RulesChip state={pack.code} city={prop.city} />
           </div>
         </div>
-        <div className={`flex items-center gap-2 ${primary ? "max-sm:w-full" : "max-sm:self-start"}`}>
-          {hasStatement && (
-            <ButtonLink href={`/tenancy/${id}/statement`} className="max-sm:hidden"><Icon name="doc" />{statementLabel}</ButtonLink>
-          )}
-          {primary && <ButtonLink variant="primary" href={primary.href} className="max-sm:flex-1">{primary.label}</ButtonLink>}
-          <Menu label="More actions" items={more} buttonClass="inline-flex size-[34px] items-center justify-center rounded-md bg-surface-2 text-ink hover:bg-surface-3" />
-        </div>
+        {primaryOnPayments === primary ? actions(primary) : <OnTab tab="payments" on={actions(primaryOnPayments)}>{actions(primary)}</OnTab>}
       </div>
 
-      <Tabs className="mb-6 mt-5" active={tab} items={TABS.map((x) => ({ key: x.key, label: x.label, href: tabHref(id, x.key) }))} />
+      <TabBar id={id} className="mb-6 mt-5" />
 
-      {ppBanner && tab !== "payments" && (
-        <PayPalDisputeBanner href={tabHref(id, "payments", "paypal-dispute")} amount={ppBanner.amount} dueDate={ppBanner.dueDate} response={ppBanner.response} />
+      {ppBanner && (
+        <OnTab tab="payments">
+          <PayPalDisputeBanner href={tabHref(id, "payments", "paypal-dispute")} amount={ppBanner.amount} dueDate={ppBanner.dueDate} response={ppBanner.response} />
+        </OnTab>
       )}
 
       {dispute && (dispute.status === "open" || dispute.status === "negotiating" || dispute.status === "agreed") && (
-        <DisputeBanner v={dispute} href={tabHref(id, "move-out", dispute.status === "open" ? "dispute" : "negotiation")} tenantsLabel={summary.tenants.join(" and ") || "The tenants"} />
+        <DisputeBanner v={dispute} href={tabHref(id, "move-out", dispute.status === "open" ? "dispute" : "negotiation")} tenantsLabel={tenantsLabel} />
       )}
 
-      {tab === "overview" && (
-        <>
-          <FactStrip cols={4} className="mb-6">
-              <Fact label={returned || closed || reversal ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
-                sub={reversedSub ?? (held != null ? (returned ? `${returned.kind === "dispute_refund" ? "Returned through the PayPal dispute" : "Refunded"} ${shortDate(pacificDate(returned.created_at))}`
-                  : via ? `${usd(via.amount)} returned through the PayPal dispute` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested")} />
-              <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
-              <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date) : <span className="text-ink-3">Not stated</span>} sub={t.end_date ? "Fixed term" : undefined} />
-              <Fact label="Lease end" value={t.end_date ? shortDate(t.end_date) : "Month to month"} sub={t.move_out_date ? `Moved out ${shortDate(t.move_out_date)}` : t.planned_move_out ? `Moving out ${shortDate(t.planned_move_out)}` : "No notice"} />
-          </FactStrip>
-
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_288px]">
-          <div className="flex min-w-0 flex-col gap-6">
-            <Card id="move-in" className="scroll-mt-24">
-              <CardHead title="Move-in" meta={moveInMeta(pack, { agreement: !!agreement, paid, photos: moveIn.length > 0, notices: summary.notices })} />
-              <MoveInSteps
-                tenancyId={id}
-                state={pack.code}
-                notices={summary.notices}
-                tenants={summary.tenants}
-                flagCounts={{
-                  violations: flags.filter((f) => f.severity === "violation").length,
-                  warnings: flags.filter((f) => f.severity === "warning").length,
-                }}
-                agreement={agreement}
-                lawful={terms ? lawfulDeposit(terms, pack) : null}
-                invoice={invoice ? { id: invoice.paypal_id, amount: Number(invoice.amount), status: invoiceStatus ?? "SENT",
-                  payLink: (invoice.raw as { payLink?: string } | null)?.payLink ?? null,
-                  fromPayPal: moneyRows.find((r) => r.kind === "deposit_invoice")?.fromPayPal ?? null, reversed: !!reversal } : null}
-                photos={photoViews}
-                quiet={quiet}
-                locked={!!t.move_out_date || closed}
-              />
-            </Card>
-
-            <Card>
-              <CardHead title="Activity" />
-              <div className="px-5 py-1">
-                {activity.slice(0, 8).map((a) => <LogRow key={a.entry.id} a={a} today={today} />)}
-                {activity.length > 8 && (
-                  <details className="group">
-                    <summary className="flex cursor-pointer list-none items-center gap-1 border-t border-line-2 py-3 text-sm font-medium text-brand hover:underline group-open:hidden">
-                      Show {activity.length - 8} more<Icon name="chev-down" className="size-3.5" />
-                    </summary>
-                    <div className="border-t border-line-2">{activity.slice(8).map((a) => <LogRow key={a.entry.id} a={a} today={today} />)}</div>
-                  </details>
-                )}
-                {!activity.length && <p className="py-3 text-sm text-ink-3">Nothing yet.</p>}
-              </div>
-            </Card>
-          </div>
-
-          <div className="flex flex-col gap-4 max-lg:order-first">
-            <Card>
-              <CardHead title="Next step" right={disputeStep ? <InfoTip align="end" title="PayPal dispute">{disputeStep.tip}</InfoTip>
-                : next.cite || next.detail ? (
-                <InfoTip align="end" title={next.label} cite={next.cite ?? undefined}>{next.detail}</InfoTip>
-              ) : undefined} />
-              <div className="flex flex-col gap-2 p-4">
-                {disputeStep ? (
-                  <StepBox icon={disputeStep.icon} title={disputeStep.title} sub={disputeStep.sub} href={disputeStep.href} />
-                ) : next.level === "done" ? (
-                  <p className="flex items-center gap-2 text-sm text-green"><Icon name="check" className="size-3.5" />Closed out</p>
-                ) : (
-                  <StepBox icon={step.icon} title={step.label === "View" ? next.label : step.title}
-                    sub={next.due && next.daysLeft != null ? `${next.dueLabel ? `${next.dueLabel} ` : ""}${shortDate(next.due)}, ${whenText(next.daysLeft, next.deadline)}` : undefined}
-                    href={step.href} />
-                )}
-                {next.also.length > 0 && (
-                  <ul className="mt-1 flex flex-col gap-1.5 text-xs text-ink-3">
-                    {next.also.map((a) => <li key={a} className="flex items-start gap-2"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-dot" />{a.charAt(0).toUpperCase() + a.slice(1)}</li>)}
-                  </ul>
-                )}
-              </div>
-            </Card>
-
-            <Card className="p-5">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">Dates</span>
-                {events.length > 0 && <a href={`/api/tenancies/${id}/calendar`} className="ml-auto text-sm text-brand hover:underline">Add to calendar</a>}
-              </div>
-              {events.length ? (
-                <KV align="right" className="mt-3" rows={events.map((e) => [<span key={e.kind} title={e.label}>{e.label.split(",")[0]}</span>, shortDate(e.date)])} />
-              ) : (
-                <p className="mt-2 text-sm text-ink-3">{closed ? "Closed out. No dates left." : "Set the lease end or record a notice."}</p>
-              )}
-            </Card>
-          </div>
-        </div>
-        </>
-      )}
-
-      {tab === "move-out" && (
-        <div className="flex flex-col gap-7">
-          <FactStrip cols={4}>
-            <Fact label={reversal ? "Deposit" : "Deposit held"} info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
-              sub={reversedSub ?? (held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid")} />
-            <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
-              info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />
-            <Fact label={returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : via ? "Left to refund" : "Refund due"} big
-              value={<Money value={returned ? Number(returned.amount) : forfeited ? Math.max(0, Math.round(((held ?? 0) - (via?.amount ?? 0)) * 100) / 100)
-                : money.balanceClaimed > 0 ? money.balanceClaimed : via ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
-              sub={forfeited && returned && (held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0)) * 100) / 100)} still owed`
-                : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(pacificDate(returned.created_at))}` : `By PayPal, ${shortDate(pacificDate(returned.created_at))}`)
-                  : via ? `After ${usd(via.amount)} through the PayPal dispute` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
-            <Fact label={dueLabelOf(summary)}
-              info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
-              value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
-              sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(pacificDate(t.statement_delivered_at))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out)}` : "No move-out yet"} />
-          </FactStrip>
-
-          {dispute && <DisputeCard v={dispute} photoUrl={(p) => url(p)} tenantsLabel={summary.tenants.join(" and ") || "The tenants"} />}
-          {dispute && negotiation && (
-            <Negotiation tenancyId={id} v={negotiation} quiet={quiet}
-              tenantsLabel={summary.tenants.join(" and ") || "The tenants"} landlordLabel={prop.owner_name ?? "The landlord"} />
-          )}
-
-          {/* Before the comparison the notice and its dates lead; after it, the photos and the money do, and the notice
-              record moves to the foot of the tab. */}
-          {!inspected && notice}
-
-          <section id="photos" className="scroll-mt-24">
-            <MoveOut
-              tenancyId={id}
-              state={pack.code}
-              rooms={[...new Set(moveIn.map((x) => x.room))]}
-              moveOutPhotos={photoViews.filter((x) => x.phase === "move_out_before")}
-              findings={findings}
-              quietRooms={quietRooms}
-              inspectedAt={inspectedAt}
-              moveOutDate={t.move_out_date}
-              locked={!!returned}
-              quiet={quiet}
-            />
-          </section>
-
-          {inspected && (
-            <section id="deductions" className="scroll-mt-24">
-              <Settlement
-                tenancyId={id}
-                state={pack.code}
-                depositHeld={held}
-                deductions={deductions}
-                numbers={numbers}
-                wear={wearRows}
-                edit={editing}
-                returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, at: returned.created_at } : null}
-                viaDispute={via ? { amount: via.amount, notKept } : null}
-                forfeited={forfeited ? { label: forfeited.label, note: forfeited.note } : null}
-              />
-            </section>
-          )}
-
-          {inspected && (
-            <section id="refund" className="scroll-mt-24">
-              <CloseOut
-                tenancyId={id}
-                tenants={summary.tenants}
-                due={Math.max(0, Math.round(((forfeited ? held ?? 0 : money.refund) - (via?.amount ?? 0)) * 100) / 100)}
-                returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id, on: pacificDate(returned.created_at) } : null}
-                viaDispute={via ? { amount: via.amount, id: via.disputeId, notKept } : null}
-                run={run ? { status: run.status, error: run.error, at: run.created_at ? pacificDate(run.created_at) : null, pendingAmount } : null}
-                tenantView={tenantPath ? { href: tenantPath, delivered: !!t.statement_delivered_at, disputed: !!dispute } : null}
-              />
-            </section>
-          )}
-
-          {inspected && notice}
-        </div>
-      )}
-
-      {tab === "payments" && (
-        <div className="flex flex-col gap-6">
-          {paypalDispute && <PayPalDisputeCard tenancyId={id} v={paypalDispute} quiet={quiet} />}
-          <MoneyTimeline tenancyId={id} rows={moneyRows} typeTip={pack.ledger.typeTip} />
-          {/* No dispute on file: the webhook reports one when it opens, and this asks PayPal directly. Not for a
-              template, nor for a deposit PayPal hasn't recorded as paid. */}
-          {!paypalDispute && paid && !reversal && !(await isTemplate(id)) && !(await tenancyDepositBlock(t.ws.id, id)) && <PayPalDisputeCheck tenancyId={id} />}
-        </div>
-      )}
-
-      {tab === "documents" && (
+      <TabPanel tab="overview">{overview}</TabPanel>
+      <TabPanel tab="move-out">{moveOut}</TabPanel>
+      <TabPanel tab="payments">
+        <PaymentsTab id={id} ws={t.ws} stored={storedInvoice ?? null} invoice={invoice} refreshed={refresh} payments={payments} deductionRows={deductionRows}
+          tenancy={t} template={template} typeTip={pack.ledger.typeTip} quiet={!!primaryOnPayments} />
+      </TabPanel>
+      <TabPanel tab="documents">
         <Documents ws={t.ws} pack={pack} id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
           notices={summary.notices} refundNoticeNeeded={summary.refundNotice.needed} noticeGiven={!!summary.noticeGivenOn} movedOut={!!summary.moveOutDate} inspectionExcused={inspectionExcused(summary)}
           inspected={inspected} delivery={delivery} hasEvents={events.length > 0} />
-      )}
+      </TabPanel>
+      <TabPanel tab="tenants">{tenants}</TabPanel>
+    </TabState>
+  );
+}
 
-      {tab === "tenants" && (
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHead title="Tenants" meta={`${contacts.length}`} />
-            {/* Below 1024px: each tenant as a list row, and the one refund account under them. */}
-            <ul className="lg:hidden">
-              {contacts.map((c) => {
-                const signed = agreement?.signed_by.includes(c.name);
-                return (
-                  <li key={c.name} className="flex items-center gap-3 border-b border-line-2 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{c.name}</div>
-                      <div className="truncate text-xs text-ink-3">{c.email ?? "No email on file"}</div>
-                    </div>
-                    {signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}
-                  </li>
-                );
-              })}
-              <li className="flex items-center gap-3 px-4 py-3 text-sm">
-                <span className="text-ink-3">Refund to</span>
-                <span className="ml-auto min-w-0 truncate">{agreement ? `PayPal, ${agreement.paypal_email}` : <span className="text-ink-3">{refundRecordWords(pack).none}</span>}</span>
-              </li>
-            </ul>
-            <div className="max-lg:hidden">
-            <Table minWidth={560}>
-              <thead><tr><Th first>Name</Th><Th>Email</Th><Th>{refundRecordWords(pack).name}</Th><Th last>Refund to</Th></tr></thead>
-              <tbody>
-                {contacts.map((c) => {
-                  const signed = agreement?.signed_by.includes(c.name);
-                  return (
-                    <tr key={c.name} className={trClass}>
-                      <Td first className="font-medium">{c.name}</Td>
-                      <Td>{c.email ?? <span className="text-ink-3">Not on file</span>}</Td>
-                      <Td>{signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}</Td>
-                      <Td last>{agreement ? <span className="inline-flex items-center gap-1.5">PayPal, {agreement.paypal_email}</span> : <span className="text-ink-3">{refundRecordWords(pack).none}</span>}</Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-            </div>
-          </Card>
-
-          {tenantMoveOut && (
-            <Card className="p-5">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                From the tenant link
-                <InfoTip title="What the tenants sent">{describeTenantMoveOut(tenantMoveOut)}.</InfoTip>
-              </div>
-              <KV className="mt-3" rows={[
-                ["Moving out", shortDate(tenantMoveOut.planned_move_out)],
-                ["Forwarding address", tenantMoveOut.forwarding_address],
-              ]} />
-            </Card>
-          )}
-
-          <section id="tenant-link" className="scroll-mt-24">
-            <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} demoHref={tenantPath} />
-          </section>
-        </div>
-      )}
-    </>
+/** The Payments tab: the PayPal dispute (open or resolved) with the response the defense agent prepared, the unit's
+ *  money as the ledger lists it, with PayPal's latest word on the deposit invoice, and Check PayPal. Opened on another
+ *  tab, the page didn't wait for PayPal: this tab asks it here, streamed in after the rest of the page. */
+async function PaymentsTab(p: {
+  id: string; ws: Workspace; stored: PaymentRecord | null; invoice: PaymentRecord | null; refreshed: boolean; payments: PaymentRecord[]; deductionRows: Row[];
+  tenancy: Record<string, unknown>; template: boolean; typeTip: StatePack["ledger"]["typeTip"]; quiet: boolean;
+}) {
+  const invoice = p.refreshed || !p.stored ? p.invoice : await refreshDepositInvoice(p.stored, { store: !p.template });
+  const rows = p.payments.map((x) => (invoice && x.id === invoice.id ? invoice : x));
+  const moneyRows = ledgerRows(p.tenancy as unknown as Parameters<typeof ledgerRows>[0], rows as unknown as Parameters<typeof ledgerRows>[1], p.deductionRows as unknown as LedgerDeduction[]);
+  const paid = wasPaid(invoice?.status ?? null);
+  const reversal = (invoice?.raw as { reversal?: unknown } | null)?.reversal ?? null;
+  // No dispute on file: the webhook reports one when it opens, and Check PayPal asks PayPal directly. Not for a
+  // template, nor for a deposit PayPal hasn't recorded as paid.
+  const [paypalDispute, block] = await Promise.all([
+    loadPayPalDispute(p.id, p.ws).catch((e) => { console.error("PayPal dispute view failed", e); return null; }),
+    // A demo copy may refund only a deposit it holds itself (demo-pool.ts); the owner's are its own.
+    paid && !reversal && !p.template && p.ws.kind === "demo" ? depositBlock(p.ws.id, p.stored?.paypal_id) : Promise.resolve(null),
+  ]);
+  return (
+    <div className="flex flex-col gap-6">
+      {paypalDispute && <PayPalDisputeCard tenancyId={p.id} v={paypalDispute} quiet={p.quiet} />}
+      <MoneyTimeline tenancyId={p.id} rows={moneyRows} typeTip={p.typeTip} />
+      {!paypalDispute && paid && !reversal && !p.template && !block && <PayPalDisputeCheck tenancyId={p.id} />}
+    </div>
   );
 }
 

@@ -142,6 +142,7 @@ Three grids and four charts, all from the free Community builds (`ag-grid-commun
 | **Supabase** (`src/lib/db.ts`, `supabase/migrations`) | Postgres and Storage. The server-only client uses the secret key; row level security is on with no policies, so the publishable key can read and write nothing. Every query is scoped in code to the session's workspace: the owner's, or a visitor's private copy of the demo, made in one Postgres function (`src/lib/workspace.ts`). Three private buckets (`leases`, `photos`, `receipts`) served through one-hour signed URLs. Row-locking functions make the concurrent writes atomic. |
 | **AG Grid and AG Charts Community** (`ag-grid-community`, `ag-grid-react` 36.2; `ag-charts-community`, `ag-charts-react` 14.2; `src/components/grid.tsx`) | Three grids and four charts from the free MIT builds, with no Enterprise module and no license key: the deductions on the Move-out tab, edited in place and checked against the lawful range; Payments, with saved views, remembered columns and a details panel per row; Insights, grouped by state with charts. One Quartz theme set from the design tokens through the Theming API; the modules go in through `AgGridProvider`, so nothing registers on the server, and the rows arrive from the server as plain data. See [Built with AG Grid](#built-with-ag-grid). |
 | **pdf-lib and sharp** | The statement packet: standard fonts, photos re-encoded at 1600 px, invoices embedded as pages. |
+| **Speed** (`docs/PERFORMANCE.md`) | Built for the hosted demo's small server (a tenth of a CPU on Render's free plan). A property's five tabs come in one response and switch in the browser (`tab-state.tsx`, React's `Activity`); the shell draws the next page's skeleton on the click, and the page streams into one Suspense boundary that stays mounted, so the content shows the moment it is ready; no link is prefetched (each prefetch cost the server about a page); a page's rows come in one embedded read per request, shared through React's `cache()`; Supabase and PayPal calls reuse kept-alive connections; AG Grid loads with the card that uses it; Render's Cloudflare edge compresses, not Node. Nothing is cached between requests, so two workspaces never share a cached answer and a change shows at once (`scripts/cache-check.mjs`). |
 | **Browser uploads** (`src/lib/uploads.ts`) | Photos are downscaled on a canvas before they leave the phone, with the EXIF orientation applied, and sent in requests under the host's 4.5 MB body limit. |
 
 Where things live:
@@ -153,7 +154,7 @@ src/app/(landlord)/lease/         Check a lease
 src/app/(landlord)/ledger/        Payments, the AG Grid deposit ledger
 src/app/(landlord)/insights/      Insights: the portfolio's charts and its grid by state
 src/components/grid.tsx           what every AG Grid shares: the modules, the theme from the tokens, the tooltip, the CSV guard
-src/app/(landlord)/tenancy/[id]/  one property: header, five tabs and their client components
+src/app/(landlord)/tenancy/[id]/  one property: header, five tabs (all in one response, switched in the browser by tab-state.tsx) and their client components
 src/app/(landlord)/tenants/, documents/, move-outs/   the other sidebar lists
 src/components/                   the design system: buttons, chips, money, cards, tabs, tables, tooltips, the shell
 src/lib/property-view.ts          each tenancy's status chip and the one verb its next step links to
@@ -175,6 +176,7 @@ src/lib/statement.ts, statement-pdf.ts   the itemized statement and its PDF pack
 docs/LEGAL_RULES.md               the 30-rule legal spec the code enforces
 docs/DEPLOY.md                    hosting on Render and Supabase
 docs/AUDIT.md                     the whole-app audit before judging: every route, what was checked, what it found
+docs/PERFORMANCE.md               page and click timings before and after the speed round, and what Render's Starter plan adds
 supabase/migrations/              the database schema, in order
 scripts/                          setup scripts, the demo seed and reset, the deposit pool and the sweep, the sandbox payer, the webhook's registration
 render.yaml                       the Render service (no values; they are entered in the dashboard)
@@ -264,6 +266,7 @@ node scripts/negotiation-check.mjs  # the negotiation: turn checks, offers and t
 node scripts/paypal-webhook-check.mjs  # PayPal's webhooks: a sample of every event through the handler, replays, forgeries, other workspaces (add --db to run them against Supabase with throwaway rows)
 node scripts/grid-check.mjs         # the grids: deduction edits against the lawful range in three states, the grid and the route agreeing on every edit, when the deductions are final, Insights against the ledger
 node scripts/chargeback-check.mjs   # PayPal disputes: a real sandbox dispute read, the bounds, the agent's checks, the evidence request, the agent stubbed (add --db for prepare, approve and send with throwaway rows and a stubbed PayPal)
+node scripts/cache-check.mjs        # nothing kept between requests can carry one workspace's data to another (add --live <base> with the running build's GOOD_FAITH_SESSION_SECRET set: two throwaway copies, every page for both at once, an edit that shows at once in its own copy only, and scripts/tabs-check.py in a browser: tabs that ask the server nothing, and every way back to a changed property showing the new figures)
 ```
 
 `next build` needs `.env.local` (or the same variables in the environment): the server modules create their clients when they load, and the build collects every route. Build in a copy of the repo so it does not clobber the dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; a symlinked `node_modules` is refused by Turbopack) and `.env.local` copied over.

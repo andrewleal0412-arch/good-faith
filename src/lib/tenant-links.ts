@@ -91,6 +91,16 @@ export async function demoTenantPath(ws: Workspace, tenancyId: string): Promise<
   return token && hashToken(token) === data.token_hash ? `/t/${token}` : null;
 }
 
+/** activeTenantLink and demoTenantPath in one read, for the tenancy page: the live link, and in a demo copy the
+ *  tenants' page it opens. Only for a tenancy in this workspace (both null otherwise). */
+export async function tenantLinkView(ws: Workspace, tenancyId: string): Promise<{ link: TenantLink | null; demoPath: string | null }> {
+  const { data } = await db.from("tenant_links").select("id, created_at, last_seen_at, token_hash, tenancies!inner(workspace_id)").eq("tenancy_id", tenancyId)
+    .eq("tenancies.workspace_id", ws.id).is("revoked_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!data) return { link: null, demoPath: null };
+  const token = ws.kind === "demo" ? demoTenantToken(data.id as string) : null;
+  return { link: row(data as { id: string; created_at: string; last_seen_at: string | null }), demoPath: token && hashToken(token) === data.token_hash ? `/t/${token}` : null };
+}
+
 /** Revokes every live link of a tenancy. Returns the ids revoked; none when nothing was live. */
 export async function revokeTenantLinks(tenancyId: string): Promise<string[]> {
   const { data } = await db.from("tenant_links").update({ revoked_at: new Date().toISOString() }).eq("tenancy_id", tenancyId).is("revoked_at", null).select("id");

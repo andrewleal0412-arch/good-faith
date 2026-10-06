@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AgGridProvider, AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
 import type {
   CellEditingStartedEvent, CellEditRequestEvent, CellFocusedEvent, CellKeyDownEvent, ColDef, ColSpanParams, GetRowIdParams, GridApi, ICellEditorParams, IErrorValidationParams, ITooltipParams,
@@ -190,6 +190,21 @@ function RowMenu(p: CustomCellRendererProps<Row>) {
 
 /* ---------- The grid ---------- */
 
+/** Its children while this part of the page is shown, and nothing while it is hidden, so they are mounted anew, from
+ *  the props they have then, each time it is shown again. React keeps a hidden tab (Activity) mounted and detaches its
+ *  refs and effects; AG Grid's React component destroys its grid then, and builds it again on the way back from the
+ *  props it had when it first mounted, which after an edit and a trip to another tab showed the old rows under the new
+ *  totals. The first render is empty too; the layout effect fills it before anything is painted. */
+function WhileShown({ children }: { children: ReactNode }) {
+  const [shown, setShown] = useState(false);
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the point: mount the child only once this is on screen
+    setShown(true);
+    return () => setShown(false);
+  }, []);
+  return shown ? children : null;
+}
+
 export function DeductionsGrid(p: {
   tenancyId: string;
   pack: ClientPack;
@@ -240,6 +255,8 @@ export function DeductionsGrid(p: {
     // 736px beside the sidebar, still edits in its cells.
     const ro = new ResizeObserver(([e]) => {
       const w = e.contentRect.width;
+      // 0 while the tab is hidden: keep the layout it had.
+      if (!w) return;
       setLayout(w < 720 ? "narrow" : w < 1010 ? "medium" : "wide");
     });
     ro.observe(el);
@@ -321,7 +338,17 @@ export function DeductionsGrid(p: {
     onEdit: (r) => setDrawer(r), onRemove: (r) => { void remove(r); },
   }), [layout, p.allowed, p.pack, s.documentsRequired, saving, p.locked, remove]);
 
-  useEffect(() => { apiRef.current?.refreshCells({ force: true }); }, [context]);
+  // The grid is destroyed whenever its tab is hidden (WhileShown), and this effect runs again when the tab comes back,
+  // before the new grid is ready: only a live grid is asked.
+  useEffect(() => {
+    const api = apiRef.current;
+    if (api && !api.isDestroyed()) api.refreshCells({ force: true });
+  }, [context]);
+  // A refused value's tip belongs to an editor the hidden tab no longer has.
+  useLayoutEffect(() => () => {
+    invalidRef.current = null;
+    setInvalid(null);
+  }, []);
 
   const columnDefs = useMemo<ColDef<Row>[]>(() => {
     // The item cell of a room's line and of a totals row spans every column up to the amount, so the room's name (or
@@ -425,6 +452,7 @@ export function DeductionsGrid(p: {
 
   return (
     <div ref={card} className="gf-grid gf-deductions" onBlur={onBlur}>
+      <WhileShown>
       <AgGridProvider modules={gridModules}>
         <AgGridReact<Row>
           theme={gridTheme}
@@ -452,9 +480,11 @@ export function DeductionsGrid(p: {
           enableCellTextSelection
           tooltipShowDelay={300}
           onGridReady={(e) => { apiRef.current = e.api; }}
+          onGridPreDestroyed={(e) => { if (apiRef.current === e.api) apiRef.current = null; }}
           overlayComponentParams={{ noRows: { overlayText: "No deductions yet. Add them from the findings above." } }}
         />
       </AgGridProvider>
+      </WhileShown>
       {invalid && <EditTip {...invalid} />}
       <div aria-live="polite" className="empty:hidden">
         {message && <Notice tone={message.tone} className="mx-5 my-3">{message.text}</Notice>}

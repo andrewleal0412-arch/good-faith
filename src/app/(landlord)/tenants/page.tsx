@@ -1,14 +1,12 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { Card, EmptyState, PageHead, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
-import { db } from "@/lib/db";
 import { pacificDate, shortDate } from "@/lib/dates";
 import { propertyStatus, splitAddress, tabHref } from "@/lib/property-view";
 import { packFor, refundRecordWords } from "@/lib/states";
-import { loadUnits } from "@/lib/units";
-import { currentWorkspace } from "@/lib/workspace";
+import { loadUnits, workspaceTenancies } from "@/lib/units";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Tenants" };
@@ -16,12 +14,9 @@ export const metadata: Metadata = { title: "Tenants" };
 // Every tenant on every lease: where they live, the refund agreement (or, where the state asks for none, the refund
 // account) they signed and the PayPal account it names.
 export default async function TenantsPage() {
-  const ws = await currentWorkspace();
-  const [{ units }, { data }] = await Promise.all([
-    loadUnits(),
-    ws ? db.from("tenancies").select("id, tenants, refund_agreement").eq("workspace_id", ws.id) : Promise.resolve({ data: [] }),
-  ]);
-  const extra = new Map(((data ?? []) as { id: string; tenants: { name: string; email: string | null }[] | null; refund_agreement: { paypal_email: string; signed_by: string[]; signed_at: string } | null }[])
+  // The tenants' emails and agreements come with the request's one workspace read, which loadUnits shares.
+  const [{ units }, { rows: tenancies }] = await Promise.all([loadUnits(), workspaceTenancies()]);
+  const extra = new Map((tenancies as unknown as { id: string; tenants: { name: string; email: string | null }[] | null; refund_agreement: { paypal_email: string; signed_by: string[]; signed_at: string } | null }[])
     .map((t) => [t.id, t]));
   const rows = units.flatMap((u) => {
     const t = extra.get(u.summary.id);

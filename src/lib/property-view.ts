@@ -1,6 +1,7 @@
 import { wasPaid } from "./invoice-status";
 import { streetLine } from "./ledger";
 import { closedOut, packOf, REVERSED_STEP, type NextStep, type StepIcon, type TenancySummary } from "./next-step";
+import { tabHref } from "./tenancy-tabs";
 
 // How a tenancy reads in the app's chrome: one status chip (one color per status), the filter group it belongs to,
 // and the one verb its next step links to. Pure: the Properties table, the record header and the Move-outs list
@@ -56,16 +57,7 @@ export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
   return { label: "Leased", tone: "green", group };
 }
 
-export type TabKey = "overview" | "move-out" | "payments" | "documents" | "tenants";
-export const TABS: { key: TabKey; label: string }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "move-out", label: "Move-out" },
-  { key: "payments", label: "Payments" },
-  { key: "documents", label: "Documents" },
-  { key: "tenants", label: "Tenants" },
-];
-
-export const tabHref = (id: string, tab: TabKey, hash = "") => `/tenancy/${id}${tab === "overview" ? "" : `?tab=${tab}`}${hash ? `#${hash}` : ""}`;
+export { TABS, tabHref, tabOf, type TabKey } from "./tenancy-tabs";
 
 export type StepLink = {
   label: string; // the table's one verb ("Review findings")

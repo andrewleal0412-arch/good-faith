@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { ButtonLink } from "@/components/button";
 import { EmptyState, Wordmark } from "@/components/ui";
 

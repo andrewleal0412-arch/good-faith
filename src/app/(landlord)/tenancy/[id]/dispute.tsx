@@ -100,7 +100,7 @@ export function DisputeCard({ v, photoUrl, tenantsLabel }: { v: LandlordDisputeV
                           {u ? (
                             <a href={u} target="_blank" rel="noreferrer" aria-label={`The tenants' photo ${e.name}`}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={u} alt="" className="size-14 rounded-md border border-line bg-surface object-cover" />
+                              <img loading="lazy" decoding="async" src={u} alt="" className="size-14 rounded-md border border-line bg-surface object-cover" />
                             </a>
                           ) : <span className="text-xs text-ink-3">{e.name}</span>}
                         </li>

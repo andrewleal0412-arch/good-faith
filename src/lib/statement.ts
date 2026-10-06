@@ -1,6 +1,7 @@
 import "server-only";
 import { closeOutFacts, type CloseOutFacts } from "./closeout";
 import { CATEGORY_ORDER, isDemoExample } from "./copy";
+import { longDate, pacificDate } from "./dates";
 import { db } from "./db";
 import { describeDelivery, type DeliveryRecord } from "./delivery";
 import { missingDocs, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
@@ -120,11 +121,8 @@ export type StatementSettlement = {
   example: boolean; // the demo's recorded example (a copy's closed unit): no PayPal money moved for it
 };
 
-export const longDate = (iso: string) =>
-  new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
-
-/** The Pacific calendar date of a timestamp. */
-export const pacificDate = (ts: string) => new Date(ts).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+// The long date and the Pacific calendar date, with dates.ts's formatters (made once).
+export { longDate, pacificDate } from "./dates";
 
 // The disclaimers live in copy.ts, which has no server imports, so the static home page can print one too.
 export { DISCLAIMERS } from "./copy";
