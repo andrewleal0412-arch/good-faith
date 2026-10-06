@@ -7,7 +7,8 @@ import type {
   CellClickedEvent, CellKeyDownEvent, ColDef, ColumnMovedEvent, ColumnResizedEvent, ColumnState, GridApi, GridReadyEvent, IRowNode, ITooltipParams,
   ProcessCellForExportParams, ProcessHeaderForExportParams, SortChangedEvent, ValueFormatterParams, ValueGetterParams,
 } from "ag-grid-community";
-import { atText, dayLabel, longDate, shortDate } from "@/lib/dates";
+import { atTextIn, dayLabel, longDate, PACIFIC, shortDate } from "@/lib/dates";
+import { zoneOf } from "@/lib/states";
 import { Button, ButtonLink } from "@/components/button";
 import { CopyId } from "@/components/copy-id";
 import { Drawer } from "@/components/drawer";
@@ -100,7 +101,8 @@ function statusOf(r: LedgerRow, back: Map<string, "returned" | "pending">): stri
     case "settlement": return r.example ? "Demo example" : r.effect === "returned" ? "Completed" : r.effect === "failed" ? "Failed" : "Pending";
     case "deposit_invoice":
     case "damage_invoice": return /^(paid|marked as paid)/.test(r.status) ? "Paid" : r.status === "sent, not paid" ? "Unpaid" : cap(r.status);
-    default: return cap(r.status);
+    // A deduction New York's day 14 forfeited: one word here; the row's tip and the CSV say after which day.
+    default: return r.kind === "deduction" && r.effect === "forfeited" ? "Forfeited" : cap(r.status);
   }
 }
 
@@ -218,6 +220,9 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
   requestHref: string;
 }) {
   const apiRef = useRef<GridApi<LedgerRow> | null>(null);
+  // A PayPal report's moment, on the clock of the row's property (its state's zone; "EDT" and the like outside Pacific).
+  const zones = useMemo(() => new Map(units.map((u) => [u.id, zoneOf(u.state)])), [units]);
+  const atFor = useCallback((r: LedgerRow, ts: string) => atTextIn(ts, zones.get(r.tenancyId) ?? PACIFIC), [zones]);
   // Every row California's (its tags are subsections of Civ. Code 1950.5): the export's column keeps that name.
   const allCa = rows.every((r) => !r.tag || r.tag.startsWith("("));
   const [view, setView] = useState<View>(VIEWS.some((v) => v.key === initialView) ? initialView as View : "all");
@@ -295,7 +300,9 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
     for (const r of mine) byT.set(r.tenancyId, [...(byT.get(r.tenancyId) ?? []), r]);
     const holding = [...byT.values()].filter((xs) => ledgerTotals(xs).held > 0).length;
     const due = units.filter((u) => u.due && byT.has(u.id))
-      .map((u) => ({ u, amount: owedBack(byT.get(u.id)!) })).filter((x) => x.amount > 0)
+      // Forfeited deductions (New York after day 14): the whole deposit is owed, or the rest of it once a refund went.
+      .map((u) => ({ u, amount: owedBack(byT.get(u.id)!), forfeited: byT.get(u.id)!.some((r) => r.effect === "forfeited"),
+        rest: byT.get(u.id)!.some((r) => (r.kind === "refund" || r.kind === "payout") && r.effect !== "failed") })).filter((x) => x.amount > 0)
       .sort((a, b) => a.u.due!.localeCompare(b.u.due!));
     return { held: ledgerTotals(mine).held, holding, due };
   }, [rows, units, property]);
@@ -417,7 +424,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
       {
         colId: "source", headerName: "Status from", width: 132, hide: !on("source"), cellClass: "text-ink-2",
         valueGetter: (p: ValueGetterParams<LedgerRow>) => (p.data ? sourceOf(p.data) : ""),
-        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.fromPayPal ? `PayPal reported it ${atText(p.data.fromPayPal)}` : null),
+        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data?.fromPayPal ? `PayPal reported it ${atFor(p.data, p.data.fromPayPal)}` : null),
       },
       {
         colId: "tag", field: "tag", headerName: allCa ? "Civ. Code" : "Rule", width: 116, hide: !on("tag"), cellClass: "tabular-nums text-ink-2",
@@ -427,12 +434,12 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
       },
       {
         colId: "status", headerName: "Status", width: layout === "wide" ? 124 : 112, cellRenderer: StatusCell, valueGetter: statusGetter, hide: !on("status"),
-        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data ? cap(p.data.detail) + (p.data.fromPayPal ? `. PayPal reported it ${atText(p.data.fromPayPal)}.` : "") : null),
+        tooltipValueGetter: (p: ITooltipParams<LedgerRow>) => (p.data ? cap(p.data.detail) + (p.data.fromPayPal ? `. PayPal reported it ${atFor(p.data, p.data.fromPayPal)}.` : "") : null),
       },
       { colId: "amount", field: "amount", headerName: "Amount", width: narrow ? 116 : layout === "wide" ? 128 : 116, type: "rightAligned", cellRenderer: AmountCell, cellClass: "tabular-nums", sortable: !narrow },
       { ...MENU, width: narrow ? 40 : 52 },
     ];
-  }, [layout, today, visible, narrow, allCa]);
+  }, [layout, today, visible, narrow, allCa, atFor]);
 
   const defaultColDef = useMemo<ColDef<LedgerRow>>(() => ({
     sortable: true, resizable: true, suppressHeaderMenuButton: true, tooltipComponent: GridTip,
@@ -488,7 +495,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
         {tiles.due.length ? (
           <Tile label={`Due back by ${shortDate(tiles.due[0].u.due!)}`}
             value={tiles.due.reduce((s, x) => s + x.amount, 0)}
-            sub={tiles.due.length === 1 ? `${tiles.due[0].u.street}, after deductions` : `${tiles.due.length} move-outs, the first at ${tiles.due[0].u.street}`} />
+            sub={tiles.due.length === 1 ? `${tiles.due[0].u.street}, ${tiles.due[0].forfeited ? (tiles.due[0].rest ? "the rest of the deposit" : "the whole deposit") : "after deductions"}` : `${tiles.due.length} move-outs, the first at ${tiles.due[0].u.street}`} />
         ) : (
           <Tile label="Due back" value={0} sub="No move-out is waiting on a refund" />
         )}
@@ -583,7 +590,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
       </div>
 
       <Drawer open={!!open} onClose={() => setOpen(null)} title={open ? `${TYPE[open.kind]}, ${shortDate(open.date)}` : ""} sub={open ? `${open.unit}, ${open.tenants}` : undefined}>
-        {open && <Details r={open} d={details[open.id]} status={statusOf(open, back)} />}
+        {open && <Details r={open} d={details[open.id]} status={statusOf(open, back)} at={(ts) => atFor(open, ts)} />}
       </Drawer>
     </>
   );
@@ -591,7 +598,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
 
 /** One row in full: the amount and its status, what it was and the rule behind it, every PayPal id with a copy button,
  *  where the status came from, and what PayPal's webhook said about it. */
-function Details({ r, d, status }: { r: LedgerRow; d: LedgerDetail | undefined; status: string }) {
+function Details({ r, d, status, at }: { r: LedgerRow; d: LedgerDetail | undefined; status: string; at: (ts: string) => string }) {
   const section = "mt-6 border-t border-line-2 pt-4";
   return (
     <div>
@@ -620,7 +627,7 @@ function Details({ r, d, status }: { r: LedgerRow; d: LedgerDetail | undefined; 
 
       <div className={section}>
         <h3 className="text-sm font-medium">Status from</h3>
-        <p className="mt-2 text-sm text-ink-2">{d?.source.text ?? sourceOf(r)}{d?.source.at ? `, ${atText(d.source.at)}` : ""}.</p>
+        <p className="mt-2 text-sm text-ink-2">{d?.source.text ?? sourceOf(r)}{d?.source.at ? `, ${at(d.source.at)}` : ""}.</p>
         {d?.source.event && (
           <KV className="mt-3" rows={[["Event", d.source.event.type], ["Event ID", <CopyId key="e" text={d.source.event.id} label="Copy the event id" />]]} />
         )}
@@ -637,7 +644,7 @@ function Details({ r, d, status }: { r: LedgerRow; d: LedgerDetail | undefined; 
                   <div className="text-sm font-medium">{e.type}</div>
                   <div className="text-xs text-ink-3">{e.note ?? cap(e.status)}</div>
                 </div>
-                <span className="shrink-0 text-xs text-ink-3">{atText(e.at)}</span>
+                <span className="shrink-0 text-xs text-ink-3">{at(e.at)}</span>
               </li>
             ))}
           </ul>

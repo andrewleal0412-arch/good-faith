@@ -5,12 +5,13 @@
 // Client-safe: the lease check and the tenancy's client components import this, and get each pack's ClientPack half.
 // Server code imports `./server`, whose packFor joins the server half (the checklist, the agent's rules and prompt).
 
+import { dateIn, todayIn } from "../dates";
 import { CA } from "./ca";
 import { FL } from "./fl";
 import { NY } from "./ny";
 import { TX } from "./tx";
 import { WA } from "./wa";
-import type { ClientPack, ClockInput, StateCode } from "./types";
+import type { ClientPack, ClockInput, StateCode, ZoneException } from "./types";
 
 export type { ClientPack, StateCode, StatePack } from "./types";
 
@@ -96,4 +97,20 @@ export function refundRecordWords(pack: Pick<ClientPack, "refund">) {
 export function localOverlays(pack: ClientPack, city: string | null | undefined) {
   if (!city) return [];
   return pack.localOverlays.filter((o) => o.match.test(city.trim()));
+}
+
+/** The time zone a property's deadlines are counted in: its state pack's (Andrew, 2026-10-05). */
+export const zoneOf = (code: string | null | undefined) => packFor(code).timeZone.id;
+
+/** Today where the property is: the calendar day its state's deadlines are counted from. */
+export const todayFor = (code: string | null | undefined) => todayIn(zoneOf(code));
+
+/** The calendar day of a timestamp where the property is (a refund sent, a record made). */
+export const dayFor = (ts: string, code: string | null | undefined) => dateIn(ts, zoneOf(code));
+
+/** The parts of the state on another clock that a property's city is in (El Paso, Pensacola): shown as a warning only.
+ *  The deadlines stay in the pack's own zone. */
+export function zoneWarnings(pack: Pick<ClientPack, "timeZone">, city: string | null | undefined): ZoneException[] {
+  if (!city) return [];
+  return pack.timeZone.exceptions.filter((e) => e.match.test(city.trim()));
 }

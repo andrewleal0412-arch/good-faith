@@ -1,6 +1,6 @@
 import Link from "@/components/link";
 import { notFound } from "next/navigation";
-import { longDate, pacificToday } from "@/lib/dates";
+import { longDate, todayIn } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { statementDue, usd } from "@/lib/deductions";
 import { wasPaid } from "@/lib/invoice-status";
@@ -34,7 +34,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
   if (!found) notFound();
   const { t, pack, kind, info } = found;
 
-  const today = pacificToday();
+  const today = todayIn(pack.timeZone.id); // where the property is
   const given = t.notices[kind] ?? null;
   const date = given?.date ?? today;
   // The notice goes out before the move-out, so it speaks to the planned end, or the lease end when no notice is recorded.

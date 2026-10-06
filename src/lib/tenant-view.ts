@@ -1,6 +1,6 @@
 import "server-only";
 import { CATEGORY_ORDER, isDemoExample } from "./copy";
-import { pacificDate, pacificToday, paypalPaidAt } from "./dates";
+import { dateIn, paypalPaidAt, todayIn } from "./dates";
 import { db } from "./db";
 import { basisWords, chargeTitle, settle, type Performer, type Proration, type Work } from "./deductions";
 import { refreshDepositInvoice, type DepositInvoiceRow } from "./deposit";
@@ -10,6 +10,7 @@ import type { Notices } from "./notices";
 import { disputeReturns, settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { Standing, StateCode } from "./states/types";
+import { recordedLater } from "./delivery";
 import type { Category, DeliveryRecord } from "./statement";
 import type { TenantMoveOut } from "./tenant";
 
@@ -44,6 +45,7 @@ export type TenantView = {
     deductions: TenantDeduction[];
     total: number; refund: number; balanceClaimed: number; documentsRequired: boolean; // refund: what is owed back (the whole deposit when the deductions are forfeited)
     standing?: Standing; // a claim disputed (Florida) or forfeited after day 14 (New York); absent otherwise
+    recordedOn?: string; // the day the delivery was recorded, when later than its delivery date; absent otherwise
   } | null;
   returned: { amount: number; kind: string; status: string; paypalId: string | null; at: string } | null;
   // What PayPal returned to them through the PayPal dispute they opened on the deposit payment: before or beside the
@@ -59,7 +61,7 @@ export type TenantDeduction = {
   title: string; where: string | null; basis: string; // the page's title, where it was and its basis in a few words
 };
 
-const TENANCY_COLUMNS = "tenants, start_date, end_date, notice_given_on, planned_move_out, move_out_date, move_out_inspected_at, statement_delivered_at, statement_delivery, refund_agreement, tenant_move_out, notices, properties(address, owner_name, state)";
+const TENANCY_COLUMNS = "tenants, start_date, end_date, notice_given_on, planned_move_out, move_out_date, move_out_inspected_at, statement_delivered_at, statement_delivery, statement_delivery_recorded_at, refund_agreement, tenant_move_out, notices, properties(address, owner_name, state)";
 const DEDUCTION_COLUMNS = "item, room, category, amount, work, performer, proration, math, note, hours, hourly_rate, item_age_years, useful_life_years";
 type DeductionRow = {
   item: string; room: string | null; category: Category; amount: number | string; work: Work; performer: Performer; proration: Proration; math: string; note: string | null;
@@ -96,7 +98,8 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   const via = disputeReturns((payments ?? []) as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
 
   const notices = (t.notices ?? {}) as Notices;
-  const today = pacificToday();
+  // Today where the property is: its state's deadlines are counted in its pack's zone.
+  const today = todayIn(pack.timeZone.id);
   const statementDue = pack.deadline.due({
     moveOutDate: t.move_out_date, endDate: t.end_date, plannedMoveOut: t.planned_move_out,
     claimed: (deductionCount ?? 0) > 0, claimNoticeDate: notices.claim_notice?.date ?? null,
@@ -118,14 +121,16 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     // returned nothing.
     const standing = pack.close.standing?.({
       today, notices, claimed: s.total, statementDue, deliveredOn: (t.statement_delivery as DeliveryRecord).date,
-      returnedOn: ret && !returnFailed(ret.status as string) ? pacificDate(ret.created_at as string) : null, refundOwed: s.refund > 0,
+      returnedOn: ret && !returnFailed(ret.status as string) ? dateIn(ret.created_at as string, pack.timeZone.id) : null, refundOwed: s.refund > 0,
     });
     // Forfeited deductions (New York after day 14) leave the whole deposit owed back, and no balance claimed over it.
     const forfeits = !!standing?.forfeits;
+    const recordedOn = recordedLater(t.statement_delivery as DeliveryRecord, t.statement_delivery_recorded_at as string | null, pack.timeZone.id);
     statement = {
       delivery: t.statement_delivery as DeliveryRecord, deliveredAt: t.statement_delivered_at as string, depositHeld, deductions: rows,
       total: s.total, refund: forfeits ? depositHeld : s.refund, balanceClaimed: forfeits ? 0 : s.balanceClaimed, documentsRequired: s.documentsRequired,
       ...(standing ? { standing } : {}),
+      ...(recordedOn ? { recordedOn } : {}),
     };
   }
 

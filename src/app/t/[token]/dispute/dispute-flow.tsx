@@ -11,7 +11,7 @@ import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
 import { DEMO_EXAMPLE } from "@/lib/copy";
-import { pacificDate, shortDate } from "@/lib/dates";
+import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import { canWithdraw } from "@/lib/dispute-status";
 import type { DisputeLineView, TenantDisputeView } from "@/lib/disputes";
 import type { LoadedNegotiation } from "@/lib/negotiation";
@@ -40,8 +40,9 @@ const VERDICT: Record<Verdict, { label: string; tone: "gray" | "amber" | "red" }
   unlawful: { label: "Not allowed", tone: "red" },
 };
 
-export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, negotiation }: {
+export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, negotiation, zone = PACIFIC }: {
   token: string; landlord: string; view: TenantDisputeView; stateName: string; notLegalAdvice: string; negotiation: LoadedNegotiation | null;
+  zone?: string; // the property's time zone (its state pack's), which the dispute's dates are shown in
 }) {
   const router = useRouter();
   const d = view.dispute;
@@ -102,7 +103,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
   const serverStale = !pending && !!draft?.stale;
 
   if (d && !draft && !reopening) {
-    return <Sent token={token} landlord={landlord} view={view} negotiation={negotiation} onAgain={d.status === "withdrawn" ? () => { setError(""); setAgain(true); } : undefined} />;
+    return <Sent token={token} landlord={landlord} view={view} negotiation={negotiation} zone={zone} onAgain={d.status === "withdrawn" ? () => { setError(""); setAgain(true); } : undefined} />;
   }
 
   const problem = (): string => {
@@ -434,10 +435,11 @@ function CaseLines({ c, view }: { c: AdvocateCase; view: TenantDisputeView }) {
 /** The dispute once sent: where it stands (the landlord's answer, the settlement to accept, no agreement and what the
  *  state's process is, or withdrawn with the way to dispute again), the negotiation turn by turn, and what the tenants
  *  sent. While it is open they may withdraw it. */
-function Sent({ token, landlord, view, negotiation, onAgain }: {
-  token: string; landlord: string; view: TenantDisputeView; negotiation: LoadedNegotiation | null; onAgain?: () => void;
+function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
+  token: string; landlord: string; view: TenantDisputeView; negotiation: LoadedNegotiation | null; zone: string; onAgain?: () => void;
 }) {
   const router = useRouter();
+  const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
   const d = view.dispute!;
   const n = negotiation;
   const s = n?.settlement ?? null;
@@ -568,7 +570,7 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
         <Money value={d.askedBack ?? 0} className="mt-0.5 block text-2xl font-medium" />
         <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
           <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-3"><Icon name="x" className="size-3" /></span>
-          Withdrawn{d.closedAt ? ` ${shortDate(pacificDate(d.closedAt))}` : ""}
+          Withdrawn{d.closedAt ? ` ${shortDate(dayOf(d.closedAt))}` : ""}
         </p>
         <p className="mt-1.5 text-ink-2">You withdrew this dispute, so the statement stands as {landlord} sent it. You can dispute it again.</p>
         {onAgain && <Button variant="primary" size="lg" className="mt-4 h-11 w-full" onClick={onAgain}>Dispute again</Button>}
@@ -581,7 +583,7 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
         <Money value={s.wholeBack ? 0 : s.amount} className="mt-0.5 block text-2xl font-medium" />
         <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
           <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3" /></span>
-          {s.example ? `Settled${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : s.amount > 0 && !s.wholeBack ? `Sent by PayPal${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled"}
+          {s.example ? `Settled${s.sentAt ? ` ${shortDate(dayOf(s.sentAt))}` : ""}` : s.amount > 0 && !s.wholeBack ? `Sent by PayPal${s.sentAt ? ` ${shortDate(dayOf(s.sentAt))}` : ""}` : "Settled"}
         </p>
         <p className="mt-1.5 text-ink-2">
           {s.example ? `Back to you on top of the statement's refund. ${DEMO_EXAMPLE.tenant}`
@@ -603,7 +605,7 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
           {s.unconfirmed || s.status === "sending"
             ? `${landlord} approved it, and the payment through PayPal is being confirmed. This page shows it once PayPal does.`
             : s.tenantAcceptedAt
-              ? `${s.tenantName ?? "You"} accepted it ${shortDate(pacificDate(s.tenantAcceptedAt))}. ${inWhole ? `${inWhole}, so no more money moves; ${landlord} approves it to settle the dispute.` : `It goes back to you through PayPal once ${landlord} approves it.`}`
+              ? `${s.tenantName ?? "You"} accepted it ${shortDate(dayOf(s.tenantAcceptedAt))}. ${inWhole ? `${inWhole}, so no more money moves; ${landlord} approves it to settle the dispute.` : `It goes back to you through PayPal once ${landlord} approves it.`}`
               : inWhole ? `${inWhole}, so this moves no more money: it records that the charges were given back. Nothing changes until you accept it and ${landlord} approves it.`
                 : `Back to you on top of the statement's refund. Nothing moves until you accept it and ${landlord} approves it.`}
         </p>
@@ -658,7 +660,7 @@ function Sent({ token, landlord, view, negotiation, onAgain }: {
         <Money value={d.askedBack ?? 0} className="mt-0.5 block text-2xl font-medium" />
         <p className="mt-1.5 flex items-center gap-2 text-lg font-medium">
           <span aria-hidden className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-bg text-amber"><Icon name="clock" className="size-3" /></span>
-          {`Sent to ${landlord}${d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}`}
+          {`Sent to ${landlord}${d.sentAt ? ` ${shortDate(dayOf(d.sentAt))}` : ""}`}
         </p>
         <p className="mt-1.5 text-ink-2">
           {n?.running ? "The agents are negotiating. Each turn appears below as it is made." : "Their answer comes back to this page. Nothing changes until you both agree."}

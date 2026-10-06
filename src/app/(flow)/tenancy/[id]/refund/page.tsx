@@ -7,7 +7,7 @@ import { Icon, PayPalMark, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money, Notice, StatusChip, Wordmark } from "@/components/ui";
 import { PAGE_PATH, runNotes, stripQuotes, type Step } from "@/lib/agent-notes";
-import { atText, pacificTime, shortDate } from "@/lib/dates";
+import { atTextIn, shortDate, timeIn } from "@/lib/dates";
 import { usd } from "@/lib/deductions";
 import { db } from "@/lib/db";
 import { POOL_EMPTY } from "@/lib/demo-pool";
@@ -53,7 +53,7 @@ export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/re
       </header>
       <main className="flex flex-1 justify-center px-4 pb-20 pt-6 sm:px-8 sm:pt-16">
         <div className="w-[560px] max-w-full">
-          {v.sent ? <Sent v={v} statute={statute} /> : <Review v={v} statute={statute} record={refundRecordWords(pack).name.toLowerCase()} />}
+          {v.sent ? <Sent v={v} statute={statute} zone={pack.timeZone.id} /> : <Review v={v} statute={statute} record={refundRecordWords(pack).name.toLowerCase()} zone={pack.timeZone.id} />}
         </div>
       </main>
     </div>
@@ -110,7 +110,7 @@ function partyRows(v: RefundView): [ReactNode, ReactNode, ReactNode?][] {
 
 /* ---------- Review ---------- */
 
-function Review({ v, statute, record }: { v: RefundView; statute: string; record: string }) {
+function Review({ v, statute, record, zone }: { v: RefundView; statute: string; record: string; zone: string }) {
   const r = v.review!;
   const run = r.run;
   const awaiting = !!r.pending && run?.status === "awaiting_approval";
@@ -132,6 +132,8 @@ function Review({ v, statute, record }: { v: RefundView; statute: string; record
         : `The ${v.tenants.length === 1 ? "tenant's" : "tenants'"} original PayPal payment`],
     // A refund lands in the PayPal account that paid; anything paid another way is left without a promise.
     ...(payout || r.method === "PAYPAL" ? [["Arrival", "Today"] as [ReactNode, ReactNode]] : []),
+    // The whole deposit goes back: the note PayPal shows the tenants says so, in code's words.
+    ...(r.noteToPayer ? [["Note", <span key="n" className="text-ink-2">{r.noteToPayer}</span>] as [ReactNode, ReactNode]] : []),
   ];
 
   const mode = awaiting ? "send" as const : "prepare" as const;
@@ -177,7 +179,7 @@ function Review({ v, statute, record }: { v: RefundView; statute: string; record
             )}
           </ul>
           {failedCheck && <Notice className="mt-2">{failedCheck}</Notice>}
-          {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} statute={statute} />}
+          {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} statute={statute} zone={zone} />}
         </div>
       </details>
 
@@ -248,7 +250,7 @@ function CheckRow({ c }: { c: Check }) {
 
 /** One short line per thing the agent did, in the order it did them. A refund waiting for the landlord shows as
  *  prepared, then waiting; PayPal's own answer for each step is the row's tooltip. */
-function agentRows(steps: Step[], p: { amount: number; deposit: number; word: string; proposedAt: string | null }) {
+function agentRows(steps: Step[], p: { amount: number; deposit: number; word: string; proposedAt: string | null; zone: string }) {
   const out: { key: string; title: string; detail: string; state: Mark; right?: string }[] = [];
   for (const s of steps) {
     const detail = stripQuotes(s.detail).text;
@@ -258,7 +260,7 @@ function agentRows(steps: Step[], p: { amount: number; deposit: number; word: st
       const w = s.tool === "send_payout" ? "payout" : "refund";
       if (s.state === "waiting") {
         out.push({ key: s.id, title: `Prepared the ${usd(p.amount)} ${w}`, detail: s.title, state: "ok" });
-        out.push({ key: `${s.id}:wait`, title: "Waiting for your approval", detail, state: "waiting", right: p.proposedAt ? pacificTime(p.proposedAt) : undefined });
+        out.push({ key: `${s.id}:wait`, title: "Waiting for your approval", detail, state: "waiting", right: p.proposedAt ? timeIn(p.proposedAt, p.zone) : undefined });
       } else if (s.state === "declined") {
         out.push({ key: s.id, title: `You declined the ${w}`, detail, state });
       } else if (s.state === "error") {
@@ -285,13 +287,13 @@ function withLinks(text: string): ReactNode[] {
   });
 }
 
-function AgentRun({ run, amount, deposit, word, statute }: { run: RunView; amount: number; deposit: number; word: string; statute: string }) {
+function AgentRun({ run, amount, deposit, word, statute, zone }: { run: RunView; amount: number; deposit: number; word: string; statute: string; zone: string }) {
   const n = runNotes(run.items);
-  const rows = agentRows(n.steps, { amount, deposit, word, proposedAt: run.proposedAt });
+  const rows = agentRows(n.steps, { amount, deposit, word, proposedAt: run.proposedAt, zone });
   if (!rows.length && !n.summary.length) return null;
   return (
     <>
-      <GroupHead title="Done by the agent" right={atText(run.startedAt)} className="mt-4" />
+      <GroupHead title="Done by the agent" right={atTextIn(run.startedAt, zone)} className="mt-4" />
       <ul>
         {rows.map((x) => (
           <li key={x.key} className="flex min-w-0 items-start gap-2.5 py-[7px] text-sm text-ink-2">
@@ -328,7 +330,7 @@ function deliveredBy(d: DeliveryRecord): string {
   return `By first-class mail to ${d.address_kind === "unit" ? "the vacated unit" : d.address_kind === "forwarding" ? "the forwarding address" : d.address ?? "the tenant"}`;
 }
 
-function Sent({ v, statute }: { v: RefundView; statute: string }) {
+function Sent({ v, statute, zone }: { v: RefundView; statute: string; zone: string }) {
   const s = v.sent!;
   const word = s.kind === "payout" ? "Payout" : "Refund";
   const failed = s.tone === "red";
@@ -344,14 +346,14 @@ function Sent({ v, statute }: { v: RefundView; statute: string }) {
       </h1>
       <Lead to="To" v={v} />
       <Money value={s.amount} className="mt-3 block text-2xl font-medium" />
-      <p className="mt-2 text-ink-3">Sent {atText(s.at)} through PayPal.</p>
+      <p className="mt-2 text-ink-3">Sent {atTextIn(s.at, zone)} through PayPal.</p>
 
       <Divider />
       <Rows rows={[
         ...(s.paypalId ? [[<><span className="max-sm:hidden">PayPal {s.kind === "payout" ? "payout" : "refund"} ID</span><span className="sm:hidden">{word} ID</span></>, <CopyId key="id" text={s.paypalId} label={`Copy the PayPal ${s.kind} ID`} />] as [ReactNode, ReactNode]] : []),
-        ["Status", <StatusChip key="st" tone={s.tone}>{s.status}</StatusChip>, s.fromPayPal ? `From PayPal, ${atText(s.fromPayPal)}` : undefined],
+        ["Status", <StatusChip key="st" tone={s.tone}>{s.status}</StatusChip>, s.fromPayPal ? `From PayPal, ${atTextIn(s.fromPayPal, zone)}` : undefined],
         ...partyRows(v),
-        ...(s.approvedAt ? [["Approved by", "You", atText(s.approvedAt)] as [ReactNode, ReactNode, ReactNode]] : []),
+        ...(s.approvedAt ? [["Approved by", "You", atTextIn(s.approvedAt, zone)] as [ReactNode, ReactNode, ReactNode]] : []),
       ]} />
 
       <div className="mt-7 rounded-lg border border-line-2 bg-surface px-5 py-4">
@@ -386,7 +388,7 @@ function Sent({ v, statute }: { v: RefundView; statute: string }) {
         <details className="group mt-10 border-t border-line-2 pt-4">
           <Summary />
           <div className="mt-2">
-            <AgentRun run={s.run} amount={s.amount} deposit={s.deposit} word={s.kind} statute={statute} />
+            <AgentRun run={s.run} amount={s.amount} deposit={s.deposit} word={s.kind} statute={statute} zone={zone} />
           </div>
         </details>
       )}

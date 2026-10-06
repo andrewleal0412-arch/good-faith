@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { tenantPhotoLabel, type AdvocateCase, type CaseFile, type CaseLine, type CasePhoto, type LoadPhoto } from "./advocate";
 import { cleanBox, type Box } from "./boxes";
-import { pacificDate, pacificToday } from "./dates";
+import { dateIn, todayIn } from "./dates";
 import { db } from "./db";
 import { basisWords, chargeTitle, settle } from "./deductions";
 import type { DeliveryRecord } from "./delivery";
@@ -122,10 +122,11 @@ export function factsFrom(tenancyId: string, t: Record<string, unknown>, rows: R
   const delivery = (t.statement_delivery ?? null) as DeliveryRecord | null;
   const notices = (t.notices ?? {}) as Notices;
   const clock = { moveOutDate: t.move_out_date as string | null, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null };
-  const today = pacificToday();
+  // Today and the day the money went back, where the property is (its pack's zone): the deadline is counted there.
+  const today = todayIn(pack.timeZone.id);
   const rangeInput: RangeInput = {
     deductions, depositHeld, today, ...clock, notices, deliveredOn: delivery?.date ?? null,
-    refundedOn: ret ? pacificDate(ret.created_at as string) : null,
+    refundedOn: ret ? dateIn(ret.created_at as string, pack.timeZone.id) : null,
   };
   const ranges = lawfulRanges(rangeInput, pack);
   return {

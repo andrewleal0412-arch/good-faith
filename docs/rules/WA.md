@@ -80,6 +80,7 @@ Citations are to RCW 59.18 unless noted. Action: E = enforce (block), W = warn, 
 - The statute counts calendar days and names no extension; the only statutory excuses are circumstances beyond the landlord's control and abandonment (W25). RCW 1.12.040, the general computation-of-time statute, excludes the first day and, when the last day "is a holiday, Saturday, or Sunday", excludes that day too; the Reviser's note records that the courts treat it as of general application [S31]. So a day 30 that lands on a weekend or holiday arguably rolls to the next business day, but no decision applies it to 59.18.280. The app does not rely on it: it shows the 30th calendar day as the deadline and flags the weekend case as "mail by the Friday before".
 - Deceased sole tenant (59.18.595): the statement and refund go to the "tenant representative" (defined in 59.18.030(35)) within "the same number of days as required under RCW 59.18.280" after that representative removes the tenant's property [S33]. The app records the representative, the proof they gave, and the removal date, and starts the 30 days there.
 - There is no waiting period for a forwarding address: the statement goes to the "last known address", which may be the vacated unit (W18).
+- **Time zone (Andrew's decision of 2026-10-05).** The days are counted in Pacific time (America/Los_Angeles), the whole state's: today and the day the statement and the refund went.
 
 ## D. How the statement must be delivered
 

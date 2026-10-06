@@ -13,6 +13,7 @@ Zillow Rental Manager's structure with Mercury's calm: a white canvas, neutral g
 - Empty values are words ("Not set", "Not paid", "None"), never a dash.
 - The sandbox shows only as the Test mode switch in the top bar (and the plain word "Sandbox" in the tenant page's bar).
 - Dates on screen are short ("Oct 1, 2026"); long dates ("October 1, 2026") are for the printed notices and the statement.
+- A property's dates are calendar days where it is (its state's zone), and a clock time outside Pacific time carries the zone's short name ("11:30 PM EDT"); Pacific times stay bare. A delivery recorded on a later day reads "Delivered Oct 2, recorded Oct 6" (a "Recorded" row on the delivery card; "(recorded October 6, 2026)" in the statement's and the PDF's sentence). A city on another clock than its state's shows an amber dotted "Time zone" label beside the Rules chip, like "Local rules".
 - A status PayPal reported through its webhook carries "From PayPal" under it in `text-xs` `ink-3` (with the moment where there is room, or in the row's tooltip); the bell lists PayPal's reports under their own "From PayPal" heading, with a green, amber or red dot by what happened.
 
 ## Tokens

@@ -2,7 +2,7 @@ import "server-only";
 import type { Pending } from "./agent";
 import { timeline, type TimelineItem } from "./agent-timeline";
 import { closeOutFacts, guardWithFacts, paidAgo, type CloseOutFacts, type Rail } from "./closeout";
-import { pacificDate, shortDate, whenText } from "./dates";
+import { dateIn, shortDate, whenText } from "./dates";
 import { db } from "./db";
 import { usd } from "./deductions";
 import { DEMO_DEPOSIT_DATE, DEMO_REFUND_BLOCKS } from "./demo-pool";
@@ -67,6 +67,7 @@ export type RefundView = {
     viaDispute?: { amount: number; disputeId: string | null; notKept: number };
     rail: Rail;
     why: string;
+    noteToPayer?: string; // what PayPal shows the tenants when the whole deposit goes back (closeout.ts); absent otherwise
     method: string | null; // how the tenants paid, PayPal's code
     blockers: string[];
     warnings: string[];
@@ -110,7 +111,7 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean,
   const d = f.deposit;
   out.push({
     key: "deposit", label: "Deposit paid in PayPal",
-    value: d ? `${usd(d.amount)}${d.paidAt ? `, ${shortDate(pacificDate(d.paidAt))}` : ""}` : "Not collected",
+    value: d ? `${usd(d.amount)}${d.paidAt ? `, ${shortDate(dateIn(d.paidAt, pack.timeZone.id))}` : ""}` : "Not collected",
     state: d && wasPaid(d.status) && d.live ? "ok" : "fail",
     tip: { title: "The deposit", body: d
       ? `PayPal reports invoice ${d.invoiceId} as ${statusWords(d.status).toLowerCase()}${d.live ? ", checked just now" : ", as last recorded: PayPal could not be reached"}.${demo ? ` ${DEMO_DEPOSIT_DATE}` : ""}`
@@ -122,7 +123,7 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean,
     const record = refundRecordWords(pack);
     out.push({
       key: "agreement", label: record.check,
-      value: a ? `Signed ${shortDate(pacificDate(a.signedAt))}` : "Not on file",
+      value: a ? `Signed ${shortDate(dateIn(a.signedAt, pack.timeZone.id))}` : "Not on file",
       state: a ? "ok" : "fail",
       tip: { title: record.tip, ...rule(RULES.electronicRefund) },
     });
@@ -271,7 +272,7 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
       amount: pending?.amount ?? Math.max(0, Math.round(((f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund) - (f.viaDispute?.amount ?? 0)) * 100) / 100), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
       ...(f.viaDispute ? { viaDispute: { amount: f.viaDispute.amount, disputeId: f.viaDispute.disputeId, notKept: f.viaDispute.notKept } } : {}),
       balanceClaimed: f.totals.balanceClaimed, ...(f.standing && !f.standing.forfeits ? { standing: f.standing.label } : {}), ...(f.standing?.forfeits ? { forfeited: true } : {}),
-      rail: f.plan.rail, why: f.plan.why, method: f.deposit?.method ?? null,
+      rail: f.plan.rail, why: f.plan.why, ...(f.plan.noteToPayer ? { noteToPayer: f.plan.noteToPayer } : {}), method: f.deposit?.method ?? null,
       blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),
       checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
       run: await runView(run), pending,

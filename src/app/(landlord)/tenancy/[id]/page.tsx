@@ -20,7 +20,7 @@ import { disputeBanner, loadPayPalDispute } from "@/lib/chargeback-store";
 import { deductionsLock, factsFrom, loadLandlordDispute, sentDispute, type DisputeRow } from "@/lib/disputes";
 import { limitsFor } from "@/lib/deduction-edit";
 import { loadNegotiation } from "@/lib/negotiation";
-import { dayLabel, daysBetween, pacificDate, pacificToday, shortDate, whenText } from "@/lib/dates";
+import { dateIn, dayLabel, daysBetween, shortDate, todayIn, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
 import { closedOut, dueLabelOf, dueOf, inspectionExcused, liveDispute, nextStep, notKeptAfterDispute, refundLeft } from "@/lib/next-step";
@@ -111,6 +111,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     isTemplate(id),
   ]);
   if (!t) notFound();
+  // Every day on this page is a calendar day where the property is (its state pack's zone): today, which the deadline
+  // counts from, and the day of each refund, signature and photo. California's is Pacific, as it always was.
+  const zone = packFor((t.properties as { state?: string | null } | null)?.state).timeZone.id;
+  const dayOf = (ts: string) => dateIn(ts, zone);
   const tenantLink = link.link;
   const tenantPath = link.demoPath;
 
@@ -160,7 +164,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // The day each photo was taken, by storage path, for the comparison cards.
   const dateOf = (path: string) => {
     const p = photoRows.find((x) => x.storage_path === path);
-    return p ? shortDate(pacificDate(p.taken_at ?? p.created_at)) : null;
+    return p ? shortDate(dayOf(p.taken_at ?? p.created_at)) : null;
   };
   // Each finding with its checked boxes, its photos and the deduction made from it. Rows from before boxes, or before
   // the landlord's review, read as no box and not reviewed.
@@ -202,7 +206,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     ...summarizeTenancy(t as unknown as Parameters<typeof summarizeTenancy>[0], paymentRows, photos as unknown as { phase: string }[], deductions),
     dispute: liveDispute(dispute?.status), ...(ppBanner ? { paypalDispute: true } : {}),
   };
-  const today = pacificToday();
+  const today = todayIn(zone);
   const next = nextStep(summary, today);
   const status = propertyStatus(summary, next);
   const step = stepLink(summary, next);
@@ -216,7 +220,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const held = paid && invoice ? Number(invoice.amount) : null;
   // PayPal reversed the deposit payment (a chargeback, its webhook said so): paid once, no longer held.
   const reversal = (invoice?.raw as { reversal?: { at?: string | null } } | null)?.reversal ?? null;
-  const reversedSub = reversal ? `Reversed by PayPal${reversal.at ? `, ${shortDate(pacificDate(reversal.at))}` : ""}` : null;
+  const reversedSub = reversal ? `Reversed by PayPal${reversal.at ? `, ${shortDate(dayOf(reversal.at))}` : ""}` : null;
   const money = settle(held ?? 0, deductions, pack);
   const due = dueOf(summary);
   // What went back: the close-out's refund or Payout, or PayPal's refund through the tenants' PayPal dispute once it
@@ -229,7 +233,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const returnedOk = returned && !returnFailed(returned.status as string) ? returned : null;
   const forfeit = held && deductions.length ? pack.close.standing?.({
     today, notices: summary.notices, claimed: money.total, statementDue: due, deliveredOn: delivery?.date ?? null,
-    returnedOn: returnedOk ? pacificDate(returnedOk.created_at) : null, refundOwed: money.refund > 0,
+    returnedOn: returnedOk ? dayOf(returnedOk.created_at) : null, refundOwed: money.refund > 0,
   }) : null;
   const forfeited = forfeit?.forfeits ? forfeit : null;
   // The deductions grid on Move-out: whether its inputs may change, and each line's limits from its lawful range (the
@@ -342,7 +346,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     <>
       <FactStrip cols={4} className="mb-6">
           <Fact label={returned || closed || reversal ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
-            sub={reversedSub ?? (held != null ? (returned ? `${returned.kind === "dispute_refund" ? "Returned through the PayPal dispute" : "Refunded"} ${shortDate(pacificDate(returned.created_at))}`
+            sub={reversedSub ?? (held != null ? (returned ? `${returned.kind === "dispute_refund" ? "Returned through the PayPal dispute" : "Refunded"} ${shortDate(dayOf(returned.created_at))}`
               : via ? `${usd(via.amount)} returned through the PayPal dispute` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested")} />
           <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
           <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date as string) : <span className="text-ink-3">Not stated</span>} sub={t.end_date ? "Fixed term" : undefined} />
@@ -376,13 +380,13 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <Card>
           <CardHead title="Activity" />
           <div className="px-5 py-1">
-            {activity.slice(0, 8).map((a) => <LogRow key={a.entry.id} a={a} today={today} />)}
+            {activity.slice(0, 8).map((a) => <LogRow key={a.entry.id} a={a} today={today} zone={zone} />)}
             {activity.length > 8 && (
               <details className="group">
                 <summary className="flex cursor-pointer list-none items-center gap-1 border-t border-line-2 py-3 text-sm font-medium text-brand hover:underline group-open:hidden">
                   Show {activity.length - 8} more<Icon name="chev-down" className="size-3.5" />
                 </summary>
-                <div className="border-t border-line-2">{activity.slice(8).map((a) => <LogRow key={a.entry.id} a={a} today={today} />)}</div>
+                <div className="border-t border-line-2">{activity.slice(8).map((a) => <LogRow key={a.entry.id} a={a} today={today} zone={zone} />)}</div>
               </details>
             )}
             {!activity.length && <p className="py-3 text-sm text-ink-3">Nothing yet.</p>}
@@ -440,18 +444,18 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <Fact label={returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : via ? "Left to refund" : "Refund due"} big
           value={<Money value={returned ? Number(returned.amount) : forfeited ? Math.max(0, Math.round(((held ?? 0) - (via?.amount ?? 0)) * 100) / 100)
             : money.balanceClaimed > 0 ? money.balanceClaimed : via ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
-          sub={forfeited && returned && (held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0)) * 100) / 100)} still owed`
-            : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(pacificDate(returned.created_at))}` : `By PayPal, ${shortDate(pacificDate(returned.created_at))}`)
+          sub={forfeited && returned && (held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) - (summary.settledBack ?? 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) - (summary.settledBack ?? 0)) * 100) / 100)} still owed`
+            : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(dayOf(returned.created_at))}` : `By PayPal, ${shortDate(dayOf(returned.created_at))}`)
               : via ? `After ${usd(via.amount)} through the PayPal dispute` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
         <Fact label={dueLabelOf(summary)}
           info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
           value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
-          sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(pacificDate(t.statement_delivered_at as string))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out as string)}` : "No move-out yet"} />
+          sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(dayOf(t.statement_delivered_at as string))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out as string)}` : "No move-out yet"} />
       </FactStrip>
 
-      {dispute && <DisputeCard v={dispute} photoUrl={(p) => url(p)} tenantsLabel={tenantsLabel} />}
+      {dispute && <DisputeCard v={dispute} photoUrl={(p) => url(p)} tenantsLabel={tenantsLabel} zone={zone} />}
       {dispute && negotiation && (
-        <Negotiation tenancyId={id} v={negotiation} quiet={quiet}
+        <Negotiation tenancyId={id} v={negotiation} quiet={quiet} zone={zone}
           tenantsLabel={tenantsLabel} landlordLabel={prop.owner_name ?? "The landlord"} />
       )}
 
@@ -497,9 +501,9 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             tenancyId={id}
             tenants={summary.tenants}
             due={Math.max(0, Math.round(((forfeited ? held ?? 0 : money.refund) - (via?.amount ?? 0)) * 100) / 100)}
-            returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id as string, on: pacificDate(returned.created_at) } : null}
+            returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id as string, on: dayOf(returned.created_at) } : null}
             viaDispute={via ? { amount: via.amount, id: via.disputeId, notKept } : null}
-            run={run ? { status: run.status as string, error: run.error as string | null, at: run.created_at ? pacificDate(run.created_at as string) : null, pendingAmount } : null}
+            run={run ? { status: run.status as string, error: run.error as string | null, at: run.created_at ? dayOf(run.created_at as string) : null, pendingAmount } : null}
             tenantView={tenantPath ? { href: tenantPath, delivered: !!t.statement_delivered_at, disputed: !!dispute } : null}
           />
         </section>
@@ -523,7 +527,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                   <div className="truncate text-sm font-medium">{c.name}</div>
                   <div className="truncate text-xs text-ink-3">{c.email ?? "No email on file"}</div>
                 </div>
-                {signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}
+                {signed ? <StatusChip tone="green">Signed {shortDate(dayOf(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}
               </li>
             );
           })}
@@ -542,7 +546,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
                 <tr key={c.name} className={trClass}>
                   <Td first className="font-medium">{c.name}</Td>
                   <Td>{c.email ?? <span className="text-ink-3">Not on file</span>}</Td>
-                  <Td>{signed ? <StatusChip tone="green">Signed {shortDate(pacificDate(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}</Td>
+                  <Td>{signed ? <StatusChip tone="green">Signed {shortDate(dayOf(agreement!.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>}</Td>
                   <Td last>{agreement ? <span className="inline-flex items-center gap-1.5">PayPal, {agreement.paypal_email}</span> : <span className="text-ink-3">{refundRecordWords(pack).none}</span>}</Td>
                 </tr>
               );
@@ -556,7 +560,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <Card className="p-5">
           <div className="flex items-center gap-2 text-sm font-medium">
             From the tenant link
-            <InfoTip title="What the tenants sent">{describeTenantMoveOut(tenantMoveOut)}.</InfoTip>
+            <InfoTip title="What the tenants sent">{describeTenantMoveOut(tenantMoveOut, zone)}.</InfoTip>
           </div>
           <KV className="mt-3" rows={[
             ["Moving out", shortDate(tenantMoveOut.planned_move_out)],
@@ -566,7 +570,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       )}
 
       <section id="tenant-link" className="scroll-mt-24">
-        <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} demoHref={tenantPath} />
+        <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} demoHref={tenantPath} zone={zone} />
       </section>
     </div>
   );
@@ -610,7 +614,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       <TabPanel tab="move-out">{moveOut}</TabPanel>
       <TabPanel tab="payments">
         <PaymentsTab id={id} ws={t.ws} stored={storedInvoice ?? null} invoice={invoice} refreshed={refresh} payments={payments} deductionRows={deductionRows}
-          tenancy={t} template={template} typeTip={pack.ledger.typeTip} quiet={!!primaryOnPayments} />
+          tenancy={t} template={template} typeTip={pack.ledger.typeTip} zone={zone} quiet={!!primaryOnPayments} />
       </TabPanel>
       <TabPanel tab="documents">
         <Documents ws={t.ws} pack={pack} id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
@@ -627,7 +631,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
  *  tab, the page didn't wait for PayPal: this tab asks it here, streamed in after the rest of the page. */
 async function PaymentsTab(p: {
   id: string; ws: Workspace; stored: PaymentRecord | null; invoice: PaymentRecord | null; refreshed: boolean; payments: PaymentRecord[]; deductionRows: Row[];
-  tenancy: Record<string, unknown>; template: boolean; typeTip: StatePack["ledger"]["typeTip"]; quiet: boolean;
+  tenancy: Record<string, unknown>; template: boolean; typeTip: StatePack["ledger"]["typeTip"]; zone: string; quiet: boolean;
 }) {
   const invoice = p.refreshed || !p.stored ? p.invoice : await refreshDepositInvoice(p.stored, { store: !p.template });
   const rows = p.payments.map((x) => (invoice && x.id === invoice.id ? invoice : x));
@@ -643,8 +647,8 @@ async function PaymentsTab(p: {
   ]);
   return (
     <div className="flex flex-col gap-6">
-      {paypalDispute && <PayPalDisputeCard tenancyId={p.id} v={paypalDispute} quiet={p.quiet} />}
-      <MoneyTimeline tenancyId={p.id} rows={moneyRows} typeTip={p.typeTip} />
+      {paypalDispute && <PayPalDisputeCard tenancyId={p.id} v={paypalDispute} quiet={p.quiet} zone={p.zone} />}
+      <MoneyTimeline tenancyId={p.id} rows={moneyRows} typeTip={p.typeTip} zone={p.zone} />
       {!paypalDispute && paid && !reversal && !p.template && !block && <PayPalDisputeCheck tenancyId={p.id} />}
     </div>
   );
@@ -659,12 +663,12 @@ function moveInMeta(pack: StatePack, o: { agreement: boolean; paid: boolean; pho
 }
 
 /** One audit entry: the short title, who did it, and the day; the full sentence is the row's tooltip. */
-function LogRow({ a, today }: { a: { entry: { actor: string; action: string; detail: Record<string, unknown> | null; createdAt: string }; title: string }; today: string }) {
+function LogRow({ a, today, zone }: { a: { entry: { actor: string; action: string; detail: Record<string, unknown> | null; createdAt: string }; title: string }; today: string; zone: string }) {
   const e = a.entry;
   return (
     <ListRow title={a.title} hint={describe(e.action, e.detail)}
       sub={e.actor === "agent" ? "Agent" : e.actor === "tenant" ? "Tenant" : e.actor === "system" ? (e.detail?.source === "paypal" ? "PayPal" : "System") : "You"}
-      right={dayLabel(pacificDate(e.createdAt), today)} />
+      right={dayLabel(dateIn(e.createdAt, zone), today)} />
   );
 }
 
@@ -694,7 +698,7 @@ async function Documents(p: {
     },
     {
       name: refundRecordWords(p.pack).name, sub: p.agreement ? `Signed by ${p.agreement.signed_by.join(" and ")}` : refundRecordWords(p.pack).unsigned,
-      status: p.agreement ? <StatusChip tone="green">Signed {shortDate(pacificDate(p.agreement.signed_at))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>,
+      status: p.agreement ? <StatusChip tone="green">Signed {shortDate(dateIn(p.agreement.signed_at, p.pack.timeZone.id))}</StatusChip> : <StatusChip tone="amber">Not signed</StatusChip>,
       open: <Link href={tabHref(p.id, "overview", "move-in")} className="font-medium text-brand hover:underline">View</Link>,
       info: <InfoTip title={p.pack.refund.documentsTip.title} cite={p.pack.refund.documentsTip.cite}>{p.pack.refund.documentsTip.text}</InfoTip>,
     },

@@ -1,6 +1,6 @@
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Money, StatusChip } from "@/components/ui";
-import { shortDate, pacificDate } from "@/lib/dates";
+import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { DisputeStatus, LandlordDisputeView } from "@/lib/disputes";
 
 // The tenants' dispute on the property's Move-out tab: what they dispute and why, the case their advocate wrote, each
@@ -25,7 +25,7 @@ const DISPUTE_STATUS: Record<DisputeStatus, { label: string; tone: "green" | "am
   withdrawn: { label: "Withdrawn", tone: "gray" },
 };
 
-export function DisputeCard({ v, photoUrl, tenantsLabel }: { v: LandlordDisputeView; photoUrl: (path: string) => string | null; tenantsLabel: string }) {
+export function DisputeCard({ v, photoUrl, tenantsLabel, zone = PACIFIC }: { v: LandlordDisputeView; photoUrl: (path: string) => string | null; tenantsLabel: string; zone?: string }) {
   const st = DISPUTE_STATUS[v.status];
   const disputed = v.lines.filter((l) => l.disputed);
   const who = v.openedBy ?? tenantsLabel;
@@ -42,7 +42,7 @@ export function DisputeCard({ v, photoUrl, tenantsLabel }: { v: LandlordDisputeV
         <div>
           <p className="text-xs text-ink-3">Asked back</p>
           <Money value={v.askedBack ?? 0} className="mt-0.5 block text-lg font-medium" />
-          <p className="mt-0.5 text-xs text-ink-3">By {who}{v.sentAt ? `, ${shortDate(pacificDate(v.sentAt))}` : ""}</p>
+          <p className="mt-0.5 text-xs text-ink-3">By {who}{v.sentAt ? `, ${shortDate(dateIn(v.sentAt, zone))}` : ""}</p>
         </div>
         <div>
           <p className="text-xs text-ink-3">Disputed</p>

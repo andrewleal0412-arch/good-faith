@@ -3,8 +3,12 @@
 
 import { describeDelivery } from "../delivery";
 import type { ChecklistItem, ChecklistState, Statement } from "../statement";
-import { list, longDate, pacificDate, plural, usd } from "./common";
+import { dateIn, list, longDate, plural, usd } from "./common";
+import { zoneOf } from "./index";
 import type { StatementContext } from "./types";
+
+/** A timestamp on the statement as the long calendar date where the property is. */
+const onDay = (s: Statement, ts: string) => longDate(dateIn(ts, zoneOf(s.state)));
 
 /** One checklist item: its number, title and citation, and a function that grades it from the statement. */
 export type ItemSpec = {
@@ -31,7 +35,7 @@ export const parties = (s: Statement): [ChecklistState, string] => {
 
 /** The deposit received, how and when. */
 export const security = (s: Statement): [ChecklistState, string] => (s.security?.paid
-  ? ["done", `${usd(s.security.amount)} paid ${s.security.paidAt ? longDate(pacificDate(s.security.paidAt)) : ""} through PayPal invoice ${s.security.invoiceId}.`]
+  ? ["done", `${usd(s.security.amount)} paid ${s.security.paidAt ? onDay(s, s.security.paidAt) : ""} through PayPal invoice ${s.security.invoiceId}.`]
   : s.security ? ["missing", `PayPal invoice ${s.security.invoiceId} is ${s.security.invoiceStatus.toLowerCase().replace(/_/g, " ")}, not paid.`]
     : ["missing", "No deposit was collected through PayPal for this tenancy."]);
 
@@ -75,7 +79,7 @@ export const estimates = (s: Statement): [ChecklistState, string] => {
 
 /** The refund: amount, method, payees. */
 export const refund = (s: Statement): [ChecklistState, string] => (s.refund.state === "sent"
-  ? ["done", `${usd(s.refund.amount)} sent by ${s.refund.method} (${s.refund.paypalId}) on ${longDate(pacificDate(s.refund.sentAt!))}, payable to ${list(s.refund.payees)}.`]
+  ? ["done", `${usd(s.refund.amount)} sent by ${s.refund.method} (${s.refund.paypalId}) on ${onDay(s, s.refund.sentAt!)}, payable to ${list(s.refund.payees)}.`]
   : s.refund.state === "due" ? ["done", `${usd(s.refund.amount)} by ${s.refund.method}, payable to ${list(s.refund.payees)}.`]
     : ["done", s.refund.method]);
 
@@ -86,7 +90,7 @@ export const claim = (s: Statement): [ChecklistState, string] => (s.balanceClaim
 
 /** The delivery record. */
 export const delivered = (s: Statement): [ChecklistState, string] => (s.delivery
-  ? ["done", `Delivered by ${describeDelivery(s.delivery)}.`]
+  ? ["done", `Delivered by ${describeDelivery(s.delivery, s.deliveryRecordedOn)}.`]
   : ["missing", "Record how and when the statement was delivered, once it goes out."]);
 
 /** The disclaimer line every page and document carries. */
@@ -96,17 +100,17 @@ export const disclaimer = (): [ChecklistState, string] => ["done", "The statemen
 
 /** The close-out agent's instructions for a state pack: California's steps, with the state's name, its checklist and
  *  any step the state adds. The citations still come only from the facts' "rules". */
-export function closeOutSystem(o: { name: string; items: number; note: string }): string {
+export function closeOutSystem(o: { name: string; items: number; note: string; zone: string }): string {
   return `You are the close-out agent in Good Faith, which helps small ${o.name} landlords return security deposits correctly. You work for the landlord and you are fair to the tenant.
 
-This tenancy follows ${o.name} law. ${o.note}
+This tenancy follows ${o.name} law. ${o.note} Every date in the facts, today's included, is a calendar day in ${o.zone}, where the property is, and the deadline is counted in it.
 
 For this move-out:
 1. Call get_close_out_facts. It comes from the rules engine and is authoritative for amounts, dates and the refund plan.
 2. If it lists blockers, stop: in two or three sentences, tell the landlord what's blocking and what to do next. Don't call any PayPal tool. One exception: when the only blocker is that the deposit was already returned, the money is done, so skip to step 6.
 3. Confirm the deposit with PayPal: call get_invoice for the deposit invoice and check that it is PAID and that its transaction id matches the facts.
 4. Return the money on the plan's rail, for exactly the plan's amount:
-   - refund_original_payment: call create_refund with capture_id set to the plan's captureId, amount {"currency_code": "USD", "value": the amount with two decimals}, invoice_id set to the deposit invoice id, and a note_to_payer under 200 characters saying this is the security deposit refund less itemized deductions and that the itemized statement follows.
+   - refund_original_payment: call create_refund with capture_id set to the plan's captureId, amount {"currency_code": "USD", "value": the amount with two decimals}, invoice_id set to the deposit invoice id, and a note_to_payer under 200 characters saying this is the security deposit refund less itemized deductions and that the itemized statement follows. When the plan has a noteToPayer, the plan returns the whole deposit: use that note word for word instead (for a payout too).
    - payout: call send_payout to the plan's email.
    - nothing_to_refund: don't move any money.
    The landlord approves every money movement before it runs. Call a money tool once, and never retry it with a different amount.

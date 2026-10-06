@@ -1,10 +1,10 @@
-import { addDays } from "./dates";
+import { addDays, PACIFIC } from "./dates";
 import { inspectionWindowOpens } from "./notices";
 import { CHECK_IN_DAYS_BEFORE_END, closedOut, dueOf, packOf, tenancyEnds, type TenancySummary } from "./next-step";
 
 // The tenancy's dates as an iCalendar file (RFC 5545) the landlord adds to Apple, Google or Outlook once, so the
-// reminders live where they already look. All-day events in America/Los_Angeles; no email service involved. The words
-// and the citations are the tenancy's state pack's.
+// reminders live where they already look. All-day events in the property's zone (its state pack's: America/Los_Angeles
+// in California); no email service involved. The words and the citations are the tenancy's state pack's.
 
 export type EventKind = "check_in" | "inspection_window" | "move_out" | "statement_due";
 
@@ -74,7 +74,7 @@ function fold(line: string): string {
 }
 
 /** A VCALENDAR with one all-day VEVENT per date and a 9 a.m. reminder on each. */
-export function buildIcs(events: CalendarEvent[], opts: { name: string; url?: string | null; stamp?: Date }): string {
+export function buildIcs(events: CalendarEvent[], opts: { name: string; url?: string | null; stamp?: Date; zone?: string }): string {
   const stamp = icsStamp(opts.stamp ?? new Date());
   const lines: string[] = [
     "BEGIN:VCALENDAR",
@@ -83,7 +83,7 @@ export function buildIcs(events: CalendarEvent[], opts: { name: string; url?: st
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeText(opts.name)}`,
-    "X-WR-TIMEZONE:America/Los_Angeles",
+    `X-WR-TIMEZONE:${opts.zone ?? PACIFIC}`,
   ];
   for (const e of events) {
     lines.push(

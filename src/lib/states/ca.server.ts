@@ -141,7 +141,7 @@ function checklist(s: Statement, ctx: StatementContext): ChecklistItem[] {
   // 13. Delivery.
   item(13, "Delivery record: personal delivery, first-class mail to the forwarding address (else the unit), or email under a written agreement", "(h)(1)(B), (h)(6)",
     s.delivery ? "done" : "missing",
-    s.delivery ? `Delivered by ${describeDelivery(s.delivery)}.` : "Record how and when the statement was delivered, once it goes out.");
+    s.delivery ? `Delivered by ${describeDelivery(s.delivery, s.deliveryRecordedOn)}.` : "Record how and when the statement was delivered, once it goes out.");
 
   return out;
 }

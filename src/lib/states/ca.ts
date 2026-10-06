@@ -102,6 +102,7 @@ export const CA: ClientPack = {
   code: "CA",
   name: "California",
   spec: "docs/LEGAL_RULES.md",
+  timeZone: { id: "America/Los_Angeles", name: "Pacific time", exceptions: [] },
   statute: {
     short: "Civ. Code 1950.5",
     full: "California Civil Code 1950.5",

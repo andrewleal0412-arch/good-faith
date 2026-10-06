@@ -52,7 +52,7 @@ export default async function DisputePage({ params }: PageProps<"/t/[token]/disp
         ) : !v.lines.length ? (
           <p className="mt-6 text-ink-2">Nothing was deducted, so there&apos;s nothing to dispute.</p>
         ) : (
-          <DisputeFlow token={token} landlord={landlord} view={v} stateName={pack.name} notLegalAdvice={NOT_LEGAL_ADVICE} negotiation={negotiation} />
+          <DisputeFlow token={token} landlord={landlord} view={v} stateName={pack.name} notLegalAdvice={NOT_LEGAL_ADVICE} negotiation={negotiation} zone={pack.timeZone.id} />
         )}
 
         <footer className="mt-10 text-center text-xs text-ink-3">

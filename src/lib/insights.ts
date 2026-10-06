@@ -18,7 +18,7 @@ export type InsightUnit = {
   start: string | null;
   status: { label: string; tone: "green" | "amber" | "red" | "gray" };
   due: string | null; // the state's statement and refund deadline, once the tenants moved out
-  deliveredOn: string | null; // the Pacific day the statement went out, for the chart of what is held over time
+  deliveredOn: string | null; // the day the statement went out where the property is, for the chart of what is held over time
 };
 
 /** One tenancy's money, from its ledger rows. */
@@ -32,13 +32,14 @@ const settled = (r: LedgerRow) => r.kind === "settlement" && (r.effect === "retu
 /** A tenancy's money: collected, returned (refunds, payouts and PayPal's own refunds through a dispute), settled (a
  *  dispute's settlement on top of the statement's refund), held (as the ledger counts it), and kept: what was
  *  collected and is neither held nor gone back, which is what the statement kept net of any settlement. `deducted` is
- *  every deduction on file, drafts included, as the statement lists them. */
+ *  every deduction on file, drafts included, as the statement lists them, less any the deadline forfeited (New York
+ *  after day 14), which keep nothing. */
 export function moneyOf(rows: LedgerRow[]): Money {
   const collected = sum(rows.filter((r) => r.effect === "collected"));
   const returned = sum(rows.filter(back));
   const s = sum(rows.filter(settled));
   const held = ledgerTotals(rows).held;
-  const ded = rows.filter((r) => r.kind === "deduction");
+  const ded = rows.filter((r) => r.kind === "deduction" && r.effect !== "forfeited");
   return {
     collected, returned, settled: s, held, kept: cents(Math.max(0, collected - returned - s - held)),
     deducted: sum(ded), deductions: ded.length,
@@ -48,10 +49,11 @@ export function moneyOf(rows: LedgerRow[]): Money {
 export type Category = "damage" | "cleaning" | "rent";
 export const CATEGORY_LABEL: Record<Category, string> = { damage: "Damage", cleaning: "Cleaning", rent: "Unpaid rent" };
 
-/** Every deduction on file by category (each pack tags them "damage", "cleaning" or "rent"), with how many. */
+/** Every deduction on file by category (each pack tags them "damage", "cleaning" or "rent"), with how many; a forfeited
+ *  one (New York after day 14) keeps nothing, so it isn't counted. */
 export function byCategory(rows: LedgerRow[]): { category: Category; label: string; amount: number; count: number }[] {
   return (["damage", "cleaning", "rent"] as Category[]).map((c) => {
-    const xs = rows.filter((r) => r.kind === "deduction" && r.tagShort === c);
+    const xs = rows.filter((r) => r.kind === "deduction" && r.effect !== "forfeited" && r.tagShort === c);
     return { category: c, label: CATEGORY_LABEL[c], amount: sum(xs), count: xs.length };
   });
 }
@@ -101,7 +103,7 @@ export function periods(firstDate: string | null, today: string): { grain: Grain
 }
 
 /** The day a row starts to count in a running balance. A deduction the ledger counts as claimed (ledger.ts) took
- *  nothing out while it was a draft: it counts from the day its statement went out (`deliveredOn`, the Pacific day per
+ *  nothing out while it was a draft: it counts from the day its statement went out (`deliveredOn`, the property's day per
  *  tenancy), or, with no delivery on record, from the first refund or Payout that went, not from the day it was
  *  entered. Every other row counts from its own date. */
 function countsFrom(rows: LedgerRow[], deliveredOn: ReadonlyMap<string, string | null>): (r: LedgerRow) => string {

@@ -410,6 +410,9 @@ function loopFor(file, turns, landlord, tenant, o = {}) {
   // can't record, so only New York concedes in code: Washington's negotiator is still asked, and still held to $0.
   const WA = states.packFor("WA");
   check("forced concession: New York only", NY.dispute.late.noDefense === true && !WA.dispute.late.noDefense && !CA.dispute.late.noDefense);
+  // Every other pack, Florida's forfeiting claim notice and Texas included: none concedes in code (Andrew, 2026-10-05).
+  check("forced concession: none in California, Florida, Texas or Washington",
+    ["CA", "FL", "TX", "WA"].every((c) => !states.packFor(c).dispute.late.noDefense), ["CA", "FL", "TX", "WA"].filter((c) => states.packFor(c).dispute.late.noDefense).join(", "));
   const file = fileFor([carpet(), wall()], WA, { disputed: ["carpet"], range: { deliveredOn: "2026-11-15", today: "2026-11-20" } });
   check("WA late: the range forfeits every charge", file.ranges.late.forfeits && file.ranges.lines.every((l) => l.max === 0), JSON.stringify(file.ranges.late));
   const landlord = model(turnOf([L(1, "concede", 0, "Forfeited.", "RCW 59.18.280(2)"), L(2, "concede", 0, "Forfeited.", "RCW 59.18.280(2)")]));

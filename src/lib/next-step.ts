@@ -1,4 +1,4 @@
-import { addDays, daysBetween, longDate, pacificDate } from "./dates";
+import { addDays, dateIn, daysBetween, longDate } from "./dates";
 import { settle, usd } from "./deductions";
 import { wasPaid } from "./invoice-status";
 import { inspectionWindowOpens, noticeInfoFor, type Notices, type RefundNoticeStatus } from "./notices";
@@ -43,6 +43,8 @@ export type TenancySummary = {
   deductions: { category: string; amount: number }[]; // what comes off the deposit, the same rows the close-out settles
   returned: { amount: number; kind: string } | null; // the close-out's refund or Payout
   viaDispute?: number; // what PayPal returned through the tenants' PayPal dispute; absent when nothing did
+  forfeited?: boolean; // the deadline forfeited every deduction (New York after day 14): none is kept; absent otherwise
+  settledBack?: number; // what a dispute's settlement sent back on top of the refund; carried only when forfeited, where it counts toward the whole deposit
   notices: Notices;
   refundNotice: RefundNoticeStatus;
   tenantMoveOut: { name: string | null; plannedMoveOut: string; forwardingAddress: string; sentOn: string } | null; // what the tenants sent through their link
@@ -111,29 +113,45 @@ export function inspectionExcused(t: Pick<TenancySummary, "state" | "noticeGiven
   return !!skip && !!t.noticeGivenOn && t.noticeGivenBy === "tenant" && !!ends && daysBetween(t.noticeGivenOn, ends) < skip;
 }
 
-/** What is left to return once the deductions come off the paid deposit, by the same math the close-out uses
- *  (settle in deductions.ts), less what PayPal already returned through the tenants' PayPal dispute; null until the
- *  deposit is paid. */
+/** What the statement owes back before anything went: the deposit less the deductions (settle in deductions.ts, the
+ *  close-out's math), or the whole deposit once the deadline forfeited them (New York after day 14). */
+const owedOf = (t: TenancySummary & { deposit: NonNullable<TenancySummary["deposit"]> }) =>
+  (t.forfeited ? t.deposit.amount : settle(t.deposit.amount, t.deductions, packOf(t)).refund);
+
+/** What is left to return once the deductions come off the paid deposit (none of them when forfeited), less what
+ *  PayPal already returned through the tenants' PayPal dispute; null until the deposit is paid. */
 export const refundLeft = (t: TenancySummary): number | null => (t.deposit && depositPaid(t)
-  ? Math.max(0, Math.round((settle(t.deposit.amount, t.deductions, packOf(t)).refund - (t.viaDispute ?? 0)) * 100) / 100) : null);
+  ? Math.max(0, Math.round((owedOf({ ...t, deposit: t.deposit }) - (t.viaDispute ?? 0)) * 100) / 100) : null);
 
 /** What PayPal returned through the tenants' PayPal dispute beyond the statement's refund: the deductions the landlord
  *  no longer keeps (a claim accepted in full). 0 otherwise. */
 export const notKeptAfterDispute = (t: TenancySummary): number => {
   if (!t.viaDispute || !t.deposit || !depositPaid(t)) return 0;
-  const owed = settle(t.deposit.amount, t.deductions, packOf(t)).refund;
+  const owed = owedOf({ ...t, deposit: t.deposit });
   return Math.round(Math.max(0, Math.min(t.deposit.amount - owed, t.viaDispute + (t.returned?.amount ?? 0) - owed)) * 100) / 100;
 };
 
-/** Closed out (D15): the statement went out and the money is back, no deposit was ever paid, or the deductions used
- *  the whole deposit (the close-out's nothing_to_refund rail moves no money and writes no payment row). */
-export const closedOut = (t: TenancySummary) => !!t.statementDeliveredAt && (!!t.returned || !depositPaid(t) || refundLeft(t) === 0);
+/** What of the whole deposit is still owed after the refund went, once the deadline forfeited the deductions (New York
+ *  after day 14): a refund of the deposit less the deductions that went on time, with the statement late. The deposit
+ *  less every return (that refund, PayPal's through the tenants' PayPal dispute, a dispute's settlement); 0 otherwise,
+ *  and always 0 in a state whose deadline forfeits nothing. */
+export const forfeitShort = (t: TenancySummary): number => {
+  if (!t.forfeited || !t.returned || !t.deposit || !depositPaid(t)) return 0;
+  return Math.max(0, Math.round((t.deposit.amount - t.returned.amount - (t.viaDispute ?? 0) - (t.settledBack ?? 0)) * 100) / 100);
+};
+
+/** Closed out (D15): the statement went out and the money is back (all of it, where the deadline forfeited the
+ *  deductions: forfeitShort), no deposit was ever paid, or the deductions used the whole deposit (the close-out's
+ *  nothing_to_refund rail moves no money and writes no payment row). */
+export const closedOut = (t: TenancySummary) => !!t.statementDeliveredAt
+  && ((!!t.returned && forfeitShort(t) === 0) || !depositPaid(t) || refundLeft(t) === 0);
 
 /** A missed deadline is overdue. A date that is not a deadline (the day the window opens, the planned move-out) can
  *  pass without anything being late: the step just needs attention now. */
 const levelFor = (daysLeft: number, deadline: boolean): Level =>
   daysLeft < 0 ? (deadline ? "overdue" : "urgent") : daysLeft <= 5 ? "urgent" : daysLeft <= 30 ? "soon" : "later";
 
+/** `today` is the day where the property is: todayIn(its pack's timeZone.id), which every days-left here counts from. */
 export function nextStep(t: TenancySummary, today: string): NextStep {
   const pack = packOf(t);
   const flow = pack.steps.flow;
@@ -160,14 +178,15 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
 
   // Closed out: the statement went out and nothing is left to return.
   if (t.statementDeliveredAt) {
-    const delivered = longDate(pacificDate(t.statementDeliveredAt));
+    // The delivery's own date where the caller read it, else its day where the property is (the pack's zone).
+    const delivered = longDate(t.statementDeliveredOn ?? dateIn(t.statementDeliveredAt, pack.timeZone.id));
     const left = refundLeft(t);
     // A state where the deadline forfeits the deductions (New York): past it, the refund is the whole deposit, even
     // where the deductions used all of it.
     const forfeit = pack.steps.forfeit?.(t, today, h);
     if (forfeit) return forfeit;
     if (closedOut(t)) {
-      const how = t.returned ? `; ${usd(t.returned.amount)} returned by PayPal${t.viaDispute ? `, and ${usd(t.viaDispute)} through the tenants' PayPal dispute` : ""}`
+      const how = t.returned ? `; ${usd(t.returned.amount)} returned by PayPal${t.viaDispute ? `, and ${usd(t.viaDispute)} through the tenants' PayPal dispute` : ""}${t.settledBack ? `, and ${usd(t.settledBack)} through the dispute's settlement` : ""}`
         : t.viaDispute ? `; ${usd(t.viaDispute)} returned through the tenants' PayPal dispute`
         : t.deposit?.reversed ? "; PayPal reversed the deposit payment, so nothing went back through PayPal"
         : !paid ? "; no deposit was paid through PayPal, so there was nothing to return"

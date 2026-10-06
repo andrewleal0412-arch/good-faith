@@ -2,13 +2,12 @@ import type { Metadata } from "next";
 import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { Card, EmptyState, Notice, PageHead } from "@/components/ui";
-import { pacificDate } from "@/lib/dates";
 import type { InsightUnit } from "@/lib/insights";
 import { loadLedger } from "@/lib/ledger-load";
 import { streetLine } from "@/lib/ledger";
 import { closedOut, dueOf } from "@/lib/next-step";
 import { keepUnit, propertyStatus } from "@/lib/property-view";
-import { packFor } from "@/lib/states/server";
+import { dayFor, packFor } from "@/lib/states/server";
 import { loadUnits } from "@/lib/units";
 import { Insights } from "./insights";
 
@@ -48,7 +47,7 @@ export default async function InsightsPage() {
       tenants: s.tenants.join(" and ") || "No tenants named", start: s.startDate,
       status: (({ label, tone }) => ({ label, tone }))(propertyStatus(s, next)),
       due: s.moveOutDate && !closedOut(s) ? dueOf(s) : null,
-      deliveredOn: s.statementDeliveredAt ? pacificDate(s.statementDeliveredAt) : null,
+      deliveredOn: s.statementDeliveredAt ? dayFor(s.statementDeliveredAt, s.state) : null,
     };
   });
   return <Insights units={list} rows={ledger.rows} today={ledger.today} />;

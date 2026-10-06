@@ -5,7 +5,7 @@ import { DEMO_EXAMPLE } from "./copy";
 import { db } from "./db";
 import { usd } from "./deductions";
 import { packFor } from "./states/server";
-import { describeDelivery, longDate, pacificDate, type Statement, type StatementPhoto } from "./statement";
+import { dateIn, describeDelivery, longDate, type Statement, type StatementPhoto } from "./statement";
 
 // The statement as one PDF packet for mail or email: the statement text, then the photo evidence for each deduction
 // (in California, Civ. Code 1950.5(g), (h)(2)(D)), then every vendor invoice ((h)(2)(B)). Its statute, deadline and
@@ -248,6 +248,8 @@ async function planInvoice(doc: PDFDocument, f: Fetched, budget: { left: number 
 
 export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Array; pages: number; filename: string }> {
   const pack = packFor(s.state);
+  // A timestamp's calendar day where the property is (its pack's zone), as the statement page prints it.
+  const onDay = (ts: string) => dateIn(ts, pack.timeZone.id);
   const sec = pack.statement.sections;
   const doc = await PDFDocument.create();
   doc.setTitle(`Itemized security deposit statement, ${s.property.address}`);
@@ -322,7 +324,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     ["Due by", `${s.statementDue ? longDate(s.statementDue) : "Not set"}${dueLine}`], ["Deadline", pack.statement.pdf.deadlineLine],
     // The amended statement: a settlement of the tenants' dispute, paid.
     ...(s.settlement ? [
-      ["Amended", s.settlement.sentAt ? longDate(pacificDate(s.settlement.sentAt)) : "By settlement"],
+      ["Amended", s.settlement.sentAt ? longDate(onDay(s.settlement.sentAt)) : "By settlement"],
       ["Settlement", `${usd(s.settlement.amount)} more back to the tenants`],
     ] as [string, string][] : []),
   ]);
@@ -334,7 +336,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.text(usd(s.security.amount), { size: 16, font: bold, lead: 20 });
     const method = !s.security.method || s.security.method === "PAYPAL" ? "PayPal" : s.security.method.toLowerCase().replace(/_/g, " ");
     w.text(s.security.paid
-      ? `Paid ${s.security.paidAt ? `on ${longDate(pacificDate(s.security.paidAt))} ` : ""}by ${method}, PayPal invoice ${s.security.invoiceId}.`
+      ? `Paid ${s.security.paidAt ? `on ${longDate(onDay(s.security.paidAt))} ` : ""}by ${method}, PayPal invoice ${s.security.invoiceId}.`
       : `PayPal invoice ${s.security.invoiceId} is ${s.security.invoiceStatus.toLowerCase().replace(/_/g, " ")}, not paid.`, { color: INK2, after: 4 });
     if (!s.security.live) w.text("PayPal could not be reached when this was prepared; the payment is shown as last recorded.", { size: 9.5, color: INK3, after: 4 });
     if (s.security.basisNote) w.text(s.security.basisNote, { size: 9.5, color: INK2 });
@@ -415,10 +417,10 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   // 4. Refund (item 10).
   w.heading(++n, "Refund", sec.refund);
   if (via) {
-    w.text(`Returned through the tenants' PayPal dispute: ${usd(via.amount)}${via.disputeId ? ` (dispute ${via.disputeId})` : ""}${via.at ? `, ${longDate(pacificDate(via.at))}` : ""}.${via.notKept > 0 ? ` That is more than this statement's refund, so ${usd(via.notKept)} of the deductions above is not kept.` : ""}`, { color: INK2, after: 4 });
+    w.text(`Returned through the tenants' PayPal dispute: ${usd(via.amount)}${via.disputeId ? ` (dispute ${via.disputeId})` : ""}${via.at ? `, ${longDate(onDay(via.at))}` : ""}.${via.notKept > 0 ? ` That is more than this statement's refund, so ${usd(via.notKept)} of the deductions above is not kept.` : ""}`, { color: INK2, after: 4 });
   }
   w.text(usd(s.refund.amount), { size: 16, font: bold, lead: 20 });
-  w.text(`${s.refund.method}${s.refund.paypalId ? ` (PayPal id ${s.refund.paypalId})` : ""}${s.refund.sentAt ? `, sent ${longDate(pacificDate(s.refund.sentAt))}` : ""}${s.refund.state === "none" ? "" : "."}`, { color: INK2 });
+  w.text(`${s.refund.method}${s.refund.paypalId ? ` (PayPal id ${s.refund.paypalId})` : ""}${s.refund.sentAt ? `, sent ${longDate(onDay(s.refund.sentAt))}` : ""}${s.refund.state === "none" ? "" : "."}`, { color: INK2 });
   if (s.refund.state !== "none") w.text(`Payable to ${s.refund.payees.join(" and ")}${s.refund.paypalEmail ? `, PayPal account ${s.refund.paypalEmail}` : ""}.`, { color: INK2 });
   if (s.refund.note) { w.space(4); w.text(s.refund.note, { size: 9.5, color: INK3 }); }
 
@@ -427,7 +429,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   if (s.settlement) {
     const st = s.settlement;
     w.heading(++n, "Settlement (amended statement)");
-    w.text(`The tenants disputed this statement. ${st.acceptedBy ?? "The tenants"} accepted the settlement${st.acceptedAt ? ` on ${longDate(pacificDate(st.acceptedAt))}` : ""}, and ${s.landlord} approved it${st.approvedAt ? ` on ${longDate(pacificDate(st.approvedAt))}` : ""}. It amends the deductions above as follows.`, { color: INK2, after: 6 });
+    w.text(`The tenants disputed this statement. ${st.acceptedBy ?? "The tenants"} accepted the settlement${st.acceptedAt ? ` on ${longDate(onDay(st.acceptedAt))}` : ""}, and ${s.landlord} approved it${st.approvedAt ? ` on ${longDate(onDay(st.approvedAt))}` : ""}. It amends the deductions above as follows.`, { color: INK2, after: 6 });
     for (const l of st.lines) w.row(`Item ${l.n}. ${l.item}: kept ${usd(l.keep)} of ${usd(l.amount)}`, `-${usd(-l.adjustment)}`, { size: 9.5, color: INK2 });
     w.space(6);
     w.row("Deductions on the statement", usd(s.totals.deductions));
@@ -440,7 +442,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.space(4);
     w.text(st.example ? `${DEMO_EXAMPLE.short}. ${DEMO_EXAMPLE.text}`
       : st.paypalId
-        ? `${st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : "PayPal refund of the original deposit payment"} (PayPal id ${st.paypalId})${st.sentAt ? `, sent ${longDate(pacificDate(st.sentAt))}` : ""}.`
+        ? `${st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : "PayPal refund of the original deposit payment"} (PayPal id ${st.paypalId})${st.sentAt ? `, sent ${longDate(onDay(st.sentAt))}` : ""}.`
         : st.refundSent && s.refund.amount >= s.totals.depositHeld - 0.005
           ? "No money moved: the whole deposit had already gone back with the statement."
           : "No money moved: the deposit was used in full, and the balance claimed went down.", { color: INK2 });
@@ -460,7 +462,7 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   // 7. Delivery (item 13).
   w.heading(++n, "Delivery", sec.delivery.cite);
   w.text(s.delivery
-    ? `Delivered by ${describeDelivery(s.delivery)}${s.delivery.to && s.delivery.method !== "personal" ? `, addressed to ${s.delivery.to}` : ""}.`
+    ? `Delivered by ${describeDelivery(s.delivery, s.deliveryRecordedOn)}${s.delivery.to && s.delivery.method !== "personal" ? `, addressed to ${s.delivery.to}` : ""}.`
     : "To be recorded when the statement goes out.", { color: s.delivery ? INK2 : INK3 });
 
   // Attachments and the section F lines that speak to both parties.

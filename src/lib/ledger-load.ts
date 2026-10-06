@@ -3,6 +3,7 @@ import { cache } from "react";
 import { pacificToday } from "./dates";
 import type { Notices } from "./notices";
 import { packFor } from "./states/server";
+import type { StateCode } from "./states/types";
 import { db } from "./db";
 import { ledgerRows, streetLine, type LedgerDeduction, type LedgerPayment, type LedgerRow, type LedgerTenancy } from "./ledger";
 import { workspaceTenancies } from "./units";
@@ -14,8 +15,8 @@ import { currentWorkspace } from "./workspace";
 
 /** One tenancy, for the property filter and the "due back" tile: its street line, its tenants, when it began (to tell
  *  two tenancies at one address apart), and the day its statement and refund are due under its state's pack
- *  (California: 21 days after the move-out), if the tenants have moved out. */
-export type LedgerUnit = { id: string; label: string; street: string; tenants: string; start: string | null; due: string | null };
+ *  (California: 21 days after the move-out), if the tenants have moved out, and its state, whose zone dates its rows. */
+export type LedgerUnit = { id: string; label: string; street: string; tenants: string; start: string | null; due: string | null; state: StateCode };
 
 /** What the Payments grid's details panel shows for a row beyond the row itself: every PayPal id behind it (to copy),
  *  where its status came from, and the PayPal webhook deliveries that touched it. Ids and the app's own notes only:
@@ -57,9 +58,10 @@ export const loadLedger = cache(async (details = false): Promise<Ledger | { erro
   const units = ts.map((t) => {
     const street = streetLine(t.properties?.address ?? t.lease_terms?.propertyAddress ?? "Address not recorded");
     const tenants = (t.tenants ?? []).map((x) => x.name).join(" and ") || "no tenants named";
+    const pack = packFor(t.properties?.state);
     return {
-      id: t.id, label: `${street} (${tenants})`, street, tenants, start: t.lease_terms?.tenancyStartDate ?? null,
-      due: packFor(t.properties?.state).deadline.due({
+      id: t.id, label: `${street} (${tenants})`, street, tenants, start: t.lease_terms?.tenancyStartDate ?? null, state: pack.code,
+      due: pack.deadline.due({
         moveOutDate: t.move_out_date, endDate: t.end_date, plannedMoveOut: t.planned_move_out,
         claimed: ds.some((d) => d.tenancy_id === t.id), claimNoticeDate: t.notices?.claim_notice?.date ?? null,
       }),

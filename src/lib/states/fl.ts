@@ -114,6 +114,16 @@ export const FL: ClientPack = {
   code: "FL",
   name: "Florida",
   spec: "docs/rules/FL.md",
+  // Florida deadlines are counted in Eastern time. The western panhandle keeps Central time; the app doesn't guess a
+  // zone from the city, it warns (docs/rules/FL.md, Time zone).
+  timeZone: {
+    id: "America/New_York", name: "Eastern time",
+    exceptions: [{
+      area: "The western panhandle", zone: "America/Chicago", zoneName: "Central time",
+      match: /^(pensacola|pensacola beach|gulf breeze|milton|pace|navarre|crestview|fort walton beach|destin|niceville|valparaiso|mary esther|shalimar|defuniak springs|freeport|santa rosa beach|miramar beach|rosemary beach|bonifay|chipley|vernon|panama city|panama city beach|lynn haven|callaway|parker|springfield|mexico beach|marianna|graceville|sneads|blountstown|wewahitchka|perdido key|cantonment|century|jay|ponce de leon|cottondale|eglin afb|eglin air force base|hurlburt field)$/i,
+      line: "The panhandle west of the Apalachicola River keeps Central time, an hour behind the Eastern time Good Faith counts Florida deadlines in. The app doesn't change zones by city, so here each day ends at 11 PM local time: anything done before then is on time on either clock. A waiting period ends at 11 PM local time too, so wait for local midnight before acting when one ends, such as imposing a claim after the tenants' 15 days to object.",
+    }],
+  },
   statute: {
     short: "Fla. Stat. 83.49",
     full: "Florida Statutes section 83.49",

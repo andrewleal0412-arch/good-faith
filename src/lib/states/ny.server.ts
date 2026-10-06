@@ -1,14 +1,14 @@
 // New York: the half of the pack only the server reads (the statement checklist, the close-out agent's rules and
 // prompt, the next-step hooks, the calendar, the tenant page). The rest is in ny.ts, which client components load.
 
-import { pacificDate } from "../dates";
+import { dateIn } from "../dates";
 import { wasPaid } from "../invoice-status";
 import { addDays, daysBetween, longDate, usd } from "./common";
 import {
   checklistTool, claim, closeOutSystem, delivered, disclaimer, estimates, evidence, factsTool, grade, inspectionGuide, lines,
   parties, refund, security, shortOf, type ItemSpec,
 } from "./common.server";
-import { nyLate } from "./ny";
+import { NY, nyLate } from "./ny";
 import type { ServerPart } from "./types";
 
 const G = (s: string) => `N.Y. GOL ${s}`;
@@ -153,11 +153,27 @@ export const NY_SERVER: ServerPart = {
     // went out, the step is the full refund, before the statement is delivered or after. While a dispute the tenants
     // sent is open its deductions can't be removed, so the step goes straight to the refund of the whole deposit.
     forfeit: (t, today, h) => {
-      if (!t.moveOutDate || !t.deductions.length || t.returned) return null;
+      if (!t.moveOutDate || !t.deductions.length) return null;
       const deposit = t.deposit && wasPaid(t.deposit.status) ? t.deposit.amount : 0;
       if (!deposit) return null; // nothing came in through PayPal, so there is nothing to refund
+      // The refund of the deposit less the deductions went on time, and the statement went out after day 14: the
+      // deductions are forfeited all the same (the summary's `forfeited`, read with the refund's own day), so the rest
+      // of the deposit is owed too. The close-out sends one refund, so the step says what is owed and where it stands;
+      // a dispute's settlement that sent it closes the unit (forfeitShort, next-step.ts). Before the statement's
+      // delivery is recorded the step stays "Record the statement delivery": a statement that went out by day 14 and is
+      // recorded with its own date forfeits nothing.
+      if (t.returned) {
+        if (!t.forfeited || !t.statementDeliveredAt || t.deposit?.reversed) return null;
+        const back = t.returned.amount + (t.viaDispute ?? 0) + (t.settledBack ?? 0);
+        const short = Math.round((deposit - back) * 100) / 100;
+        if (short <= 0.005) return null;
+        return {
+          ...h.undated(`Day 14 has passed: ${usd(short)} more owed`, `New York forfeits any right to keep any part of the deposit once day 14 passes before both the itemized statement and the rest of the deposit went out. ${usd(back)} of the ${usd(deposit)} deposit went back, so ${usd(short)} more is owed. The close-out sends one refund per tenancy, so this one goes from the PayPal account, outside Good Faith.`, FORFEIT, "overdue"),
+          action: { label: "View statement", path: "statement", icon: "doc" },
+        };
+      }
       const kept = t.deductions.reduce((s, x) => s + x.amount, 0);
-      const delivered = t.statementDeliveredAt ? t.statementDeliveredOn ?? pacificDate(t.statementDeliveredAt) : null;
+      const delivered = t.statementDeliveredAt ? t.statementDeliveredOn ?? dateIn(t.statementDeliveredAt, NY.timeZone.id) : null;
       const d = nyLate({ due: addDays(t.moveOutDate, 14), today, deliveredOn: delivered, returnedOn: null, refundOwed: deposit - kept > 0.005 });
       if (!d?.late) return null;
       const lead = `New York forfeits any right to keep any part of the deposit once day 14 passes before ${missedWords(d)}.`;
@@ -258,7 +274,7 @@ export const NY_SERVER: ServerPart = {
     inspectorRole: "You inspect rental units at move-out for a New York landlord's security deposit tool.",
     inspectionGuide: inspectionGuide("New York General Obligations Law 7-108(1-a)(b), as applied here (a deposit covers damage caused by the tenant beyond normal wear and tear, never ordinary wear and tear of occupancy or damage caused by a prior tenant; New York publishes no wear-and-tear guide, so the examples below are common practice):"),
     closeOutSystem: closeOutSystem({
-      name: "New York", items: 13,
+      name: "New York", items: 13, zone: NY.timeZone.name,
       note: "The itemized statement and the rest of the deposit are due within 14 days after the tenant vacates; after that the landlord forfeits any right to keep any part. Deductions are limited to rent, damage beyond normal wear and tear, utilities under the lease, and moving and storage.",
     }),
     factsToolDescription: factsTool("14-day"),

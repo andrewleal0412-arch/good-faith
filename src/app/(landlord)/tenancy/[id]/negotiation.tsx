@@ -11,7 +11,7 @@ import { InfoTip } from "@/components/info-tip";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Card, CardHead, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import { DEMO_EXAMPLE } from "@/lib/copy";
-import { pacificDate, shortDate } from "@/lib/dates";
+import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { LoadedNegotiation } from "@/lib/negotiation";
 
 // The landlord's side of the negotiation, on the property's Move-out tab under the tenants' dispute: the policy the
@@ -23,9 +23,11 @@ const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits
 const POLL_MS = 3000;
 const POLL_LIMIT = 120;
 
-export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }: {
+export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, zone = PACIFIC }: {
   tenancyId: string; v: LoadedNegotiation; tenantsLabel: string; landlordLabel: string; quiet: boolean;
+  zone?: string; // the property's time zone (its state pack's), which the dates are shown in
 }) {
+  const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
   const router = useRouter();
   const [autoConcede, setAutoConcede] = useState(v.policy?.autoConcede ?? true);
   const [limit, setLimit] = useState(v.policy?.limit != null ? String(v.policy.limit) : "");
@@ -161,7 +163,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3.5" /></span>
               <div className="min-w-0 flex-[1_1_14rem]">
-                <p className="text-sm font-medium">{s.wholeBack ? "Settled" : <>Settled: <Money value={s.amount} /> back</>}{s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}</p>
+                <p className="text-sm font-medium">{s.wholeBack ? "Settled" : <>Settled: <Money value={s.amount} /> back</>}{s.sentAt ? ` ${shortDate(dayOf(s.sentAt))}` : ""}</p>
                 {s.example ? (
                   <p className="flex items-center gap-1.5 text-xs text-ink-3">
                     {DEMO_EXAMPLE.short}
@@ -182,7 +184,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet }
                 <div className="min-w-0">
                   <p className="text-xs text-ink-3">{tenantsLabel}</p>
                   <p className="mt-0.5 text-lg font-medium">{s.tenantAcceptedAt ? "Accepted" : "Not yet"}</p>
-                  <p className="mt-0.5 text-xs text-ink-3">{s.tenantAcceptedAt ? `${s.tenantName ?? "The tenants"}, ${shortDate(pacificDate(s.tenantAcceptedAt))}` : "Their page asks them to accept"}</p>
+                  <p className="mt-0.5 text-xs text-ink-3">{s.tenantAcceptedAt ? `${s.tenantName ?? "The tenants"}, ${shortDate(dayOf(s.tenantAcceptedAt))}` : "Their page asks them to accept"}</p>
                 </div>
                 <div className="min-w-0 max-sm:col-span-2">
                   <p className="text-xs text-ink-3">You</p>

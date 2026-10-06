@@ -1,5 +1,5 @@
 import "server-only";
-import { pacificDate, paypalPaidAt, shortDate } from "./dates";
+import { dateIn, daysBetween, paypalPaidAt, shortDate, todayIn } from "./dates";
 import { db } from "./db";
 import { depositBlock } from "./demo-pool";
 import { missingDocs, settle, usd, type StoredDeduction } from "./deductions";
@@ -7,7 +7,7 @@ import { returnFailed, wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
 import { getInvoice, type Invoice } from "./paypal";
 import { disputeReturns, railFor, refundOwed, REFUND_WINDOW_DAYS, wholeDepositOwed } from "./refund-rail";
-import { packFor } from "./states/server";
+import { packFor, zoneWarnings } from "./states/server";
 import type { Standing, StatePack } from "./states/types";
 import type { TenantMoveOut } from "./tenant";
 
@@ -35,7 +35,9 @@ export type CloseOutFacts = {
   deductions: { item: string; room: string | null; category: string; amount: number; math: string; missingDocs: string[] }[];
   totals: { depositHeld: number; deductions: number; refund: number; balanceClaimed: number; documentsRequired: boolean };
   alreadyReturned: { kind: string; amount: number; paypalId: string; at: string } | null;
-  plan: { rail: Rail; amount: number; captureId?: string; email?: string; why: string };
+  // noteToPayer: the note PayPal shows the tenants, in code's words, when the plan returns the whole deposit (no
+  // deduction kept, or New York's forfeited ones); the money tools send it in place of the agent's. Absent otherwise.
+  plan: { rail: Rail; amount: number; captureId?: string; email?: string; why: string; noteToPayer?: string };
   blockers: string[];
   warnings: string[];
   rules: Record<string, string>;
@@ -61,8 +63,6 @@ export type CloseOutFacts = {
  *  mixed up California's (g) and (h)). */
 export const rulesFor = (pack: StatePack) => pack.close.rules;
 
-const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
-const daysBetween = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 /** How long ago a payment was, in words: today, yesterday, or so many days ago. */
 export const paidAgo = (n: number) => (n <= 0 ? "today" : n === 1 ? "yesterday" : `${days(n)} ago`);
@@ -80,9 +80,8 @@ export type CloseOutState = {
 };
 
 export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
-  const today = pacificToday();
   const [{ data: t }, { data: payments }, { data: rows }, { data: ppDisputes }] = await Promise.all([
-    db.from("tenancies").select("*, properties(address, state)").eq("id", tenancyId).single(),
+    db.from("tenancies").select("*, properties(address, city, state)").eq("id", tenancyId).single(),
     db.from("payments").select("*").eq("tenancy_id", tenancyId).order("created_at"),
     db.from("deductions").select("*").eq("tenancy_id", tenancyId).order("created_at"),
     // The tenants' PayPal disputes of the deposit payment (chargeback-store.ts): while one is open, its response is
@@ -91,6 +90,11 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   ]);
   if (!t) throw new Error("No such tenancy.");
   const pack = packFor((t.properties as { state?: string | null } | null)?.state);
+  // Every day here is a calendar day where the property is (its pack's zone): today, the day a refund went, the day a
+  // forwarding address came in. California's is Pacific, as it always was.
+  const zone = pack.timeZone.id;
+  const today = todayIn(zone);
+  const dayOf = (ts: string) => dateIn(ts, zone);
   const blockers: string[] = [];
   const warnings: string[] = [];
   const notices = (t.notices ?? {}) as Notices;
@@ -105,6 +109,8 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   const daysLeft = due ? daysBetween(today, due) : null;
   if (!moveOut) blockers.push(pack.deadline.moveOutFirst);
   if (due && daysLeft != null && daysLeft < 0) warnings.push(pack.deadline.lateWarning(-daysLeft, due));
+  // A city on another clock than the state's (El Paso, Pensacola): the deadline is still counted in the pack's zone.
+  for (const z of zoneWarnings(pack, (t.properties as { city?: string | null } | null)?.city)) warnings.push(z.line);
 
   // The deposit as PayPal reports it right now, not as we stored it. If PayPal can't be reached, the statement still
   // renders from what the tenancy page last stored, but no money moves on stale facts: the outage is a blocker.
@@ -129,8 +135,8 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
     deposit = {
       invoiceId: live.id, status: live.status, amount: Number(inv.amount), paidAt, method: txn?.method ?? null,
       captureId: txn?.payment_id ?? null,
-      // The Pacific day it was paid, as every page shows it, so "Paid yesterday" and the payment's date agree.
-      daysSincePaid: paidAt ? daysBetween(pacificDate(paidAt), today) : null,
+      // The day it was paid where the property is, as every page shows it, so "Paid yesterday" and its date agree.
+      daysSincePaid: paidAt ? daysBetween(dayOf(paidAt), today) : null,
       billedTo: live.primary_recipients?.[0]?.billing_info?.email_address ?? null,
       live: isLive,
     };
@@ -139,7 +145,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
     // (paypal-webhook.ts): the landlord no longer holds it, and nothing can go back against it.
     reversal = (inv.raw as { reversal?: { at?: string | null } } | null)?.reversal ?? null;
     if (reversal) {
-      blockers.push(`PayPal reversed the deposit payment${reversal.at ? ` on ${shortDate(pacificDate(reversal.at))}` : ""} (a chargeback or a bank reversal), so nothing goes back against it through PayPal. Check the PayPal account before returning any money.`);
+      blockers.push(`PayPal reversed the deposit payment${reversal.at ? ` on ${shortDate(dayOf(reversal.at))}` : ""} (a chargeback or a bank reversal), so nothing goes back against it through PayPal. Check the PayPal account before returning any money.`);
     }
     const openDispute = ((ppDisputes ?? []) as { id: string; status: string | null; amount: number | string | null }[]).find((x) => !!x.status && x.status !== "RESOLVED");
     if (openDispute) {
@@ -183,7 +189,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   // every copy of the Texas unit, shows the template's deposit, which is never refunded from a copy.
   const demoBlock = !alreadyReturned && inv?.paypal_id ? await depositBlock(t.workspace_id as string, inv.paypal_id) : null;
   if (demoBlock) blockers.push(demoBlock);
-  if (alreadyReturned) blockers.push(`The deposit was already returned: ${usd(alreadyReturned.amount)} by PayPal ${alreadyReturned.kind} ${alreadyReturned.paypalId} on ${alreadyReturned.at.slice(0, 10)}, sent by this close-out after the landlord approved it. Don't send another.`);
+  if (alreadyReturned) blockers.push(`The deposit was already returned: ${usd(alreadyReturned.amount)} by PayPal ${alreadyReturned.kind} ${alreadyReturned.paypalId} on ${dayOf(alreadyReturned.at)}, sent by this close-out after the landlord approved it. Don't send another.`);
 
   const tm = (t.tenant_move_out ?? null) as TenantMoveOut | null;
   const facts: CloseOutFacts = {
@@ -210,7 +216,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
     : { data: [] };
   const ctx = {
     today, notices, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null, deductionsCount: deductions.length,
-    forwarding: tm ? { address: tm.forwarding_address, date: pacificDate(tm.updated_at) } : null,
+    forwarding: tm ? { address: tm.forwarding_address, date: dayOf(tm.updated_at) } : null,
     deliveredOn, disputeLive: !!live?.length,
   };
   const extra = pack.close.extraBlockers(facts, ctx);
@@ -221,7 +227,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
   warnings.push(...pack.close.extraWarnings(facts, ctx));
   const standing = pack.close.standing?.({
     today, notices, claimed: s.total, statementDue: due, deliveredOn,
-    returnedOn: alreadyReturned ? pacificDate(alreadyReturned.at) : null, refundOwed: s.refund > 0,
+    returnedOn: alreadyReturned ? dayOf(alreadyReturned.at) : null, refundOwed: s.refund > 0,
   });
   if (standing) facts.standing = standing;
   if (reversal) facts.reversed = { at: reversal.at ?? null };
@@ -245,7 +251,7 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
     && !(d.captureId && d.daysSincePaid != null && d.daysSincePaid <= REFUND_WINDOW_DAYS)) {
     blockers.push(pack.refund.noDesignationBlocker);
   }
-  facts.plan = plan(facts, pack);
+  facts.plan = refundPlan(facts, pack);
   return { facts, invoice: fetched, workspaceId: t.workspace_id as string, pack, payments: payments ?? [] };
 }
 
@@ -254,7 +260,9 @@ export async function closeOutState(tenancyId: string): Promise<CloseOutState> {
 export const refundStillOwed = (f: Pick<CloseOutFacts, "totals" | "wholeDeposit" | "viaDispute">) =>
   Math.round(Math.max(0, refundOwed(f) - (f.viaDispute?.amount ?? 0)) * 100) / 100;
 
-function plan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
+/** The refund plan from the facts: blocked, nothing to refund, or the rail and amount with its reason (and, for the
+ *  whole deposit, the tenants' note). Pure; exported for scripts/zone-check.mjs. */
+export function refundPlan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
   if (f.blockers.length) return { rail: "blocked", amount: 0, why: "Resolve the blockers first." };
   const owed = refundOwed(f);
   const amount = refundStillOwed(f);
@@ -271,8 +279,17 @@ function plan(f: CloseOutFacts, pack: StatePack): CloseOutFacts["plan"] {
     f.wholeDeposit ? "None of the deductions may be kept, so the whole deposit goes back." : "",
     via ? `PayPal already returned ${usd(via.amount)} through the tenants' PayPal dispute, so ${usd(amount)} of the ${usd(owed)} owed is left to send.` : "",
   ].filter(Boolean).join(" ");
-  return lead ? { ...p, why: `${lead} ${p.why}` } : p;
+  const out = lead ? { ...p, why: `${lead} ${p.why}` } : p;
+  // The whole deposit goes back (nothing deducted, or every deduction forfeited): the tenants' note says so, not
+  // "less itemized deductions".
+  const inFull = f.totals.depositHeld > 0 && owed >= f.totals.depositHeld - 0.005;
+  return inFull ? { ...out, noteToPayer: wholeDepositNote(amount, !!via) } : out;
 }
+
+/** The note on a refund of the whole deposit, under PayPal's 200 characters. */
+export const wholeDepositNote = (amount: number, afterDispute: boolean) => (afterDispute
+  ? `The rest of your security deposit, ${usd(amount)}. With what PayPal returned through your dispute, the whole deposit is back: nothing is kept. The itemized statement follows.`
+  : `Your whole security deposit, ${usd(amount)}, is returned: nothing is kept from it. The itemized statement follows.`);
 
 function railPlan(f: CloseOutFacts, pack: StatePack, amount: number): CloseOutFacts["plan"] {
   const d = f.deposit!;

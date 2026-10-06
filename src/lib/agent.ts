@@ -5,7 +5,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { PayPalAgentToolkit } from "@paypal/agent-toolkit/mcp";
 import { generateText, isStepCount, tool, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod";
-import { closeOutFacts, guardRefund } from "./closeout";
+import { closeOutFacts, guardWithFacts } from "./closeout";
 import { audit, db } from "./db";
 import { returnFailed } from "./invoice-status";
 import { accessToken, PayPalRefused, SANDBOX, sendPayout } from "./paypal";
@@ -92,12 +92,16 @@ function closeOutTools(tenancyId: string, paypal: ToolSet, pack: StatePack): Too
       execute: async (input, options) => {
         const i = input as { capture_id?: string; amount?: { value?: string } };
         const amount = i.amount?.value ?? "";
-        const blocked = await guardRefund(tenancyId, { rail: "refund_original_payment", amount, captureId: i.capture_id });
+        // guardRefund, with the facts kept for the note: read fresh from the database and PayPal right now.
+        const facts = await closeOutFacts(tenancyId);
+        const blocked = guardWithFacts(facts, { rail: "refund_original_payment", amount, captureId: i.capture_id });
         if (blocked) {
           await audit(tenancyId, "system", "refund_blocked", { reason: blocked });
           // Same shape as PayPal's own tool results, so the agent reads it like any other answer.
           return { content: [{ type: "text", text: JSON.stringify({ blocked }) }], isError: true };
         }
+        // A refund of the whole deposit carries code's note saying so, whatever the agent wrote (plan.noteToPayer).
+        const sent = facts.plan.noteToPayer ? { ...(input as Record<string, unknown>), note_to_payer: facts.plan.noteToPayer } : input;
         // The toolkit's own create_refund, on a connection that sends this refund's idempotency key with the call.
         const requestId = await closeOutRefundKey(tenancyId, amount);
         let out: unknown;
@@ -105,7 +109,7 @@ function closeOutTools(tenancyId: string, paypal: ToolSet, pack: StatePack): Too
         try {
           const create = (await keyed.client.tools()).create_refund;
           if (!create?.execute) throw new PayPalRefused("PayPal Agent Toolkit didn't expose create_refund");
-          out = await create.execute(input, options);
+          out = await create.execute(sent, options);
         } catch (e) {
           const refused = e instanceof PayPalRefused;
           await audit(tenancyId, "agent", "refund_failed", { amount: Number(amount), error: String(e).slice(0, 300), request_id: requestId, ...(refused ? { refused: true } : { unconfirmed: true }) });
@@ -133,7 +137,8 @@ function closeOutTools(tenancyId: string, paypal: ToolSet, pack: StatePack): Too
       }),
       needsApproval: true,
       execute: async ({ email, amount, note }) => {
-        const blocked = await guardRefund(tenancyId, { rail: "payout", amount, email });
+        const facts = await closeOutFacts(tenancyId);
+        const blocked = guardWithFacts(facts, { rail: "payout", amount, email });
         if (blocked) {
           await audit(tenancyId, "system", "refund_blocked", { reason: blocked });
           return { blocked };
@@ -142,7 +147,7 @@ function closeOutTools(tenancyId: string, paypal: ToolSet, pack: StatePack): Too
         // close-out Payout can't go out whatever happened to the first (and the same id goes as PayPal-Request-Id).
         let p: Awaited<ReturnType<typeof sendPayout>>;
         try {
-          p = await sendPayout({ email, amount: Number(amount), note, batchId: `deposit-${tenancyId}` });
+          p = await sendPayout({ email, amount: Number(amount), note: facts.plan.noteToPayer ?? note, batchId: `deposit-${tenancyId}` });
         } catch (e) {
           await audit(tenancyId, "agent", "refund_failed", { amount: Number(amount), error: String(e).slice(0, 300), payout: true, ...(e instanceof PayPalRefused ? { refused: true } : { unconfirmed: true }) });
           throw e;

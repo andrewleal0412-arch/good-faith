@@ -99,6 +99,7 @@ const KEPT = {
   "src/lib/access-throttle.ts all": "wrong access codes in all, a throttle",
   "src/app/api/paypal/webhook/route.ts toldAddress": "whether the rate limit's address header was logged once",
   "src/proxy.ts PUBLIC_EXACT": "a fixed list of public paths, never changed",
+  "src/lib/dates.ts ZONES": "date formatters, one set per time zone name (a state pack's zone): no data, only Intl formatters",
 };
 const TOP = /^(?:export\s+)?(?:let\s+([A-Za-z_$][\w$]*)|var\s+([A-Za-z_$][\w$]*)|const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*new\s+(?:Map|Set|WeakMap|WeakSet)\b)/;
 const found = new Set();

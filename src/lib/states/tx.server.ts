@@ -6,7 +6,7 @@ import {
   checklistTool, claim, closeOutSystem, delivered, disclaimer, evidence, factsTool, grade, inspectionGuide, lines, parties,
   refund, security, shortOf, wear, type ItemSpec,
 } from "./common.server";
-import { forwardingOf } from "./tx";
+import { forwardingOf, TX } from "./tx";
 import type { ServerPart } from "./types";
 
 const C = (s: string) => `Tex. Prop. Code ${s}`;
@@ -187,7 +187,7 @@ export const TX_SERVER: ServerPart = {
     inspectorRole: "You inspect rental units at move-out for a Texas landlord's security deposit tool.",
     inspectionGuide: inspectionGuide("Texas Property Code 92.104(b) and 92.001(4), as applied here (normal wear and tear is deterioration that results from the intended use of a dwelling, not from negligence, carelessness, accident or abuse by the tenant, household or guests; Texas publishes no wear-and-tear guide, so the examples below are common practice):"),
     closeOutSystem: closeOutSystem({
-      name: "Texas", items: 11,
+      name: "Texas", items: 11, zone: TX.timeZone.name,
       note: "The refund and a written itemized list of deductions are due on or before the 30th day after the tenant surrenders the premises, and are not owed until the tenant gives a written forwarding address. Texas sets no cap and names no refund method.",
     }),
     factsToolDescription: factsTool("30-day"),

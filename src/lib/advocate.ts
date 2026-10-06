@@ -271,6 +271,8 @@ function tools(file: CaseFile, pack: StatePack, loadPhoto: LoadPhoto): ToolSet {
       execute: async () => ({
         address: file.address, landlord: file.landlord, tenants: file.tenants, state: pack.name, statute: pack.statute.full,
         moveOutDate: file.moveOutDate, statementDue: file.statementDue, delivered: file.delivery,
+        // The state's deadline is counted in the property's zone; every date here is a calendar day there.
+        datesIn: pack.timeZone.name, today: file.today,
         late: file.ranges.late.late ? { ...file.ranges.late } : file.ranges.late.late === false ? "No, on time" : "Can't tell from the file",
         depositHeld: file.depositHeld, deductionsTotal: file.ranges.totals.deducted, statementRefund: file.statementRefund, alreadyRefunded: file.refunded,
         lines: file.lines.map((l) => ({ line: l.n, title: l.title, room: l.room, category: pack.tags[l.category].label, amount: l.amount, basis: l.basis, disputed: l.disputed })),

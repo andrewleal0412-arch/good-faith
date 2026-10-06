@@ -8,6 +8,7 @@ import {
   security, shortOf, wear, type ItemSpec,
 } from "./common.server";
 import type { ServerPart } from "./types";
+import { WA } from "./wa";
 
 const R = (s: string) => `RCW ${s}`;
 
@@ -182,7 +183,7 @@ export const WA_SERVER: ServerPart = {
     inspectorRole: "You inspect rental units at move-out for a Washington landlord's security deposit tool.",
     inspectionGuide: inspectionGuide("RCW 59.18.030 and 59.18.280(1)(c), as applied here (wear resulting from ordinary use is deterioration from the intended use of a dwelling unit, including breakage or malfunction due to age or deteriorated condition, not deterioration from negligence, carelessness, accident or abuse by the tenant, family, occupant or guest; carpet cleaning only with documented wear beyond ordinary use):"),
     closeOutSystem: closeOutSystem({
-      name: "Washington", items: 13,
+      name: "Washington", items: 13, zone: WA.timeZone.name,
       note: "The full and specific statement, with the estimates or invoices for each damage charge, and the refund are due within 30 days after the tenancy ends and the tenant vacates, handed over or mailed first class; a PayPal refund goes only under the tenants' written agreement, and the paper statement still goes out. Damage deductions need the signed move-in checklist.",
     }),
     factsToolDescription: factsTool("30-day"),

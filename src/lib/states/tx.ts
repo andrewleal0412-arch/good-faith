@@ -104,6 +104,16 @@ export const TX: ClientPack = {
   code: "TX",
   name: "Texas",
   spec: "docs/rules/TX.md",
+  // Texas deadlines are counted in Central time. El Paso and Hudspeth counties keep Mountain time; the app doesn't
+  // guess a zone from the city, it warns (docs/rules/TX.md, Time zone).
+  timeZone: {
+    id: "America/Chicago", name: "Central time",
+    exceptions: [{
+      area: "El Paso and Hudspeth counties", zone: "America/Denver", zoneName: "Mountain time",
+      match: /^(el paso|socorro|horizon city|anthony|canutillo|clint|san elizario|vinton|fabens|tornillo|sierra blanca|dell city|fort hancock|fort bliss)$/i,
+      line: "El Paso and Hudspeth counties keep Mountain time, an hour behind the Central time Good Faith counts Texas deadlines in. The app doesn't change zones by city, so here each day ends at 11 PM local time: anything done before then is on time on either clock.",
+    }],
+  },
   statute: {
     short: "Tex. Prop. Code ch. 92",
     full: "Texas Property Code, Chapter 92, Subchapter C",

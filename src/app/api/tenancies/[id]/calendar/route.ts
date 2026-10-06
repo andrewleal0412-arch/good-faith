@@ -1,5 +1,5 @@
 import { buildIcs, tenancyEvents } from "@/lib/ics";
-import { closedOut } from "@/lib/next-step";
+import { closedOut, packOf } from "@/lib/next-step";
 import { loadUnit } from "@/lib/units";
 import { routeTenancy } from "@/lib/workspace";
 
@@ -22,7 +22,7 @@ export async function GET(req: Request, ctx: RouteContext<"/api/tenancies/[id]/c
     return Response.json({ error }, { status: 409 });
   }
   const origin = new URL(req.url).origin;
-  const body = buildIcs(events, { name: `Good Faith: ${t.address}`, url: `${origin}/tenancy/${id}` });
+  const body = buildIcs(events, { name: `Good Faith: ${t.address}`, url: `${origin}/tenancy/${id}`, zone: packOf(t).timeZone.id });
   const slug = t.address.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "unit";
   return new Response(body, {
     headers: {

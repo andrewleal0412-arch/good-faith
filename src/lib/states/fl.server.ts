@@ -7,7 +7,7 @@ import {
   checklistTool, claim, closeOutSystem, disclaimer, evidence, factsTool, grade, inspectionGuide, lines, parties, refund,
   security, shortOf, wear, type ItemSpec,
 } from "./common.server";
-import { FL_BURDEN_CITE, flClockStart, objectionOf, receivedOn } from "./fl";
+import { FL, FL_BURDEN_CITE, flClockStart, objectionOf, receivedOn } from "./fl";
 import type { ServerPart, StandingInput } from "./types";
 
 const F = (s: string) => `Fla. Stat. ${s}`;
@@ -259,7 +259,7 @@ export const FL_SERVER: ServerPart = {
     inspectorRole: "You inspect rental units at move-out for a Florida landlord's security deposit tool.",
     inspectionGuide: inspectionGuide("Florida Statutes 83.43(14) and 83.52, as applied here (the deposit secures damage caused by the tenant and unpaid obligations; the tenant keeps the unit clean and sanitary and does not damage it; ordinary deterioration from normal use is not a breach; Florida publishes no wear-and-tear guide, so the examples below are common practice):"),
     closeOutSystem: closeOutSystem({
-      name: "Florida", items: 12,
+      name: "Florida", items: 12, zone: FL.timeZone.name,
       note: "With no deductions, the whole deposit goes back within 15 days after the tenancy ends. With deductions, a notice of intention to impose a claim must have gone by certified mail within 30 days; nothing is deducted until 15 days after the tenant receives it, and the balance goes back within 30 days of the notice. The facts' blockers say where the claim stands.",
     }),
     factsToolDescription: factsTool("15 or 30-day"),

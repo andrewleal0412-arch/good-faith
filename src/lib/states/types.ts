@@ -99,10 +99,22 @@ export type StatementContext = {
   ending?: { givenOn: string | null; givenBy: "tenant" | "landlord" | null; ends: string | null };
 };
 
+/** A part of a state whose clocks keep another zone than the one its pack counts in (Florida's western panhandle on
+ *  Central time, El Paso and Hudspeth counties in Texas on Mountain time). The pack still counts every deadline in its
+ *  own zone, never one guessed from the city; a property whose city `match`es shows `line` as a warning. */
+export type ZoneException = { area: string; zone: string; zoneName: string; match: RegExp; line: string };
+
 export type StatePack = {
   code: StateCode;
   name: string; // "California"
   spec: string; // the rules spec in the repo, e.g. "docs/LEGAL_RULES.md"
+  /** The time zone the state's deadlines are counted in (Andrew, 2026-10-05): "today", the calendar day a refund went
+   *  or a statement was delivered, and so every days-left, lateness and forfeiture for a property in the state. */
+  timeZone: {
+    id: string; // IANA: "America/New_York"
+    name: string; // "Eastern time"
+    exceptions: ZoneException[];
+  };
   statute: {
     short: string; // "Civ. Code 1950.5", the chip: "Rules: Civ. Code 1950.5"
     full: string; // "California Civil Code 1950.5"
@@ -160,6 +172,10 @@ export type StatePack = {
     words?: (c: ClockInput) => { due: string; within: string; title: string };
     moveOutFirst: string; // the close-out's blocker before the move-out date
     ledgerAllowed: number | null; // the ledger's "(21 allowed)"; null where the deadline turns on more than the move-out
+    /** Whether missing the deadline has forfeited the deductions outright, from the dates on file alone (New York after
+     *  day 14, the same rule as its close-out's standing): the ledger and Properties then count none of them as
+     *  deducted. Absent where lateness forfeits nothing by itself or turns on facts the ledger doesn't hold. */
+    forfeits?: (c: ForfeitInput) => boolean;
   };
 
   moveOut: {
@@ -379,6 +395,10 @@ export type LateInput = {
   refundOwed: boolean; // the statement leaves part of the deposit to go back (New York: owed by day 14 too)
 };
 
+/** What `deadline.forfeits` reads: the move-out, today and the two days the deadline turns on, each a calendar day in
+ *  the pack's zone, and whether the deductions leave part of the deposit to go back. */
+export type ForfeitInput = { moveOutDate: string | null; today: string; deliveredOn: string | null; returnedOn: string | null; refundOwed: boolean };
+
 /** isLate's answer: late or not (null: the file can't tell), and when late, any reason the forfeiture is arguable. */
 export type Lateness = { late: boolean | null; doubt?: { text: string; cite: string } | null };
 
@@ -391,7 +411,7 @@ export type ClientPack = Omit<StatePack, ServerKeys>;
 export type ServerPart = Pick<StatePack, ServerKeys>;
 
 /** What a claim's standing is read from; the close-out and the tenant page both have it. `deliveredOn` is the delivery
- *  record's date, `returnedOn` the day the refund or Payout went (Pacific), `refundOwed` whether the statement leaves
+ *  record's date, `returnedOn` the day the refund or Payout went (in the pack's zone), `refundOwed` whether the statement leaves
  *  part of the deposit to go back. */
 export type StandingInput = {
   today: string; notices: Notices; claimed: number; statementDue: string | null;

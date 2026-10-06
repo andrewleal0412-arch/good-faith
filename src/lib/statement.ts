@@ -1,9 +1,9 @@
 import "server-only";
 import { closeOutFacts, type CloseOutFacts } from "./closeout";
 import { CATEGORY_ORDER, isDemoExample } from "./copy";
-import { longDate, pacificDate } from "./dates";
+import { dateIn, longDate } from "./dates";
 import { db } from "./db";
-import { describeDelivery, type DeliveryRecord } from "./delivery";
+import { describeDelivery, recordedLater, type DeliveryRecord } from "./delivery";
 import { missingDocs, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
 import { findingTitle, type StoredFinding } from "./findings";
 import { paidElectronically, wasPaid } from "./invoice-status";
@@ -50,12 +50,12 @@ export type StatementDeduction = {
 };
 
 export type { DeliveryRecord } from "./delivery";
-export { DELIVERY_LABEL, deliveryLine, describeDelivery } from "./delivery";
+export { DELIVERY_LABEL, deliveryLine, describeDelivery, recordedLater, recordedWords } from "./delivery";
 
 export type Statement = {
   tenancyId: string;
   state: StateCode; // the state whose law the statement follows
-  today: string; // the live Pacific date, for the delivery form
+  today: string; // the live date where the property is (its pack's zone), for the delivery form
   statementDate: string; // the date on the document: the delivery date once recorded, else today
   landlord: string;
   property: { address: string; city: string | null };
@@ -86,6 +86,9 @@ export type Statement = {
   interest: { city: string | null; known: boolean; note: string; checkReason: string };
   delivery: DeliveryRecord | null;
   deliveredAt: string | null;
+  // The day the delivery was recorded, where the property is, when that is later than its delivery date: the statement,
+  // its PDF and the tenants' page print "recorded <date>" beside it. Absent otherwise.
+  deliveryRecordedOn?: string;
   tenantForwarding: { address: string; name: string | null; date: string } | null; // given by the tenants through their link, for (h)(6)
   checklist: ChecklistItem[];
   // How the claimed amounts stand when they are not plain deductions (Florida: disputed; New York: forfeited after day
@@ -121,8 +124,8 @@ export type StatementSettlement = {
   example: boolean; // the demo's recorded example (a copy's closed unit): no PayPal money moved for it
 };
 
-// The long date and the Pacific calendar date, with dates.ts's formatters (made once).
-export { longDate, pacificDate } from "./dates";
+// The long date and the calendar dates, with dates.ts's formatters (made once).
+export { dateIn, longDate, pacificDate } from "./dates";
 
 // The disclaimers live in copy.ts, which has no server imports, so the static home page can print one too.
 export { DISCLAIMERS } from "./copy";
@@ -141,6 +144,8 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
 
   const prop = t.properties as { address: string; city: string | null; owner_name: string | null; state?: string | null };
   const pack = packFor(prop.state);
+  // A timestamp's day where the property is: the statement dates everything as the state counts it.
+  const dayOf = (ts: string) => dateIn(ts, pack.timeZone.id);
   const terms = (t.lease_terms ?? null) as LeaseTerms | null;
   const tenantContacts = (t.tenants as { name: string; email?: string | null }[]).map((x) => ({ name: x.name, email: x.email ?? null }));
   const tenants = tenantContacts.map((x) => x.name);
@@ -221,7 +226,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     };
   } else if (via && totals.depositHeld > 0 && owedNow <= 0) {
     refund = { ...base, amount: 0, state: "none", paypalId: null, sentAt: null,
-      method: `Nothing more is owed: PayPal returned ${usd(via.amount)} to the tenants through their PayPal dispute${via.disputeId ? ` ${via.disputeId}` : ""}${via.at ? ` on ${longDate(pacificDate(via.at))}` : ""}.`, note: "" };
+      method: `Nothing more is owed: PayPal returned ${usd(via.amount)} to the tenants through their PayPal dispute${via.disputeId ? ` ${via.disputeId}` : ""}${via.at ? ` on ${longDate(dayOf(via.at))}` : ""}.`, note: "" };
   } else if (totals.depositHeld === 0) {
     refund = { ...base, amount: 0, state: "none", paypalId: null, sentAt: null, method: "No security was received through PayPal, so there is nothing to refund.", note: "" };
   } else if (totals.refund <= 0 && !facts.standing?.forfeits) {
@@ -237,7 +242,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
       note: "",
     };
   }
-  const signed = agreement ? `the written agreement signed by ${agreement.signedBy.join(" and ")} on ${longDate(pacificDate(agreement.signedAt))}` : null;
+  const signed = agreement ? `the written agreement signed by ${agreement.signedBy.join(" and ")} on ${longDate(dayOf(agreement.signedAt))}` : null;
   const paidBy = security?.method ? security.method.toLowerCase().replace(/_/g, " ") : "a method PayPal did not record";
   refund.note = pack.statement.refundNote({ tenants, paid: !!security?.paid, electronic: !!security?.electronic, signed, paidBy });
 
@@ -254,9 +259,11 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     moveOutDate: facts.tenancy.moveOutDate, statementDue: facts.tenancy.statementDue, daysLeft: delivery ? null : facts.tenancy.daysLeft,
     security, deductions, totals, documents, refund, balanceClaimed,
     interest: pack.statement.interest(city, { buildingUnits: terms?.buildingUnitCount ?? null, notices: (t.notices ?? {}) as Notices }), delivery, deliveredAt,
-    tenantForwarding: tm ? { address: tm.forwarding_address, name: tm.name, date: tenantMoveOutUpdatedOn(tm) } : null,
+    tenantForwarding: tm ? { address: tm.forwarding_address, name: tm.name, date: tenantMoveOutUpdatedOn(tm, pack.timeZone.id) } : null,
     checklist: [],
   };
+  const recordedOn = recordedLater(delivery, t.statement_delivery_recorded_at as string | null, pack.timeZone.id);
+  if (recordedOn) s.deliveryRecordedOn = recordedOn;
   if (facts.standing) s.standing = facts.standing;
   if (via) s.viaDispute = { amount: via.amount, disputeId: via.disputeId, at: via.at || null, notKept: via.notKept };
   // The amended statement: a settlement of the tenants' dispute that was paid (or needed no money). Only then; one
@@ -306,7 +313,7 @@ export async function statementChecklist(tenancyId: string) {
     statementDate: s.statementDate,
     statementDue: s.statementDue,
     daysLeft: s.daysLeft,
-    delivered: s.delivery ? describeDelivery(s.delivery) : null,
+    delivered: s.delivery ? describeDelivery(s.delivery, s.deliveryRecordedOn) : null,
     checklist: s.checklist,
     stillMissing: s.checklist.filter((c) => c.state === "missing").map((c) => `${c.n}. ${c.title}: ${c.reason}`),
   };

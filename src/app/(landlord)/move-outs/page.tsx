@@ -23,7 +23,8 @@ const track = (s: TenancySummary) => {
 export default async function MoveOutsPage({ searchParams }: PageProps<"/move-outs">) {
   const sp = await searchParams;
   const view = sp.view === "closed" ? "closed" : "open";
-  const { today, units } = await loadUnits();
+  // Each row's countdown is from the unit's own today (u.today, its state's zone).
+  const { units } = await loadUnits();
   const ending = units.filter((u) => u.summary.noticeGivenOn || u.summary.tenantMoveOut || u.summary.moveOutDate || u.summary.statementDeliveredAt);
   const open = ending.filter((u) => !closedOut(u.summary));
   const closed = ending.filter((u) => closedOut(u.summary));
@@ -57,7 +58,7 @@ export default async function MoveOutsPage({ searchParams }: PageProps<"/move-ou
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{splitAddress(s.address, s.city).street}</div>
                       <div className="truncate text-xs text-ink-3">
-                        {due ? (s.statementDeliveredAt ? `Statement delivered, due ${shortDate(due)}` : `Due ${dayLabel(due, today)}, ${whenText(daysBetween(today, due))}`)
+                        {due ? (s.statementDeliveredAt ? `Statement delivered, due ${shortDate(due)}` : `Due ${dayLabel(due, u.today)}, ${whenText(daysBetween(u.today, due))}`)
                           : s.plannedMoveOut ? `Moving out ${shortDate(s.plannedMoveOut)}` : "Move-out not set"}
                       </div>
                     </div>
@@ -97,7 +98,7 @@ export default async function MoveOutsPage({ searchParams }: PageProps<"/move-ou
                       {s.moveOutDate ? shortDate(s.moveOutDate) : s.plannedMoveOut ? <span className="text-ink-3">Planned {shortDate(s.plannedMoveOut)}</span> : <span className="text-ink-3">Not set</span>}
                     </Td>
                     <Td className="whitespace-nowrap">
-                      {due ? <>{shortDate(due)}<span className="block text-xs text-ink-3">{s.statementDeliveredAt ? "Statement delivered" : `${track(s)}${whenText(daysBetween(today, due))}`}</span></> : <span className="text-ink-3">After move-out</span>}
+                      {due ? <>{shortDate(due)}<span className="block text-xs text-ink-3">{s.statementDeliveredAt ? "Statement delivered" : `${track(s)}${whenText(daysBetween(u.today, due))}`}</span></> : <span className="text-ink-3">After move-out</span>}
                     </Td>
                     <Td><StatusChip tone={status.tone}>{status.label}</StatusChip></Td>
                     <Td last className="whitespace-nowrap"><Link href={step.href} className="font-medium text-brand hover:underline">{step.label}</Link></Td>

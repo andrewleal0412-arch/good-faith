@@ -8,7 +8,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
 import { TENANT_VIEW_TIP } from "@/lib/copy";
-import { pacificDate, shortDate } from "@/lib/dates";
+import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 
 // The private tenant link: made here, copied once, turned off here. The token is shown the one time it is made,
 // since only its hash is kept; making another replaces the live one. "Email it" opens the landlord's own mail app
@@ -20,6 +20,7 @@ export function TenantLinkPanel(p: {
   active: { id: string; createdAt: string; lastSeenAt: string | null } | null;
   quiet?: boolean; // the record header holds the view's primary button, so this panel's buttons are secondary
   demoHref?: string | null; // a demo copy's tenants' page, which its own pages may open again (one person plays both sides)
+  zone?: string; // the property's time zone (its state pack's), which its times are shown in
 }) {
   const router = useRouter();
   const [confirm, dialog] = useConfirm();
@@ -77,8 +78,10 @@ export function TenantLinkPanel(p: {
   const names = p.contacts.map((c) => c.name);
   const emails = p.contacts.map((c) => c.email?.trim()).filter((e): e is string => !!e);
   const who = names.join(" and ") || "the tenants";
-  // Times on the landlord's pages are Pacific, where the tenancies are; pinning it also keeps the server and browser renders identical.
-  const when = (ts: string) => new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
+  // Times are on the property's clock (its state's zone; its short name outside Pacific time); pinning the zone also
+  // keeps the server and browser renders identical.
+  const zone = p.zone ?? PACIFIC;
+  const when = (ts: string) => new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: zone, ...(zone === PACIFIC ? {} : { timeZoneName: "short" as const }) });
   const mailto = url && emails.length
     ? `mailto:${emails.join(",")}?subject=${encodeURIComponent(`Your security deposit at ${p.address}`)}&body=${encodeURIComponent(
       `Here is your private page for the ${p.address} deposit: ${url}\n\nIt shows the deposit you paid, the agreement you signed, the move-in photos and, later, the itemized statement. You can tell me there when you are moving out and where to mail the statement.`,
@@ -109,7 +112,7 @@ export function TenantLinkPanel(p: {
         ) : p.active ? (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <StatusChip tone="green">Active</StatusChip>
-            <span className="text-ink-3">Since {shortDate(pacificDate(p.active.createdAt))}, {p.active.lastSeenAt ? `last opened ${when(p.active.lastSeenAt)}` : "not opened yet"}</span>
+            <span className="text-ink-3">Since {shortDate(dateIn(p.active.createdAt, zone))}, {p.active.lastSeenAt ? `last opened ${when(p.active.lastSeenAt)}` : "not opened yet"}</span>
             {p.demoHref && (
               <span className="inline-flex items-center gap-1.5">
                 <a href={p.demoHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand hover:underline">

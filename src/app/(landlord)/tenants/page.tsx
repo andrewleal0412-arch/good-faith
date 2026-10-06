@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { Card, EmptyState, PageHead, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
-import { pacificDate, shortDate } from "@/lib/dates";
+import { shortDate } from "@/lib/dates";
 import { propertyStatus, splitAddress, tabHref } from "@/lib/property-view";
-import { packFor, refundRecordWords } from "@/lib/states";
+import { dayFor, packFor, refundRecordWords } from "@/lib/states";
 import { loadUnits, workspaceTenancies } from "@/lib/units";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export default async function TenantsPage() {
     const status = propertyStatus(u.summary, u.next);
     const street = splitAddress(u.summary.address, u.summary.city).street;
     const record = refundRecordWords(packFor(u.summary.state));
-    return (t?.tenants ?? []).map((c) => ({ id: u.summary.id, name: c.name, email: c.email, street, status, record, agreement: t?.refund_agreement ?? null }));
+    return (t?.tenants ?? []).map((c) => ({ id: u.summary.id, state: u.summary.state, name: c.name, email: c.email, street, status, record, agreement: t?.refund_agreement ?? null }));
   });
   // The column names what every row's record is; when the states differ (an agreement in one, an account in another),
   // what they have in common: signed in writing.
@@ -64,7 +64,7 @@ export default async function TenantsPage() {
                     </Td>
                     <Td className="whitespace-nowrap"><Link href={tabHref(r.id, "tenants")} className="hover:underline">{r.street}</Link></Td>
                     <Td><StatusChip tone={r.status.tone}>{r.status.label}</StatusChip></Td>
-                    <Td className="whitespace-nowrap">{signed ? `Signed ${shortDate(pacificDate(r.agreement!.signed_at))}` : <span className="text-ink-3">Not signed</span>}</Td>
+                    <Td className="whitespace-nowrap">{signed ? `Signed ${shortDate(dayFor(r.agreement!.signed_at, r.state))}` : <span className="text-ink-3">Not signed</span>}</Td>
                     <Td last>{r.agreement ? `PayPal, ${r.agreement.paypal_email}` : <span className="text-ink-3">{r.record.none}</span>}</Td>
                   </tr>
                 );

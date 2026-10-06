@@ -1,4 +1,4 @@
-import { longDate, pacificToday, realDate } from "@/lib/dates";
+import { longDate, realDate, todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { inspectionWindowOpens } from "@/lib/notices";
 import { tenancyPack } from "@/lib/tenancy-pack";
@@ -18,7 +18,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const body: unknown = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send the notice date and the planned move-out date." }, { status: 400 });
   const b = body as { noticeGivenOn?: unknown; plannedMoveOut?: unknown; givenBy?: unknown };
-  const today = pacificToday();
+  // Today where the property is: its pack's zone, which its deadlines are counted in.
+  const pack = await tenancyPack(id);
+  const today = todayIn(pack.timeZone.id);
   if (!realDate(b.noticeGivenOn)) return Response.json({ error: "Pick the date the notice was given." }, { status: 400 });
   if (b.noticeGivenOn > today) return Response.json({ error: "The notice date can't be in the future." }, { status: 400 });
   if (!realDate(b.plannedMoveOut)) return Response.json({ error: "Pick the planned move-out date." }, { status: 400 });
@@ -42,7 +44,6 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     console.error("notice update failed", error.message);
     return Response.json({ error: "Couldn't save the notice. Try again." }, { status: 500 });
   }
-  const pack = await tenancyPack(id);
   const windowOpens = inspectionWindowOpens(b.plannedMoveOut, pack);
   // The deadline if the tenants leave as planned and nothing is claimed (Florida's claim track starts only with a claim).
   const due = pack.deadline.due({ moveOutDate: b.plannedMoveOut, endDate: t.end_date, plannedMoveOut: b.plannedMoveOut });

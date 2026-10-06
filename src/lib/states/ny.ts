@@ -139,6 +139,7 @@ export const NY: ClientPack = {
   code: "NY",
   name: "New York",
   spec: "docs/rules/NY.md",
+  timeZone: { id: "America/New_York", name: "Eastern time", exceptions: [] },
   statute: {
     short: "N.Y. GOL 7-108",
     full: "New York General Obligations Law 7-103 to 7-109",
@@ -218,6 +219,8 @@ export const NY: ClientPack = {
     lastDay: nyLastDay,
     moveOutFirst: "Set the move-out date first: the day the tenants vacate starts the 14-day clock.",
     ledgerAllowed: 14,
+    // N21: the ledger and Properties count no deduction as kept once day 14 forfeited them (the close-out's standing).
+    forfeits: (c) => !!nyLate({ due: c.moveOutDate ? addDays(c.moveOutDate, 14) : null, today: c.today, deliveredOn: c.deliveredOn, returnedOn: c.returnedOn, refundOwed: c.refundOwed })?.late,
   },
 
   moveOut: {

@@ -1,5 +1,6 @@
-import { addDays, longDate, pacificToday, realDate } from "@/lib/dates";
+import { addDays, longDate, realDate, todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
+import { zoneOf } from "@/lib/states";
 import { FORWARDING_MAX, FORWARDING_MIN, PLANNED_MOVE_OUT_HORIZON_DAYS, PLANNED_MOVE_OUT_PAST_DAYS, type TenantMoveOut } from "@/lib/tenant";
 import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
 import { isTemplate } from "@/lib/workspace";
@@ -29,7 +30,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/movin
   if (address.length < FORWARDING_MIN) return bad("Enter the full address the statement should be mailed to.");
   if (address.length > FORWARDING_MAX) return bad(`Keep the address under ${FORWARDING_MAX} characters.`);
 
-  const { data: t } = await db.from("tenancies").select("tenants, start_date, move_out_date, statement_delivered_at, tenant_move_out").eq("id", link.tenancyId).single();
+  const { data: t } = await db.from("tenancies").select("tenants, start_date, move_out_date, statement_delivered_at, tenant_move_out, properties(state)").eq("id", link.tenancyId).single();
   if (!t) return tokenNotFound();
   // Once the statement is out, where to mail it is settled; a change would have nowhere to go.
   if (t.statement_delivered_at) return bad("The itemized statement has already been sent, so the move-out details can't be changed here. Contact your landlord directly.", 409);
@@ -43,7 +44,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/movin
       return bad(`Your landlord recorded the move-out on ${longDate(t.move_out_date)}, so the date can't be changed here. The forwarding address can.`);
     }
   } else {
-    const today = pacificToday();
+    // Today where the property is (its pack's zone).
+    const today = todayIn(zoneOf((t.properties as { state?: string | null } | null)?.state));
     if (!realDate(b.plannedMoveOut)) return bad("Pick your move-out date.");
     if (b.plannedMoveOut > addDays(today, PLANNED_MOVE_OUT_HORIZON_DAYS)) return bad("That date is more than a year away. Check the year.");
     if (b.plannedMoveOut < addDays(today, -PLANNED_MOVE_OUT_PAST_DAYS)) return bad(`That date is more than ${PLANNED_MOVE_OUT_PAST_DAYS} days in the past. Check the year.`);

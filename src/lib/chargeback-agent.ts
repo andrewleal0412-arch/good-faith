@@ -14,6 +14,7 @@ import { generateText, isStepCount, tool, type LanguageModel, type ModelMessage,
 import { z } from "zod";
 import type { CasePhoto, LoadPhoto } from "./advocate";
 import { ACTION_LABEL, readDispute, reasonWords, statusWords, type DefenseAction, type DefenseContext, type DisputeRead, type RawDefense } from "./chargeback";
+import { dateIn } from "./dates";
 import { usd } from "./deductions";
 import type { StatePack } from "./states/types";
 
@@ -80,7 +81,7 @@ function prompt(f: DefenseFile): string {
   const options = f.options.map((o) => `- ${ACTION_TOOL[o.action]}: ${ACTION_LABEL[o.action]}${o.fixed != null ? `, ${usd(o.fixed)} back` : o.min != null ? `, between ${usd(o.min)} and ${usd(o.max ?? o.min)} back` : ""}`).join("\n");
   const evidence = f.catalog.map((c) => `- ${c.key}: ${c.label}`).join("\n");
   const a = allows(d);
-  return `PayPal dispute ${d.id}: ${reasonWords(d.reason)} (${d.reason ?? "no reason given"}), ${statusWords(d.status).toLowerCase()}, stage ${d.stage ?? "not stated"}. The tenants claim ${usd(d.amount)}.${d.dueDate ? ` PayPal wants the landlord's response by ${d.dueDate.slice(0, 10)}.` : ""}${d.requested.length ? ` PayPal asked the landlord for: ${d.requested.join(", ")}.` : ""}
+  return `PayPal dispute ${d.id}: ${reasonWords(d.reason)} (${d.reason ?? "no reason given"}), ${statusWords(d.status).toLowerCase()}, stage ${d.stage ?? "not stated"}. The tenants claim ${usd(d.amount)}.${d.dueDate ? ` PayPal wants the landlord's response by ${dateIn(d.dueDate, f.pack.timeZone.id)}.` : ""}${d.requested.length ? ` PayPal asked the landlord for: ${d.requested.join(", ")}.` : ""}
 PayPal takes these responses on it now: send evidence, ${a.send_evidence}; accept the claim, ${a.accept_claim}; make an offer, ${a.make_offer}.
 
 The tenants' words to PayPal, between the markers:
@@ -89,7 +90,7 @@ ${d.buyerWords.join("\n") || "None on file."}
 </tenants_words>
 
 The case file:
-- Rental: ${f.address}. Landlord: ${f.landlord ?? "not named"}. Tenants: ${f.tenants.join(" and ") || "not named"}. Today: ${f.today}.
+- Rental: ${f.address}. Landlord: ${f.landlord ?? "not named"}. Tenants: ${f.tenants.join(" and ") || "not named"}. Today: ${f.today}. Every date here is a calendar day in ${f.pack.timeZone.name}, where the property is.
 - Deposit: ${usd(f.depositHeld)} paid through PayPal${f.depositPaidOn ? ` on ${f.depositPaidOn}` : ""}${f.capture ? ` (payment ${f.capture})` : ""}.
 - Move-out: ${f.moveOutDate ?? "not yet"}. Statement due: ${f.statementDue ?? "not set"}. Statement delivered: ${f.delivery ? `${f.delivery.date} by ${f.delivery.method.replace(/_/g, " ")}` : "not yet"}.
 - Refunds sent: ${refunds}.

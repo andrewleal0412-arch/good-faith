@@ -7,7 +7,7 @@ import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Money, Notice, StatusChip } from "@/components/ui";
-import { pacificDate, shortDate } from "@/lib/dates";
+import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { PayPalDisputeView } from "@/lib/chargeback-store";
 
 // The tenants' PayPal dispute (or chargeback) of the deposit payment, on the property's Payments tab: what PayPal says,
@@ -22,7 +22,8 @@ const STATUS_TONE: Record<string, "red" | "amber" | "green" | "gray"> = {
   WAITING_FOR_SELLER_RESPONSE: "red", OPEN: "red", UNDER_REVIEW: "amber", WAITING_FOR_BUYER_RESPONSE: "amber", RESOLVED: "green",
 };
 
-export function PayPalDisputeCard({ tenancyId, v, quiet }: { tenancyId: string; v: PayPalDisputeView; quiet: boolean }) {
+export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { tenancyId: string; v: PayPalDisputeView; quiet: boolean; zone?: string }) {
+  const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
   const router = useRouter();
   const [busy, setBusy] = useState<null | "check" | "prepare" | "approve" | "decline" | "recheck">(null);
   const [polling, setPolling] = useState(v.running);
@@ -126,7 +127,7 @@ export function PayPalDisputeCard({ tenancyId, v, quiet }: { tenancyId: string; 
         <div className="min-w-0">
           <p className="text-xs text-ink-3">Claimed</p>
           <Money value={v.amount} className="mt-0.5 block text-lg font-medium" />
-          <p className="mt-0.5 truncate text-xs text-ink-3">{v.reason}{v.openedAt ? `, ${shortDate(pacificDate(v.openedAt))}` : ""}</p>
+          <p className="mt-0.5 truncate text-xs text-ink-3">{v.reason}{v.openedAt ? `, ${shortDate(dayOf(v.openedAt))}` : ""}</p>
         </div>
         {v.open && <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-xs text-ink-3">
@@ -181,7 +182,7 @@ export function PayPalDisputeCard({ tenancyId, v, quiet }: { tenancyId: string; 
             Sending your response to PayPal.
           </div>
         ) : r?.status === "sent" ? (
-          <Sent v={v} />
+          <Sent v={v} zone={zone} />
         ) : r?.status === "unknown" ? (
           <>
             <p className="text-sm font-medium">{r.actionLabel}</p>
@@ -238,7 +239,7 @@ export function PayPalDisputeCard({ tenancyId, v, quiet }: { tenancyId: string; 
       </div>
 
       <p className="px-5 py-3 text-xs text-ink-3">
-        {v.reportedAt ? `From PayPal, ${shortDate(pacificDate(v.reportedAt))}. ` : ""}Nothing goes to PayPal until you approve a response.
+        {v.reportedAt ? `From PayPal, ${shortDate(dayOf(v.reportedAt))}. ` : ""}Nothing goes to PayPal until you approve a response.
       </p>
       {dialog}
     </Card>
@@ -283,13 +284,14 @@ function Prepared({ v }: { v: PayPalDisputeView }) {
   );
 }
 
-function Sent({ v }: { v: PayPalDisputeView }) {
+function Sent({ v, zone }: { v: PayPalDisputeView; zone: string }) {
+  const dayOf = (ts: string) => dateIn(ts, zone);
   const r = v.response!;
   return (
     <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
       <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3.5" /></span>
       <div className="min-w-0 flex-[1_1_14rem]">
-        <p className="text-sm font-medium">Sent to PayPal{r.sentAt ? ` ${shortDate(pacificDate(r.sentAt))}` : ""}: {r.actionLabel?.toLowerCase()}</p>
+        <p className="text-sm font-medium">Sent to PayPal{r.sentAt ? ` ${shortDate(dayOf(r.sentAt))}` : ""}: {r.actionLabel?.toLowerCase()}</p>
         {r.evidenceSent && (
           <p className="mt-0.5 text-xs text-ink-3">
             {r.filesSent ? `${r.filesSent} file${r.filesSent === 1 ? "" : "s"} and the note sent` : "The note sent"}. PayPal decides from here.

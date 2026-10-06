@@ -440,7 +440,7 @@ export function turnPrompt(file: CaseFile, pack: StatePack, turns: Turn[], side:
   const own = latestOf(turns, side), other = latestOf(turns, side === "landlord" ? "tenant" : "landlord");
   const ownKeeps = own ? keepsOf(own) : statementKeeps(r);
   return `The statement: ${usd(file.depositHeld)} deposit held; ${usd(r.totals.deducted)} deducted; ${usd(file.statementRefund)} refunded by the statement itself${file.refunded != null ? ` (PayPal already sent ${usd(file.refunded)})` : ""}. Whatever is agreed, at least ${usd(r.totals.minBack)} and at most ${usd(r.totals.maxBack)} more goes back to the tenants.
-Statement late under the state's rule: ${r.late.late ? `yes. ${r.late.text} (${r.late.cite})` : r.late.late === false ? "no" : "can't tell from the file"}.
+Statement late under the state's rule (its days counted in ${pack.timeZone.name}, where the property is): ${r.late.late ? `yes. ${r.late.text} (${r.late.cite})` : r.late.late === false ? "no" : "can't tell from the file"}.
 
 The charges:
 ${r.lines.map((l) => describeLine(file, l)).join("\n\n")}

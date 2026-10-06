@@ -65,6 +65,7 @@ export const WA: ClientPack = {
   code: "WA",
   name: "Washington",
   spec: "docs/rules/WA.md",
+  timeZone: { id: "America/Los_Angeles", name: "Pacific time", exceptions: [] },
   statute: {
     short: "RCW 59.18.280",
     full: "Washington Residential Landlord-Tenant Act, RCW 59.18.260 to 59.18.285",

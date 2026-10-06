@@ -29,6 +29,7 @@ export function DeliveryPanel(p: {
   today: string;
   due: string | null;
   existing: DeliveryRecord | null;
+  recordedOn?: string | null; // the day the record was made, when later than the delivery date it names
   forwarding: { address: string; name: string | null; date: string } | null; // what the tenants gave through their link
 }) {
   const router = useRouter();
@@ -56,6 +57,7 @@ export function DeliveryPanel(p: {
             <dt className="text-ink-3">Method</dt><dd>{d.method === "email" ? packFor(p.state).delivery.emailShort : METHOD_WORD[d.method]}</dd>
             <dt className="text-ink-3">To</dt><dd className="truncate" title={where ?? undefined}>{d.method === "mail" ? where : d.to ?? where}</dd>
             <dt className="text-ink-3">Date</dt><dd className="tabular-nums">{shortDate(d.date)}</dd>
+            {p.recordedOn && <><dt className="text-ink-3">Recorded</dt><dd className="tabular-nums">{shortDate(p.recordedOn)}</dd></>}
           </dl>
         ) : (
           <p className="text-sm text-ink-3">{p.due ? `Due ${shortDate(p.due)}, with the refund` : "Due with the refund"}</p>

@@ -43,7 +43,7 @@ export function NoticeSection(p: {
   const [editing, setEditing] = useState(false);
   // Until a notice is recorded, the form starts from what the tenants sent through their link: the day they sent it
   // and the move-out date they named. The landlord still records it.
-  const [given, setGiven] = useState(p.noticeGivenOn ?? (p.tenantMoveOut ? tenantMoveOutSentOn(p.tenantMoveOut) : p.today));
+  const [given, setGiven] = useState(p.noticeGivenOn ?? (p.tenantMoveOut ? tenantMoveOutSentOn(p.tenantMoveOut, packFor(p.state).timeZone.id) : p.today));
   const [planned, setPlanned] = useState(p.plannedMoveOut ?? p.tenantMoveOut?.planned_move_out ?? p.endDate ?? "");
   // Who gave it, where the state's rule turns on it (New York); a notice sent through the tenant link is the tenants'.
   const [by, setBy] = useState<"" | "tenant" | "landlord">(p.noticeGivenBy ?? (p.tenantMoveOut ? "tenant" : ""));
@@ -160,7 +160,7 @@ export function NoticeSection(p: {
               <Icon name="mail" className="mt-0.5 size-[15px] text-ink-3" />
               <div className="min-w-0">
                 <div className="font-medium">From the tenant link</div>
-                <div className="text-xs text-ink-3">{describeTenantMoveOut(p.tenantMoveOut)}. Forwarding address: {p.tenantMoveOut.forwarding_address}</div>
+                <div className="text-xs text-ink-3">{describeTenantMoveOut(p.tenantMoveOut, pack.timeZone.id)}. Forwarding address: {p.tenantMoveOut.forwarding_address}</div>
               </div>
             </div>
           )}

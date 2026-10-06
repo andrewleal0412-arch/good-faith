@@ -1,4 +1,4 @@
-import { atText, pacificDate, paypalPaidAt, shortDate } from "./dates";
+import { atTextIn, dateIn, paypalPaidAt, shortDate, todayIn } from "./dates";
 import { usd } from "./deductions";
 import { paidElectronically, returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 import { lawfulDeposit, type LeaseTerms } from "./rules";
@@ -30,6 +30,7 @@ export type LedgerEffect =
   | "collected" // a payment received
   | "claimed" // a deduction once the statement went out (one added later is flagged in its status) or the refund did
   | "draft" // a deduction while no statement has gone out
+  | "forfeited" // a deduction the deadline forfeited (New York after day 14): on file as claimed, none of it kept
   | "returned" // a refund or payout PayPal completed
   | "pending" // a refund or payout PayPal is still processing: it has left the landlord, not yet reached the tenants
   | "failed" // a refund or payout that did not go through
@@ -37,7 +38,7 @@ export type LedgerEffect =
 
 export type LedgerRow = {
   id: string;
-  date: string; // YYYY-MM-DD, Pacific
+  date: string; // YYYY-MM-DD, the calendar day where the property is (its state pack's zone)
   at: string; // the timestamp, for ordering within a day
   tenancyId: string;
   unit: string; // the street line, e.g. "482 N. Glassell St, Unit B"
@@ -66,6 +67,7 @@ export type LedgerTenancy = {
   monthly_rent: number | string | null;
   move_out_date: string | null;
   statement_delivered_at: string | null;
+  statement_delivery?: { date?: string | null } | null; // the delivery record, whose date a forfeiting deadline reads
   lease_terms: LeaseTerms | null;
   properties: { address: string; city: string | null; state?: string | null } | null;
 };
@@ -148,14 +150,17 @@ function reported(raw: LedgerPayment["raw"]): { fromPayPal?: string } {
   const s = raw?.status_from;
   return s?.source === "paypal" && typeof s.at === "string" && !Number.isNaN(Date.parse(s.at)) ? { fromPayPal: s.at } : {};
 }
-const withMark = (detail: string, mark: { fromPayPal?: string }) => (mark.fromPayPal ? `${detail}; status from PayPal, ${atText(mark.fromPayPal)}` : detail);
-
-/** Every ledger row for one tenancy, oldest first. */
-export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductions: LedgerDeduction[]): LedgerRow[] {
+/** Every ledger row for one tenancy, oldest first. Each row is dated where the property is (its pack's zone), so the
+ *  days after the move-out and the deadline count as the state counts them. `today` (that zone's, by default) is only
+ *  read where a deadline can forfeit the deductions (New York's day 14). */
+export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductions: LedgerDeduction[], opts: { today?: string } = {}): LedgerRow[] {
   const address = t.properties?.address ?? t.lease_terms?.propertyAddress ?? "Address not recorded";
   const tenants = (t.tenants ?? []).map((x) => x.name).join(" and ") || "No tenants named";
   const base = { tenancyId: t.id, unit: streetLine(address), address, tenants };
   const pack = packFor(t.properties?.state);
+  const zone = pack.timeZone.id;
+  const dayOf = (ts: string) => dateIn(ts, zone);
+  const withMark = (detail: string, mark: { fromPayPal?: string }) => (mark.fromPayPal ? `${detail}; status from PayPal, ${atTextIn(mark.fromPayPal, zone)}` : detail);
   const lawful = t.lease_terms ? lawfulDeposit(t.lease_terms, pack) : null;
   const rent = t.monthly_rent == null ? null : Number(t.monthly_rent);
   const rows: LedgerRow[] = [];
@@ -163,7 +168,7 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
 
   for (const p of payments) {
     const amount = Number(p.amount);
-    const date = pacificDate(p.created_at);
+    const date = dayOf(p.created_at);
     if (p.kind === "deposit_invoice") {
       // The cap the invoice was held to (California: two months only for the small natural-person owner, D3, D4).
       const cap = pack.ledger.capTag(lawful, rent);
@@ -191,11 +196,11 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         const reversed = !!p.raw?.reversal;
         const mark = reported(p.raw);
         row({
-          id: `${p.id}:paid`, date: pacificDate(paidAt), at: new Date(Math.max(ms(paidAt), ms(p.created_at))).toISOString(),
+          id: `${p.id}:paid`, date: dayOf(paidAt), at: new Date(Math.max(ms(paidAt), ms(p.created_at))).toISOString(),
           kind: "payment", amount: paid, signed: reversed ? 0 : paid, effect: reversed ? "failed" : "collected", paypalId: txn?.payment_id ?? p.paypal_id, method: methodLabel(txn?.method),
           detail: withMark((!txn ? `Deposit paid${onInvoice}; PayPal recorded no transaction detail`
             : electronic ? `Deposit paid by ${method}${onInvoice}` : `Deposit recorded as paid by ${method}${onInvoice}`)
-            + (reversed ? `; PayPal reversed the payment${p.raw?.reversal?.at ? ` on ${shortDate(pacificDate(p.raw.reversal.at))}` : ""}` : ""), mark),
+            + (reversed ? `; PayPal reversed the payment${p.raw?.reversal?.at ? ` on ${shortDate(dayOf(p.raw.reversal.at))}` : ""}` : ""), mark),
           summary: reversed ? "Reversed by PayPal" : txn ? `Paid by ${method}` : "Paid",
           status: reversed ? "reversed" : "received",
           ...pack.ledger.paymentTag(electronic), ...mark,
@@ -262,18 +267,29 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
   // Deductions are drafts until the statement goes out; from then on they count against what is held, as the units
   // page, the statement and the refund math count them, and they are final once a refund or payout went out (the
   // routes refuse changes then). One added after the delivery was never on the statement furnished, so its status says so.
-  const final = payments.some((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status));
+  const back = payments.find((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status));
+  const final = !!back;
   const delivered = t.statement_delivered_at ? ms(t.statement_delivered_at) : null;
+  // A deadline that forfeits the deductions (New York after day 14, read as the close-out's standing reads it): they
+  // stay on file as claimed, but none of them is kept, so none counts as deducted and the whole deposit stays owed.
+  const inv = payments.find((p) => p.kind === "deposit_invoice");
+  const held = inv && wasPaid(inv.status) ? Number(inv.amount) : 0;
+  const claimedTotal = cents(deductions.reduce((s, d) => s + Number(d.amount), 0));
+  const forfeited = deductions.length > 0 && !!pack.deadline.forfeits?.({
+    moveOutDate: t.move_out_date, today: opts.today ?? todayIn(zone), deliveredOn: t.statement_delivery?.date ?? null,
+    returnedOn: back ? dayOf(back.created_at) : null, refundOwed: held - claimedTotal > 0.005,
+  });
   for (const d of deductions) {
     const amount = Number(d.amount);
     const onStatement = delivered != null && ms(d.created_at) <= delivered;
     const claimed = delivered != null || final;
+    const where = `${d.item}${d.room ? ` (${d.room})` : ""}`;
     row({
-      id: d.id, date: pacificDate(d.created_at), at: d.created_at, kind: "deduction", amount, signed: claimed ? -amount : 0,
-      effect: claimed ? "claimed" : "draft", paypalId: null, method: null,
-      detail: `${d.item}${d.room ? ` (${d.room})` : ""}`,
-      summary: `${d.item}${d.room ? ` (${d.room})` : ""}`,
-      status: d.is_estimate ? "good-faith estimate" : onStatement ? "on the statement" : final ? "final" : delivered != null ? "added after the statement" : "draft",
+      id: d.id, date: dayOf(d.created_at), at: d.created_at, kind: "deduction", amount, signed: claimed && !forfeited ? -amount : 0,
+      effect: forfeited ? "forfeited" : claimed ? "claimed" : "draft", paypalId: null, method: null,
+      detail: forfeited ? `${where}; forfeited after day ${pack.deadline.days}, so none of it is kept` : where,
+      summary: where,
+      status: forfeited ? `forfeited after day ${pack.deadline.days}` : d.is_estimate ? "good-faith estimate" : onStatement ? "on the statement" : final ? "final" : delivered != null ? "added after the statement" : "draft",
       tag: pack.tags[d.category].tag, tagShort: pack.tags[d.category].short, tagLabel: pack.tags[d.category].label,
     });
   }
@@ -284,8 +300,9 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
 
 export type LedgerTotals = {
   collected: number;
-  deducted: number; // every deduction showing, drafts included
+  deducted: number; // every deduction showing, drafts included, less what a settlement gave back; never one the deadline forfeited
   drafted: number; // the part of `deducted` not on any statement yet
+  forfeited?: number; // deductions on file that the deadline forfeited (New York after day 14); absent when there are none
   returned: number; // refunds and payouts PayPal completed
   pending: number; // refunds and payouts still in flight
   held: number;
@@ -299,24 +316,49 @@ export type LedgerTotals = {
  *  never money taken from another unit's. */
 export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
   const sum = (effect: LedgerEffect, xs: LedgerRow[] = rows) => cents(xs.filter((r) => r.effect === effect).reduce((s, r) => s + r.amount, 0));
-  // A settlement's money came out of what the statement deducted: the deductions as settled are that much less, and it
-  // is counted once, as money returned.
-  const settled = (xs: LedgerRow[]) => cents(xs.filter((r) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending")).reduce((s, r) => s + r.amount, 0));
   const byTenancy = new Map<string, LedgerRow[]>();
   for (const r of rows) byTenancy.set(r.tenancyId, [...(byTenancy.get(r.tenancyId) ?? []), r]);
-  let held = 0;
-  for (const xs of byTenancy.values()) held += Math.max(0, cents(sum("collected", xs) - (sum("claimed", xs) - settled(xs)) - sum("returned", xs) - sum("pending", xs)));
-  const claimed = sum("claimed"), drafted = sum("draft");
-  return { collected: sum("collected"), deducted: cents(claimed + drafted - settled(rows)), drafted, returned: sum("returned"), pending: sum("pending"), held: cents(held), count: rows.length };
+  // A settlement's money came out of what that tenancy's statement deducted: its deductions as settled are that much
+  // less, and it is counted once, as money returned. It never takes off more than they are: New York's forfeited
+  // deductions keep nothing, so a settlement there is money back toward the whole deposit, not a negative deduction.
+  let held = 0, deducted = 0;
+  for (const xs of byTenancy.values()) {
+    const kept = Math.max(0, cents(sum("claimed", xs) - settledOff(xs)));
+    held += Math.max(0, cents(sum("collected", xs) - kept - sum("returned", xs) - sum("pending", xs)));
+    deducted += kept + sum("draft", xs);
+  }
+  const drafted = sum("draft"), forfeited = sum("forfeited");
+  return {
+    collected: sum("collected"), deducted: cents(deducted), drafted, ...(forfeited > 0 ? { forfeited } : {}),
+    returned: sum("returned"), pending: sum("pending"), held: cents(held), count: rows.length,
+  };
+}
+
+/** What settlements took off the claimed deductions, tenancy by tenancy: each settlement that went (or is on its way)
+ *  comes out of its own tenancy's claimed deductions in `claimedRows` (the rows themselves by default), and never more
+ *  than they are. A forfeited deduction (New York after day 14) is not claimed, so a settlement there takes nothing off.
+ *  Properties passes this year's settlements with every claimed deduction. */
+export function settledOff(rows: LedgerRow[], claimedRows: LedgerRow[] = rows): number {
+  const claimed = new Map<string, number>(), settled = new Map<string, number>();
+  for (const r of claimedRows) if (r.kind === "deduction" && r.effect === "claimed") claimed.set(r.tenancyId, (claimed.get(r.tenancyId) ?? 0) + r.amount);
+  for (const r of rows) if (r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending")) settled.set(r.tenancyId, (settled.get(r.tenancyId) ?? 0) + r.amount);
+  return cents([...settled].reduce((s, [id, n]) => s + Math.min(n, claimed.get(id) ?? 0), 0));
 }
 
 /** What a tenancy's rows say is still owed back to its tenants: the deposit collected less every deduction, drafts
- *  included (the refund the close-out would send), less what PayPal returned through the tenants' PayPal dispute,
- *  while no refund or payout has gone out. Zero once one has, or when the deductions use the whole deposit. */
+ *  included (the refund the close-out would send) and forfeited ones not, less what PayPal returned through the
+ *  tenants' PayPal dispute, while no refund or payout has gone out. Zero once one has, or when the deductions use the
+ *  whole deposit; except where the deadline forfeited the deductions after that refund went (New York: the refund on
+ *  time, the statement after day 14), when the rest of the deposit is still owed: collected less every return. */
 export function owedBack(rows: LedgerRow[]): number {
-  if (rows.some((r) => (r.kind === "refund" || r.kind === "payout") && r.effect !== "failed")) return 0;
   const collected = rows.filter((r) => r.effect === "collected").reduce((s, r) => s + r.amount, 0);
-  const deducted = rows.filter((r) => r.kind === "deduction").reduce((s, r) => s + r.amount, 0);
+  if (rows.some((r) => (r.kind === "refund" || r.kind === "payout") && r.effect !== "failed")) {
+    if (!rows.some((r) => r.kind === "deduction" && r.effect === "forfeited")) return 0;
+    const back = rows.filter((r) => (r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" || r.kind === "dispute_refund") && (r.effect === "returned" || r.effect === "pending"))
+      .reduce((s, r) => s + r.amount, 0);
+    return Math.max(0, cents(collected - back));
+  }
+  const deducted = rows.filter((r) => r.kind === "deduction" && r.effect !== "forfeited").reduce((s, r) => s + r.amount, 0);
   const viaDispute = rows.filter((r) => r.kind === "dispute_refund" && r.effect !== "failed").reduce((s, r) => s + r.amount, 0);
   return Math.max(0, cents(collected - deducted - viaDispute));
 }

@@ -1,13 +1,14 @@
 import Link from "@/components/link";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, EmptyState, Fact, FactStrip, Money, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
-import { atText, pacificDate, shortDate } from "@/lib/dates";
+import { atTextIn, dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import { ledgerTotals, tagCite, type LedgerRow } from "@/lib/ledger";
 import type { Tip } from "@/lib/states/types";
 
 // One tenancy's money, oldest first: the same rows the Payments ledger shows for every unit, with a way into it
 // filtered to this tenancy. Inflows green, outflows ink with a minus; the status is plain text unless something failed.
-export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string; rows: LedgerRow[]; typeTip: Tip }) {
+// Times are on the property's clock (`zone`, its state pack's).
+export function MoneyTimeline({ tenancyId, rows, typeTip, zone = PACIFIC }: { tenancyId: string; rows: LedgerRow[]; typeTip: Tip; zone?: string }) {
   if (!rows.length) {
     return <Card><EmptyState icon="card" title="No payments yet" sub="The deposit invoice starts the record." /></Card>;
   }
@@ -22,9 +23,12 @@ export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string;
     <div className="flex flex-col gap-6">
       <FactStrip cols={4}>
         <Fact label="Collected" value={<Money value={t.collected} />} />
-        {settled > 0
+        {/* Forfeited deductions keep nothing, so a settlement there gave back none of them: it is money toward the
+            whole deposit, in Returned. */}
+        {settled > 0 && !t.forfeited
           ? <Fact label="Deductions as settled" value={<Money value={t.deducted} />} sub={`${shortMoney(t.deducted + settled)} less ${shortMoney(settled)} settled`} />
-          : <Fact label="Deductions" value={<Money value={t.deducted} />} sub={t.drafted > 0 ? (t.drafted === t.deducted ? "Drafts" : `${shortMoney(t.drafted)} drafted`) : undefined} />}
+          : <Fact label="Deductions" value={<Money value={t.deducted} />}
+            sub={t.forfeited ? `${shortMoney(t.forfeited)} forfeited, none kept` : t.drafted > 0 ? (t.drafted === t.deducted ? "Drafts" : `${shortMoney(t.drafted)} drafted`) : undefined} />}
         {/* The hero is always the last cell. */}
         {back ? <Fact label="Still held" value={<Money value={t.held} />} />
           : <Fact label="Returned" value={<Money value={t.returned} />} />}
@@ -73,7 +77,7 @@ export function MoneyTimeline({ tenancyId, rows, typeTip }: { tenancyId: string;
                 </Td>
                 <Td className="whitespace-nowrap">
                   {r.effect === "failed" ? <StatusChip tone="red">{failedWord(r)}</StatusChip> : <span className="text-ink-2">{r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span>}
-                  {r.fromPayPal && <span className="block text-xs text-ink-3" title={`PayPal reported this status ${atText(r.fromPayPal)}`}>From PayPal, {shortDate(pacificDate(r.fromPayPal))}</span>}
+                  {r.fromPayPal && <span className="block text-xs text-ink-3" title={`PayPal reported this status ${atTextIn(r.fromPayPal, zone)}`}>From PayPal, {shortDate(dateIn(r.fromPayPal, zone))}</span>}
                 </Td>
                 <Td last align="right" className={r.signed > 0 ? "text-green" : r.signed === 0 ? "text-ink-3" : ""}>
                   <Money value={r.amount} sign={r.signed < 0 ? "minus" : r.signed > 0 ? "plus" : undefined} />

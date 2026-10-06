@@ -1,9 +1,9 @@
 import "server-only";
 import { cache } from "react";
 import { db } from "./db";
-import { daysBetween, pacificToday } from "./dates";
+import { dateIn, daysBetween, pacificToday, todayIn } from "./dates";
 import { tenancyEvents, type CalendarEvent } from "./ics";
-import { paidElectronically, returnFailed } from "./invoice-status";
+import { paidElectronically, returnFailed, wasPaid } from "./invoice-status";
 import { byUrgency, liveDispute, nextStep, type NextStep, type TenancySummary } from "./next-step";
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
@@ -36,7 +36,7 @@ export type TenancyRow = {
   properties: { address: string; city: string | null; owner_name: string | null; state?: string | null } | null;
 };
 export type PaymentRow = {
-  kind: string; paypal_id: string | null; amount: number | string; status: string;
+  kind: string; paypal_id: string | null; amount: number | string; status: string; created_at?: string;
   raw: { transactions?: { method?: string }[]; reversal?: unknown } | null; // reversal: PayPal's webhook reversed the payment
 };
 export type PhotoRow = { phase: string };
@@ -51,6 +51,20 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
   const via = disputeReturns(payments);
   const terms = t.lease_terms;
   const pack = packFor(t.properties?.state);
+  // A deadline that forfeits the deductions (New York after day 14, as the close-out's standing reads it, in the
+  // property's own zone): none of them is kept, so the whole deposit stays owed (refundLeft) and, like the ledger,
+  // nothing counts as deducted. Only a pack with such a deadline sets it; California's summary never carries it.
+  const zone = pack.timeZone.id;
+  const held = inv && wasPaid(inv.status) ? Number(inv.amount) : 0;
+  const claimed = deductions.reduce((s, d) => s + Number(d.amount), 0);
+  const forfeited = deductions.length > 0 && !!pack.deadline.forfeits?.({
+    moveOutDate: t.move_out_date, today: todayIn(zone), deliveredOn: t.statement_delivery?.date ?? null,
+    returnedOn: returned?.created_at ? dateIn(returned.created_at, zone) : null, refundOwed: held - claimed > 0.005,
+  });
+  // A dispute's settlement on top of the refund, counted where it matters to the unit's own state: once forfeited, the
+  // whole deposit is owed, and a settlement can be what sends the rest of it (forfeitShort, next-step.ts).
+  const settledBack = forfeited ? Math.round(payments.filter((p) => (p.kind === "settlement_refund" || p.kind === "settlement_payout") && !returnFailed(p.status))
+    .reduce((s, p) => s + Number(p.amount), 0) * 100) / 100 : 0;
   const agreement: RefundAgreementSummary | null = t.refund_agreement
     ? { paypalEmail: t.refund_agreement.paypal_email, signedBy: t.refund_agreement.signed_by, signedAt: t.refund_agreement.signed_at }
     : null;
@@ -90,10 +104,12 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
     deductions: deductions.map((d) => ({ category: d.category, amount: Number(d.amount) })),
     returned: returned ? { amount: Number(returned.amount), kind: returned.kind } : null,
     ...(via ? { viaDispute: via.amount } : {}),
+    ...(forfeited ? { forfeited: true } : {}),
+    ...(settledBack > 0 ? { settledBack } : {}),
     notices: t.notices ?? {},
     refundNotice: refundNoticeStatus(agreement, evidence, pack),
     tenantMoveOut: t.tenant_move_out
-      ? { name: t.tenant_move_out.name, plannedMoveOut: t.tenant_move_out.planned_move_out, forwardingAddress: t.tenant_move_out.forwarding_address, sentOn: tenantMoveOutSentOn(t.tenant_move_out) }
+      ? { name: t.tenant_move_out.name, plannedMoveOut: t.tenant_move_out.planned_move_out, forwardingAddress: t.tenant_move_out.forwarding_address, sentOn: tenantMoveOutSentOn(t.tenant_move_out, pack.timeZone.id) }
       : null,
     // Who gave the notice to end the tenancy, and the unit counts some states' rules turn on (New York's inspection-rights
     // notice; Florida's holding notice; New York's interest). California's rules read none of them.
@@ -166,26 +182,31 @@ export const workspaceTenancies = cache(async (): Promise<{ rows: TenancyWithRow
   return { rows: (data ?? []) as unknown as TenancyWithRows[], error: error ? error.message : null };
 });
 
-export type UnitRow = { summary: TenancySummary; next: NextStep; events: CalendarEvent[] };
+/** One unit as the home base sees it. `today` is the unit's own: the day where the property is (its pack's zone), which
+ *  its next step and every days-left on it are counted from. */
+export type UnitRow = { summary: TenancySummary; next: NextStep; events: CalendarEvent[]; today: string };
 export type Upcoming = CalendarEvent & { tenancyId: string; daysAway: number };
 
 /** How far ahead the units page looks. */
 export const UPCOMING_DAYS = 120;
 
 /** Every unit in the session's workspace, most urgent first. Cached per request, so the app shell's notifications and
- *  the page share one read (workspaceTenancies). */
+ *  the page share one read (workspaceTenancies). Each unit's next step is counted from its own today (its state's
+ *  zone: at 9:30 PM in California it is already tomorrow in New York); `today` is the landlord's, Pacific, for the
+ *  page's own labels. */
 export const loadUnits = cache(async (): Promise<{ today: string; units: UnitRow[]; upcoming: Upcoming[]; owners: string[] }> => {
   const today = pacificToday();
   const { rows } = await workspaceTenancies();
   const inOrder: UnitRow[] = rows.map((t) => {
     const summary = summaryOf(t);
-    return { summary, next: nextStep(summary, today), events: tenancyEvents(summary) };
+    const own = todayIn(packFor(summary.state).timeZone.id);
+    return { summary, next: nextStep(summary, own), events: tenancyEvents(summary), today: own };
   });
   // The owners the leases name, oldest tenancy first: a fixed order, so the account the shell shows never depends on
   // which unit is most urgent today.
   const owners = [...new Set(inOrder.map((u) => u.summary.landlord).filter((x): x is string => !!x))];
   const units = [...inOrder].sort(byUrgency);
-  const upcoming: Upcoming[] = units.flatMap((u) => u.events.map((e) => ({ ...e, tenancyId: u.summary.id, daysAway: daysBetween(today, e.date) })))
+  const upcoming: Upcoming[] = units.flatMap((u) => u.events.map((e) => ({ ...e, tenancyId: u.summary.id, daysAway: daysBetween(u.today, e.date) })))
     .filter((e) => e.daysAway >= 0 && e.daysAway <= UPCOMING_DAYS)
     .sort((a, b) => a.daysAway - b.daysAway);
   return { today, units, upcoming, owners };

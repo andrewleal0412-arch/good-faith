@@ -2,10 +2,10 @@ import Link from "@/components/link";
 import type { Metadata } from "next";
 import { InfoTip } from "@/components/info-tip";
 import { Card, EmptyState, PageHead, StatusChip, Table, Td, Th, trClass, type Tone } from "@/components/ui";
-import { pacificDate, shortDate } from "@/lib/dates";
+import { shortDate } from "@/lib/dates";
 import { listedRecords, noticeInfoFor, NOTICE_SLUG, recordsFor, type NoticeKind } from "@/lib/notices";
 import { inspectionExcused, packOf } from "@/lib/next-step";
-import { onePack, refundRecordWords } from "@/lib/states/server";
+import { dayFor, onePack, refundRecordWords } from "@/lib/states/server";
 import { splitAddress, tabHref } from "@/lib/property-view";
 import { loadUnits } from "@/lib/units";
 
@@ -52,7 +52,7 @@ export default async function DocumentsPage() {
       ...listedRecords(pack, "move_out", s.notices).map(record),
       {
         key: `${s.id}-statement`, name: "Itemized statement",
-        status: s.statementDeliveredAt ? `Delivered ${shortDate(pacificDate(s.statementDeliveredAt))}` : s.moveOutInspectedAt ? "Draft" : "Not started",
+        status: s.statementDeliveredAt ? `Delivered ${shortDate(s.statementDeliveredOn ?? dayFor(s.statementDeliveredAt, s.state))}` : s.moveOutInspectedAt ? "Draft" : "Not started",
         tone: s.statementDeliveredAt ? "green" : s.moveOutInspectedAt ? "amber" : "gray",
         href: s.moveOutInspectedAt || s.statementDeliveredAt ? `/tenancy/${s.id}/statement` : tabHref(s.id, "documents"), cite: pack.statement.documentRow.cite,
       },

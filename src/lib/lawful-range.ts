@@ -47,13 +47,13 @@ export type RangeDeduction = Omit<StoredDeduction, "finding"> & {
 export type RangeInput = {
   deductions: RangeDeduction[]; // in the order entered; the statement's numbering is worked out here
   depositHeld: number; // what was collected, 0 when it wasn't paid
-  today: string; // Pacific
+  today: string; // in the property's zone (the pack's timeZone)
   moveOutDate: string | null;
   endDate: string | null;
   plannedMoveOut: string | null;
   notices: Notices;
   deliveredOn: string | null; // the delivery record's date
-  refundedOn: string | null; // the day the first refund or Payout that didn't fail was sent (Pacific)
+  refundedOn: string | null; // the day the first refund or Payout that didn't fail was sent (the property's zone)
 };
 
 /** zero: the law allows nothing for this charge; unsupported: the record on file supports nothing for it (documents

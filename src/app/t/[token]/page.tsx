@@ -8,14 +8,14 @@ import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money } from "@/components/ui";
 import { DEMO_EXAMPLE, displayName, maskEmail } from "@/lib/copy";
 import { draftAction, isClosed, reopens, tenantDisputeStatus, type TenantDisputeStatus } from "@/lib/disputes";
-import { longDate, pacificDate, shortDate } from "@/lib/dates";
+import { dayLabel, longDate, shortDate } from "@/lib/dates";
 import { returnCompleted, returnFailed } from "@/lib/invoice-status";
 import { streetLine } from "@/lib/ledger";
 import { keepUnit } from "@/lib/property-view";
 import { SANDBOX } from "@/lib/paypal";
-import { packFor } from "@/lib/states/server";
+import { dayFor, packFor } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
-import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
+import { describeDelivery, recordedWords, type DeliveryRecord } from "@/lib/statement";
 import { resolveTenantToken } from "@/lib/tenant-links";
 import { loadTenantView, type TenantDeduction, type TenantView } from "@/lib/tenant-view";
 import { MovingOutForm } from "./moving-out-form";
@@ -134,7 +134,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
             <a href={`/t/${token}/dispute`} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3.5 hover:bg-surface">
               <StatusMark tone={dispute.status === "settled" ? "green" : disputeClosed ? "gray" : "amber"} />
               <span className="min-w-0 flex-1">
-                <span className="block font-medium">{disputeLine(dispute, landlord)}</span>
+                <span className="block font-medium">{disputeLine(dispute, landlord, v.state)}</span>
                 <span className="block text-sm text-ink-3">
                   {dispute.lines} charge{dispute.lines === 1 ? "" : "s"} disputed{dispute.askedBack != null ? `, ${usdText(dispute.askedBack)} asked back` : ""}
                 </span>
@@ -155,7 +155,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 
         {steps && (
           <Section title="Timeline">
-            <Timeline steps={steps} due={st ? null : v.statementDue} delivery={st?.delivery ?? null} deliveryCite={pack.tenant.deliveryCite} />
+            <Timeline steps={steps} due={st ? null : v.statementDue} delivery={st?.delivery ?? null} recordedOn={st?.recordedOn ?? null} deliveryCite={pack.tenant.deliveryCite} />
           </Section>
         )}
 
@@ -237,14 +237,15 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 }
 
 /** The dispute's one line on the main page: where it stands, and what the tenants are asked to do. */
-function disputeLine(d: TenantDisputeStatus, landlord: string): string {
+function disputeLine(d: TenantDisputeStatus, landlord: string, state: string): string {
   const s = d.settlement;
-  if (d.status === "settled") return s && s.amount > 0 ? `Settled: ${usdText(s.amount)} more back${s.sentAt ? ` ${shortDate(pacificDate(s.sentAt))}` : ""}` : "Settled";
+  const dayOf = (ts: string) => dayFor(ts, state); // the day where the property is
+  if (d.status === "settled") return s && s.amount > 0 ? `Settled: ${usdText(s.amount)} more back${s.sentAt ? ` ${shortDate(dayOf(s.sentAt))}` : ""}` : "Settled";
   if (d.status === "agreed" && s) return s.accepted ? `You accepted ${usdText(s.amount)} back. Waiting for ${landlord}` : `Settlement offered: ${usdText(s.amount)} back. Waiting on you`;
   if (d.status === "negotiating") return "Being negotiated";
   if (d.status === "no_agreement") return "No agreement yet";
   if (d.status === "withdrawn") return "Withdrawn. You can dispute it again";
-  return `Sent to ${landlord}${d.sentAt ? ` ${shortDate(pacificDate(d.sentAt))}` : ""}`;
+  return `Sent to ${landlord}${d.sentAt ? ` ${shortDate(dayOf(d.sentAt))}` : ""}`;
 }
 
 /* ---------- Where things stand ---------- */
@@ -254,6 +255,7 @@ type Tone = "green" | "amber" | "red" | "gray";
 /** The status block, from the latest fact on file: a label, the hero amount, one status line and one sentence. */
 function standing(v: TenantView, pack: StatePack): { label: string; amount: number | null; tone: Tone; title: string; line?: ReactNode; pay?: string | null } {
   const st = v.statement;
+  const dayOf = (ts: string) => dayFor(ts, v.state); // the day where the property is
   const due = (text: string) => withTip(text, <InfoTip align="end" title={pack.tenant.dueTip.title} cite={pack.tenant.dueTip.cite}>{pack.tenant.dueTip.text}</InfoTip>);
   // Forfeited deductions (New York after day 14): the whole deposit is owed back, whatever the statement deducted.
   const forfeit = st?.standing?.forfeits ? st.standing : null;
@@ -263,7 +265,7 @@ function standing(v: TenantView, pack: StatePack): { label: string; amount: numb
     // it was already the whole deposit and the settlement had nothing more to send.
     const r = v.returned, x = v.settlement;
     return {
-      label: "Refund amount", amount: Math.round((r.amount + x.amount) * 100) / 100, tone: "green", title: `Settled ${shortDate(pacificDate(x.at))}`,
+      label: "Refund amount", amount: Math.round((r.amount + x.amount) * 100) / 100, tone: "green", title: `Settled ${shortDate(dayOf(x.at))}`,
       line: x.example
         ? `${usdText(r.amount)} with the statement by PayPal, and ${usdText(x.amount)} under the settlement you accepted. ${DEMO_EXAMPLE.tenant}`
         : x.amount > 0 ? `${usdText(r.amount)} with the statement and ${usdText(x.amount)} under the settlement you accepted, both by PayPal.`
@@ -278,7 +280,7 @@ function standing(v: TenantView, pack: StatePack): { label: string; amount: numb
     const done = returnCompleted(r.status);
     const short = forfeit && st ? Math.round((st.depositHeld - r.amount - (via?.amount ?? 0)) * 100) / 100 : 0;
     return {
-      label: "Refund amount", amount: Math.round((r.amount + (via?.amount ?? 0)) * 100) / 100, tone: done && short <= 0 ? "green" : "amber", title: `Refund sent ${shortDate(pacificDate(r.at))}`,
+      label: "Refund amount", amount: Math.round((r.amount + (via?.amount ?? 0)) * 100) / 100, tone: done && short <= 0 ? "green" : "amber", title: `Refund sent ${shortDate(dayOf(r.at))}`,
       line: short > 0 ? forfeitTip(`${usdText(short)} more is owed: none of the deposit may be kept after day 14.`)
         : via ? `${usdText(r.amount)} by ${how} and ${usdText(via.amount)} through your PayPal dispute.`
           : `PayPal shows the ${how.replace("PayPal ", "")} as ${done ? "completed" : words(r.status)}.`,
@@ -287,12 +289,12 @@ function standing(v: TenantView, pack: StatePack): { label: string; amount: numb
   if (via) {
     const left = st ? Math.max(0, Math.round((st.refund - via.amount) * 100) / 100) : 0;
     return {
-      label: "Returned", amount: via.amount, tone: left > 0 ? "amber" : "green", title: `Returned through your PayPal dispute${via.at ? ` ${shortDate(pacificDate(via.at))}` : ""}`,
+      label: "Returned", amount: via.amount, tone: left > 0 ? "amber" : "green", title: `Returned through your PayPal dispute${via.at ? ` ${shortDate(dayOf(via.at))}` : ""}`,
       line: left > 0 ? `${usdText(left)} more is owed under the statement.` : "PayPal returned it through the dispute you opened.",
     };
   }
   if (st) {
-    const sent = `Statement sent ${shortDate(st.delivery.date)}`;
+    const sent = st.recordedOn ? `Statement sent ${dayLabel(st.delivery.date, v.today)}, recorded ${dayLabel(st.recordedOn, v.today)}` : `Statement sent ${shortDate(st.delivery.date)}`;
     if (forfeit) return { label: "Owed back", amount: st.refund, tone: "amber", title: sent, line: forfeitTip("Day 14 has passed, so none of the deposit may be kept.") };
     if (st.refund > 0) return { label: "Refund due", amount: st.refund, tone: "amber", title: sent, line: v.statementDue ? due(`The refund is due by ${shortDate(v.statementDue)}.`) : undefined };
     if (st.balanceClaimed > 0) return { label: "Balance claimed", amount: st.balanceClaimed, tone: "gray", title: sent, line: "The statement records it as a claim, not a demand for immediate payment." };
@@ -310,7 +312,7 @@ function standing(v: TenantView, pack: StatePack): { label: string; amount: numb
   }
   if (v.deposit?.paid) {
     return {
-      label: "Deposit held", amount: v.deposit.amount, tone: "green", title: v.deposit.paidAt ? `Paid ${shortDate(pacificDate(v.deposit.paidAt))}` : "Paid",
+      label: "Deposit held", amount: v.deposit.amount, tone: "green", title: v.deposit.paidAt ? `Paid ${shortDate(dayOf(v.deposit.paidAt))}` : "Paid",
       line: due(pack.tenant.paidLine),
     };
   }
@@ -342,23 +344,25 @@ function withTip(text: string, tip: ReactNode) {
 
 /* ---------- Progress and timeline ---------- */
 
-type Step = { key: string; label: string; title: string; done: boolean; date: string | null };
+type Step = { key: string; label: string; title: string; done: boolean; date: string | null; note?: string };
 
 /** Move-out to statement in four steps, as the tenants see them. Each is done on its own date; a refund can go out
  *  before or after the statement. */
 function progress(v: TenantView): Step[] {
   const st = v.statement;
+  const dayOf = (ts: string) => dayFor(ts, v.state); // the day where the property is
   const noRefund = !!st && !v.returned && st.refund <= 0;
   const sent = st ? deliveredWord(st.delivery) : null;
   return [
     { key: "out", label: "Moved out", title: "Moved out", done: !!v.moveOutDate, date: v.moveOutDate },
-    { key: "inspect", label: "Inspected", title: v.inspectedAt ? "Inspection completed" : "Inspection", done: !!v.inspectedAt, date: v.inspectedAt ? pacificDate(v.inspectedAt) : null },
+    { key: "inspect", label: "Inspected", title: v.inspectedAt ? "Inspection completed" : "Inspection", done: !!v.inspectedAt, date: v.inspectedAt ? dayOf(v.inspectedAt) : null },
     v.returned
-      ? { key: "refund", label: "Refund sent", title: "Refund sent", done: true, date: pacificDate(v.returned.at) }
+      ? { key: "refund", label: "Refund sent", title: "Refund sent", done: true, date: dayOf(v.returned.at) }
       : noRefund
         ? { key: "refund", label: "No refund", title: "No refund due", done: true, date: st!.delivery.date }
         : { key: "refund", label: "Refund sent", title: "Refund", done: false, date: null },
-    { key: "statement", label: "Statement", title: sent ? `Itemized statement ${sent}` : "Itemized statement", done: !!st, date: st?.delivery.date ?? null },
+    { key: "statement", label: "Statement", title: sent ? `Itemized statement ${sent}` : "Itemized statement", done: !!st, date: st?.delivery.date ?? null,
+      ...(st?.recordedOn ? { note: recordedWords(st.recordedOn, false) } : {}) },
   ];
 }
 
@@ -390,13 +394,13 @@ function Progress({ steps }: { steps: Step[] }) {
 }
 
 /** The same four steps with their dates: green checks for what happened, the brand dot for what comes next. */
-function Timeline({ steps, due, delivery, deliveryCite }: { steps: Step[]; due: string | null; delivery: DeliveryRecord | null; deliveryCite: string }) {
+function Timeline({ steps, due, delivery, recordedOn, deliveryCite }: { steps: Step[]; due: string | null; delivery: DeliveryRecord | null; recordedOn: string | null; deliveryCite: string }) {
   const next = steps.findIndex((s) => !s.done);
   return (
     <ol>
       {steps.map((s, i) => {
         const state = s.done ? "done" : i === next ? "now" : "todo";
-        const sub = s.date ? shortDate(s.date) : due && (s.key === "refund" || s.key === "statement") ? `Due by ${shortDate(due)}` : "Not yet";
+        const sub = s.date ? `${shortDate(s.date)}${s.note ? `, ${s.note}` : ""}` : due && (s.key === "refund" || s.key === "statement") ? `Due by ${shortDate(due)}` : "Not yet";
         return (
           <li key={s.key} className="relative grid grid-cols-[20px_minmax(0,1fr)] gap-x-2.5 pb-[18px] last:pb-0">
             {i < steps.length - 1 && <span aria-hidden className="absolute bottom-[-2px] left-[9.5px] top-5 w-px bg-line" />}
@@ -407,7 +411,7 @@ function Timeline({ steps, due, delivery, deliveryCite }: { steps: Step[]; due: 
               <p className={`flex items-center gap-1.5 font-medium ${state === "todo" ? "text-ink-3" : ""}`}>
                 {s.title}
                 {s.key === "statement" && delivery && (
-                  <InfoTip align="end" title="How it was delivered" cite={deliveryCite}>{capFirst(describeDelivery(delivery))}.</InfoTip>
+                  <InfoTip align="end" title="How it was delivered" cite={deliveryCite}>{capFirst(describeDelivery(delivery, recordedOn))}.</InfoTip>
                 )}
               </p>
               <p className="text-xs text-ink-3">{sub}<span className="sr-only">{s.done ? ", done" : ""}</span></p>
@@ -425,9 +429,10 @@ type DetailRow = { k: ReactNode; v: ReactNode; total?: boolean };
 
 function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
   const st = v.statement, d = v.deposit, a = v.agreement;
+  const dayOf = (ts: string) => dayFor(ts, v.state); // the day where the property is
   const masked = maskEmail(a?.paypalEmail);
   const rows: DetailRow[] = [];
-  const signed = a ? `Signed by ${a.signedBy.join(" and ")} on ${longDate(pacificDate(a.signedAt))}.` : "";
+  const signed = a ? `Signed by ${a.signedBy.join(" and ")} on ${longDate(dayOf(a.signedAt))}.` : "";
   const tip = pack.tenant.agreementTip({ agreed: !!a, electronic: !!d?.electronic });
   const agreementTip = (label: string) => (
     <InfoTip trigger={<TipLabel>{label}</TipLabel>} title={tip.title} cite={tip.cite}>
@@ -474,7 +479,7 @@ function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
   }
 
   if (d?.paid && !st) {
-    if (d.paidAt) rows.push({ k: "Paid on", v: shortDate(pacificDate(d.paidAt)) });
+    if (d.paidAt) rows.push({ k: "Paid on", v: shortDate(dayOf(d.paidAt)) });
     rows.push({ k: "Paid with", v: payMethod(d.method) });
   }
   if (d && !d.paid) rows.push({ k: "Status", v: capFirst(words(d.status)) });

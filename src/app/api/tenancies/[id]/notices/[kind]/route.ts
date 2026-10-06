@@ -1,4 +1,4 @@
-import { pacificToday, realDate } from "@/lib/dates";
+import { realDate, todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { CA_NOTICE_KINDS, kindFromSlug, recordFor, type NoticeGiven, type NoticeMethod, type Notices } from "@/lib/notices";
 import { tenancyPack } from "@/lib/tenancy-pack";
@@ -30,7 +30,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const body: unknown = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send the date, the method and the tenant." }, { status: 400 });
   const b = body as { date?: unknown; method?: unknown; to?: unknown; detail?: unknown; received?: unknown };
-  const today = pacificToday();
+  // Today where the property is: its pack's zone, which its deadlines are counted in.
+  const today = todayIn(pack.timeZone.id);
   if (!realDate(b.date)) return Response.json({ error: "Pick the date the notice was given." }, { status: 400 });
   if (b.date > today) return Response.json({ error: "The date can't be in the future." }, { status: 400 });
   const method = def.methods.find(([m]) => m === b.method)?.[0] as NoticeMethod | undefined;

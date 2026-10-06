@@ -9,7 +9,7 @@ import {
   type ActionOption, type DefenseAction, type DefenseContext, type DefenseResponse, type DisputeRead, type EvidenceItem, type Position,
 } from "./chargeback";
 import { forTheRecord, runDefenseAgent, type DefenseFile, type DefenseLine } from "./chargeback-agent";
-import { pacificDate, shortDate } from "./dates";
+import { dateIn, shortDate } from "./dates";
 import { audit, db } from "./db";
 import { depositBlock } from "./demo-pool";
 import { usd } from "./deductions";
@@ -22,6 +22,7 @@ import type { PayPalDisputeRow } from "./paypal-webhook";
 import { disputeAftermath, webhookStore } from "./paypal-webhook-store";
 import { buildStatement } from "./statement";
 import { buildStatementPdf } from "./statement-pdf";
+import { zoneOf } from "./states/server";
 import type { TenantMoveOut } from "./tenant";
 import { loadUnit } from "./units";
 import type { Workspace } from "./workspace";
@@ -223,7 +224,7 @@ export async function caseBits(tenancyId: string): Promise<CaseBits | null> {
   const back = payments.filter((p) => BACK_KINDS.includes(p.kind) && !returnFailed(p.status) && !(p.raw && (p.raw as Obj).demo_example === true));
   const returned = cents(back.reduce((s, p) => s + Number(p.amount), 0));
   const WHAT: Record<string, string> = { refund: "Refund to the original payment", payout: "PayPal Payout", settlement_refund: "Settlement refund", settlement_payout: "Settlement Payout", dispute_refund: "Refund through the PayPal dispute" };
-  const refunds = back.map((p) => ({ what: WHAT[p.kind] ?? p.kind, amount: Number(p.amount), paypalId: p.paypal_id, on: pacificDate(p.created_at) }));
+  const refunds = back.map((p) => ({ what: WHAT[p.kind] ?? p.kind, amount: Number(p.amount), paypalId: p.paypal_id, on: dateIn(p.created_at, facts.pack.timeZone.id) }));
   // A settlement both sides agreed and that hasn't gone yet gives back its amount on top; the history says how the
   // tenants' dispute of the statement went.
   let agreedBack: number | null = null, history: string | null = null;
@@ -748,7 +749,8 @@ export async function loadPayPalDispute(tenancyId: string, ws: Workspace): Promi
   const files = r?.progress?.evidence;
   return {
     id: d.id, reason: reasonWords(d.reason), reasonCode: d.reason, status: statusWords(d.status), statusCode: d.status, open: d.open, stage: d.stage,
-    amount: d.amount, dueDate: d.dueDate ? pacificDate(d.dueDate) : null, openedAt: d.createdAt, buyerWords: d.buyerWords,
+    // PayPal's date for the response, as a day where the property is (its pack's zone), as every date here is.
+    amount: d.amount, dueDate: d.dueDate ? dateIn(d.dueDate, f.pack.timeZone.id) : null, openedAt: d.createdAt, buyerWords: d.buyerWords,
     outcome: d.outcome?.code ? outcomeWords(d.outcome.code) : null, refunded: recorded > 0 ? recorded : d.outcome?.refunded ?? null,
     reportedAt: stored.checked_at && (!stored.updated_at || stored.checked_at > stored.updated_at) ? stored.checked_at : stored.updated_at,
     position: s.position,
@@ -776,9 +778,9 @@ export type PayPalDisputeAlert = { tenancyId: string; title: string; sub: string
 
 /** The bell's entries for open PayPal disputes in a workspace: one to answer, a response to approve, one to check. */
 async function loadPaypalDisputeAlerts(workspaceId: string): Promise<PayPalDisputeAlert[]> {
-  const { data } = await db.from("paypal_disputes").select("id, tenancy_id, status, seller_response_due:raw->>seller_response_due_date, tenancies!inner(workspace_id, properties(address))")
+  const { data } = await db.from("paypal_disputes").select("id, tenancy_id, status, seller_response_due:raw->>seller_response_due_date, tenancies!inner(workspace_id, properties(address, state))")
     .eq("tenancies.workspace_id", workspaceId).neq("status", "RESOLVED").limit(10);
-  const rows = (data ?? []) as unknown as { id: string; tenancy_id: string; status: string | null; seller_response_due: string | null; tenancies: { properties: { address: string } | null } | null }[];
+  const rows = (data ?? []) as unknown as { id: string; tenancy_id: string; status: string | null; seller_response_due: string | null; tenancies: { properties: { address: string; state?: string | null } | null } | null }[];
   if (!rows.length) return [];
   const { data: rs } = await db.from("paypal_dispute_responses").select("dispute_id, status, created_at, updated_at").in("dispute_id", rows.map((r) => r.id)).neq("status", "superseded").order("created_at", { ascending: false });
   const out: PayPalDisputeAlert[] = [];
@@ -787,7 +789,7 @@ async function loadPaypalDisputeAlerts(workspaceId: string): Promise<PayPalDispu
     const latest = found ? shownStatus(found) : null;
     const sub = r.tenancies?.properties?.address ?? "A property";
     const href = `/tenancy/${r.tenancy_id}?tab=payments#paypal-dispute`;
-    const due = r.seller_response_due ? pacificDate(r.seller_response_due) : null;
+    const due = r.seller_response_due ? dateIn(r.seller_response_due, zoneOf(r.tenancies?.properties?.state)) : null;
     if (latest === "ready") out.push({ tenancyId: r.tenancy_id, title: "Approve the PayPal dispute response", sub, due, href, tone: "red" });
     else if (latest === "unknown") out.push({ tenancyId: r.tenancy_id, title: "Check the PayPal dispute response", sub, due: null, href, tone: "amber" });
     else if (latest !== "sent" && latest !== "sending" && latest !== "preparing" && r.status !== "UNDER_REVIEW" && r.status !== "WAITING_FOR_BUYER_RESPONSE") {
@@ -802,14 +804,15 @@ export const paypalDisputeAlerts = cache(loadPaypalDisputeAlerts);
 /** The banner every tab of a property shows while its PayPal dispute is open: the claim, PayPal's date and where the
  *  response stands. Two small reads. */
 export async function disputeBanner(tenancyId: string): Promise<{ id: string; amount: number; dueDate: string | null; response: string | null } | null> {
-  const { data } = await db.from("paypal_disputes").select("id, amount, status, raw").eq("tenancy_id", tenancyId).neq("status", "RESOLVED")
+  const { data } = await db.from("paypal_disputes").select("id, amount, status, raw, tenancies(properties(state))").eq("tenancy_id", tenancyId).neq("status", "RESOLVED")
     .order("paypal_created_at", { ascending: false, nullsFirst: false }).limit(1).maybeSingle();
   if (!data) return null;
+  const zone = zoneOf((data.tenancies as { properties?: { state?: string | null } | null } | null)?.properties?.state);
   const d = readDispute(data.raw);
   if (!d.open) return null;
   const r = await latestResponse(d.id, tenancyId);
   const response = !r ? null : r.status === "preparing" && Date.parse(r.started_at) <= Date.now() - DEFENSE_STALE_SECONDS * 1000 ? "failed" : shownStatus(r);
-  return { id: d.id, amount: d.amount || Number(data.amount ?? 0), dueDate: d.dueDate ? pacificDate(d.dueDate) : null, response };
+  return { id: d.id, amount: d.amount || Number(data.amount ?? 0), dueDate: d.dueDate ? dateIn(d.dueDate, zone) : null, response };
 }
 
 /** The state's deadline for the statement and refund, in a sentence that says PayPal's hold doesn't pause it; null

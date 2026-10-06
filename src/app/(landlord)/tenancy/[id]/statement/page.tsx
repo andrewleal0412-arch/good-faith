@@ -6,13 +6,13 @@ import { ButtonLink } from "@/components/button";
 import { Icon, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Card, CardHead, Fact, FactStrip, Money, StatusChip, type Tone } from "@/components/ui";
-import { shortDate, whenText } from "@/lib/dates";
+import { dayLabel, shortDate, whenText } from "@/lib/dates";
 import { DEMO_EXAMPLE, TENANT_VIEW_TIP } from "@/lib/copy";
 import { usd } from "@/lib/deductions";
 import { streetLine } from "@/lib/ledger";
 import { demoTenantPath } from "@/lib/tenant-links";
 import { pageTenancy, signedUrlsFor } from "@/lib/workspace";
-import { buildStatement, describeDelivery, longDate, pacificDate, type ChecklistItem, type StatementDeduction, type StatementSettlement } from "@/lib/statement";
+import { buildStatement, dateIn, describeDelivery, longDate, type ChecklistItem, type StatementDeduction, type StatementSettlement } from "@/lib/statement";
 import { packFor } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
 import { DeliveryPanel } from "./delivery-form";
@@ -42,6 +42,8 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
   if (!s) notFound();
   const pack = packFor(s.state);
   const sec = pack.statement.sections;
+  // A timestamp's calendar day where the property is (its pack's zone), as the statement and its PDF date it.
+  const dayOf = (ts: string) => dateIn(ts, pack.timeZone.id);
 
   // Short-lived links to the private photos and invoices, two requests in all. No link means the file is not in the
   // bucket (or not one this workspace may open).
@@ -93,32 +95,32 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
 
       <FactStrip cols={4} className="mt-6 print:hidden">
         <Fact label="Security held" value={<Money value={s.totals.depositHeld} />}
-          sub={s.security?.paid ? (s.security.paidAt ? `Paid ${shortDate(pacificDate(s.security.paidAt))}` : "Paid") : "Not paid"} />
+          sub={s.security?.paid ? (s.security.paidAt ? `Paid ${shortDate(dayOf(s.security.paidAt))}` : "Paid") : "Not paid"} />
         <Fact label={s.standing && !forfeits ? s.standing.label : "Deductions"} value={<Money value={s.totals.deductions} />}
           sub={`${s.deductions.length} item${s.deductions.length === 1 ? "" : "s"}${forfeits ? ", forfeited" : ""}`}
           info={s.standing ? <InfoTip title={s.standing.label}>{s.standing.note}</InfoTip> : undefined} />
         {s.settlement ? (
           <Fact big label="Returned in all" value={<Money value={s.settlement.returnedInAll} cents="small" phoneCents="full" />}
-            sub={`Statement and settlement, ${shortDate(pacificDate(s.settlement.sentAt ?? s.today))}`} />
+            sub={`Statement and settlement, ${shortDate(s.settlement.sentAt ? dayOf(s.settlement.sentAt) : s.today)}`} />
         ) : via ? (
           <Fact big label="Returned in all" value={<Money value={returnedInAll} cents="small" phoneCents="full" />}
             sub={!sent && s.refund.amount > 0 ? `${usd(s.refund.amount)} still to refund` : sent ? "PayPal dispute and refund" : "Through the PayPal dispute"} />
         ) : (
           <Fact big label={claim ? "Balance claimed" : sent ? "Refunded" : forfeits ? "Owed back" : "Refund due"}
             value={<Money value={claim ? claim.amount : s.refund.amount} cents="small" phoneCents="full" />}
-            sub={stillOwed ? `${usd(stillOwed)} still owed` : sent && s.refund.sentAt ? `By PayPal, ${shortDate(pacificDate(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
+            sub={stillOwed ? `${usd(stillOwed)} still owed` : sent && s.refund.sentAt ? `By PayPal, ${shortDate(dayOf(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
         )}
         <Fact label="Due by"
           info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
           value={s.statementDue ? shortDate(s.statementDue) : "Not set"}
-          sub={s.delivery ? `Delivered ${shortDate(s.delivery.date)}` : s.daysLeft != null ? whenText(s.daysLeft) : "No move-out yet"} />
+          sub={s.delivery ? (s.deliveryRecordedOn ? `Delivered ${dayLabel(s.delivery.date, s.today)}, recorded ${dayLabel(s.deliveryRecordedOn, s.today)}` : `Delivered ${shortDate(s.delivery.date)}`) : s.daysLeft != null ? whenText(s.daysLeft) : "No move-out yet"} />
       </FactStrip>
 
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[auto_1fr] print:mt-0 print:block">
         {/* On a phone the column reads Delivery, Checklist, then the document, so the checklist sits by the card it explains. */}
         <div className="print:hidden lg:col-start-2 lg:row-start-1">
           <DeliveryPanel tenancyId={id} state={pack.code} tenants={s.tenantContacts} unitAddress={s.property.address} today={s.today} due={s.statementDue}
-            existing={s.delivery} forwarding={s.tenantForwarding} />
+            existing={s.delivery} recordedOn={s.deliveryRecordedOn ?? null} forwarding={s.tenantForwarding} />
           {/* In a demo copy one person plays both sides: once the statement is out, the tenants' page is a click away. */}
           {delivered && tenantPath && (
             <p className="mt-3 flex items-center gap-1.5 px-1 text-sm">
@@ -154,7 +156,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
               <Rows rows={[
                 ["Amount", <span key="a" className="font-medium tabular-nums">{usd(s.security.amount)}</span>],
                 s.security.paid
-                  ? ["Paid", `${s.security.paidAt ? `${longDate(pacificDate(s.security.paidAt))}, ` : ""}by ${payMethod(s.security.method)}`]
+                  ? ["Paid", `${s.security.paidAt ? `${longDate(dayOf(s.security.paidAt))}, ` : ""}by ${payMethod(s.security.method)}`]
                   : ["Status", `${s.security.invoiceStatus.toLowerCase().replace(/_/g, " ")}, not paid`],
                 ["PayPal invoice", <span key="i" className="break-all tabular-nums">{s.security.invoiceId}</span>],
                 ...(s.security.basisNote ? [["Basis", (
@@ -231,11 +233,11 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
 
           <Section n={next()} title="Refund" cite={sec.refund} tip={s.refund.note || undefined}>
             <Rows rows={[
-              ...(via ? [["Through the PayPal dispute", `${usd(via.amount)}${via.disputeId ? `, dispute ${via.disputeId}` : ""}${via.at ? `, ${longDate(pacificDate(via.at))}` : ""}`] as [ReactNode, ReactNode]] : []),
+              ...(via ? [["Through the PayPal dispute", `${usd(via.amount)}${via.disputeId ? `, dispute ${via.disputeId}` : ""}${via.at ? `, ${longDate(dayOf(via.at))}` : ""}`] as [ReactNode, ReactNode]] : []),
               ["Amount", <span key="a" className="font-medium tabular-nums">{usd(s.refund.amount)}</span>],
               ["Method", s.refund.method],
               ...(s.refund.paypalId ? [["PayPal ID", <span key="id" className="break-all tabular-nums">{s.refund.paypalId}</span>] as [ReactNode, ReactNode]] : []),
-              ...(s.refund.sentAt ? [["Sent", longDate(pacificDate(s.refund.sentAt))] as [ReactNode, ReactNode]] : []),
+              ...(s.refund.sentAt ? [["Sent", longDate(dayOf(s.refund.sentAt))] as [ReactNode, ReactNode]] : []),
               ...(s.refund.state !== "none" ? [["Payable to", s.refund.payees.join(" and ")] as [ReactNode, ReactNode]] : []),
               ...(s.refund.state !== "none" && s.refund.paypalEmail ? [["PayPal account", <span key="e" className="break-all">{s.refund.paypalEmail}</span>] as [ReactNode, ReactNode]] : []),
             ]} />
@@ -245,7 +247,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             {s.refund.note && <p className="mt-3 hidden text-sm text-ink-2 print:block">{s.refund.note}</p>}
           </Section>
 
-          {s.settlement && <SettlementSection n={next()} st={s.settlement} landlord={s.landlord} deducted={s.totals.deductions} refund={s.refund.amount} deposit={s.totals.depositHeld} />}
+          {s.settlement && <SettlementSection n={next()} st={s.settlement} landlord={s.landlord} deducted={s.totals.deductions} refund={s.refund.amount} deposit={s.totals.depositHeld} zone={pack.timeZone.id} />}
 
           <Section n={next()} title={pack.statement.interestTitle} tip={s.interest.note}>
             <p className={s.interest.known ? "text-amber print:text-ink-2" : "text-ink-2"}>
@@ -266,7 +268,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
           <Section n={next()} title={sec.delivery.title} cite={sec.delivery.cite} tip={sec.delivery.text}>
             {s.delivery ? (
               <p className="text-ink-2">
-                Delivered by {describeDelivery(s.delivery)}{s.delivery.to && s.delivery.method !== "personal" ? `, addressed to ${s.delivery.to}` : ""}.
+                Delivered by {describeDelivery(s.delivery, s.deliveryRecordedOn)}{s.delivery.to && s.delivery.method !== "personal" ? `, addressed to ${s.delivery.to}` : ""}.
               </p>
             ) : (
               <p className="text-ink-3">To be recorded when the statement goes out.</p>
@@ -296,14 +298,15 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
 }
 
 /** The amended statement: the tenants disputed it, both sides settled, and the extra amount went back by PayPal. */
-function SettlementSection({ n, st, landlord, deducted, refund, deposit }: { n: number; st: StatementSettlement; landlord: string; deducted: number; refund: number; deposit: number }) {
+function SettlementSection({ n, st, landlord, deducted, refund, deposit, zone }: { n: number; st: StatementSettlement; landlord: string; deducted: number; refund: number; deposit: number; zone: string }) {
+  const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
   const how = st.example ? DEMO_EXAMPLE.short
     : st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : st.rail ? "PayPal refund of the original deposit payment"
       : st.refundSent && refund >= deposit - 0.005 ? "No money moved: the whole deposit had already gone back with the statement" : "No money moved: the deposit was used in full";
   return (
     <Section n={n} title="Settlement" tip="The tenants disputed this statement through their link. Their advocate and the landlord's negotiator, each held to what the law and the record allow, agreed on the figures below; the tenants accepted them and the landlord approved them. This section amends the statement. Not legal advice.">
       <p className="text-ink-2">
-        {st.acceptedBy ?? "The tenants"} accepted the settlement{st.acceptedAt ? ` on ${longDate(pacificDate(st.acceptedAt))}` : ""}, and {landlord} approved it{st.approvedAt ? ` on ${longDate(pacificDate(st.approvedAt))}` : ""}.
+        {st.acceptedBy ?? "The tenants"} accepted the settlement{st.acceptedAt ? ` on ${longDate(dayOf(st.acceptedAt))}` : ""}, and {landlord} approved it{st.approvedAt ? ` on ${longDate(dayOf(st.approvedAt))}` : ""}.
       </p>
       {st.lines.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5 text-sm">
@@ -329,7 +332,7 @@ function SettlementSection({ n, st, landlord, deducted, refund, deposit }: { n: 
         <Rows rows={[
           ["Method", st.example ? <span key="m" className="inline-flex items-center gap-1.5">{how}<span className="inline-flex print:hidden"><InfoTip align="end" title="A recorded example">{DEMO_EXAMPLE.text}</InfoTip></span></span> : how],
           ...(st.paypalId ? [["PayPal ID", <span key="id" className="break-all tabular-nums">{st.paypalId}</span>] as [ReactNode, ReactNode]] : []),
-          ...(st.sentAt && st.paypalId ? [["Sent", longDate(pacificDate(st.sentAt))] as [ReactNode, ReactNode]] : []),
+          ...(st.sentAt && st.paypalId ? [["Sent", longDate(dayOf(st.sentAt))] as [ReactNode, ReactNode]] : []),
         ]} />
       </div>
     </Section>

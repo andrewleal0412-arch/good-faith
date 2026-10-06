@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { addDays, shortDate } from "@/lib/dates";
 import { FORWARDING_MAX, PLANNED_MOVE_OUT_HORIZON_DAYS, PLANNED_MOVE_OUT_PAST_DAYS, tenantMoveOutSentOn, type TenantMoveOut } from "@/lib/tenant";
+import { zoneOf } from "@/lib/states";
 import { buttonClass } from "@/components/button";
 import { FormField } from "@/components/field";
 import { Notice, inputClass } from "@/components/ui";
@@ -55,7 +56,7 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
     return (
       <div className="flex items-start gap-3 rounded-lg border border-line-2 bg-surface px-4 py-3.5" role={justSent ? "status" : undefined}>
         <div className="min-w-0 flex-1">
-          <p className="font-medium">{justSent ? "Sent to your landlord" : `Sent ${shortDate(tenantMoveOutSentOn(m))}`}</p>
+          <p className="font-medium">{justSent ? "Sent to your landlord" : `Sent ${shortDate(tenantMoveOutSentOn(m, zoneOf(p.state)))}`}</p>
           <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
             {m.name && <><dt className="text-ink-3">From</dt><dd className="min-w-0">{m.name}</dd></>}
             {!dateLocked && <><dt className="text-ink-3">Moving out</dt><dd className="min-w-0">{shortDate(m.planned_move_out)}</dd></>}

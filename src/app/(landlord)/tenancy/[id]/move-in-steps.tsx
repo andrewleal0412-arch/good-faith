@@ -7,7 +7,7 @@ import { Icon } from "@/components/icons";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
 import { Money, Notice, StatusChip, inputClass, inlineInputClass } from "@/components/ui";
-import { atText, shortDate } from "@/lib/dates";
+import { atTextIn, shortDate, todayIn } from "@/lib/dates";
 import { wasPaid } from "@/lib/invoice-status";
 import { NOTICE_SLUG, recordsFor, type Notices } from "@/lib/notices";
 import { packFor } from "@/lib/states";
@@ -31,8 +31,6 @@ type Props = {
   locked?: boolean; // the tenants have moved out: the move-in record is what it was, so no more photos are added
 };
 
-/** Today in California, where the app keeps its calendar (as src/lib/dates.ts pacificToday). */
-const todayIso = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ROOMS = ["Living room", "Kitchen", "Bedroom 1", "Bedroom 2", "Bathroom", "Hallway"];
@@ -89,7 +87,7 @@ export function MoveInSteps(p: Props) {
         info={<InfoTip title={r.title} cite={r.cite}>{r.tip}</InfoTip>}>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {given ? <p className="text-sm text-ink-3">{r.verb} {shortDate(given.date)}{given.detail ? `, ${given.detail}` : ""}</p>
-            : !p.locked && <NoticeGivenForm tenancyId={p.tenancyId} state={pack.code} kind={r.kind} tenants={p.tenants} today={todayIso()} given={null} />}
+            : !p.locked && <NoticeGivenForm tenancyId={p.tenancyId} state={pack.code} kind={r.kind} tenants={p.tenants} today={todayIn(pack.timeZone.id)} given={null} />}
           <a href={`/tenancy/${p.tenancyId}/notices/${NOTICE_SLUG[r.kind]}`} className="text-sm text-brand hover:underline">{r.draft ? "Open draft" : "Details"}</a>
         </div>
       </Step>
@@ -145,7 +143,7 @@ export function MoveInSteps(p: Props) {
                 <StatusChip tone={p.invoice.reversed ? "red" : paid ? "green" : "gray"}>{p.invoice.reversed ? "Reversed" : paid ? "Paid" : p.invoice.status.charAt(0) + p.invoice.status.slice(1).toLowerCase().replace(/_/g, " ")}</StatusChip>
                 {p.invoice.id && <span className="text-xs text-ink-3">Invoice {p.invoice.id}</span>}
               </div>
-              {p.invoice.fromPayPal && <span className="text-xs text-ink-3">From PayPal, {atText(p.invoice.fromPayPal)}</span>}
+              {p.invoice.fromPayPal && <span className="text-xs text-ink-3">From PayPal, {atTextIn(p.invoice.fromPayPal, pack.timeZone.id)}</span>}
               {!paid && p.invoice.payLink && (
                 <a className="inline-flex items-center gap-1 text-sm text-brand hover:underline" href={p.invoice.payLink} target="_blank" rel="noreferrer">
                   Tenant&apos;s pay link<Icon name="arrow-up-right" className="size-3.5" />

@@ -9,15 +9,15 @@ import {
 } from "@/components/ui";
 import { foldActivity, QUIET_ACTIONS } from "@/lib/activity";
 import { displayName } from "@/lib/copy";
-import { dayLabel, daysBetween, pacificDate, shortDate } from "@/lib/dates";
+import { dayLabel, daysBetween, shortDate } from "@/lib/dates";
 import { wasPaid } from "@/lib/invoice-status";
 import { loadLedger } from "@/lib/ledger-load";
-import { ledgerTotals } from "@/lib/ledger";
+import { ledgerTotals, settledOff } from "@/lib/ledger";
 import { paypalDisputeAlerts } from "@/lib/chargeback-store";
 import { disputeAlerts, type DisputeAlert } from "@/lib/negotiation";
-import { closedOut, dueLabelOf, dueOf, packOf, refundLeft, type TenancySummary } from "@/lib/next-step";
+import { closedOut, dueLabelOf, dueOf, forfeitShort, packOf, refundLeft, type TenancySummary } from "@/lib/next-step";
 import { GROUP_LABEL, keepUnit, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup, type StepLink } from "@/lib/property-view";
-import { packFor } from "@/lib/states/server";
+import { dayFor, packFor } from "@/lib/states/server";
 import { accountName, loadRecentActivity, loadThumbnails, loadUnits, UPCOMING_DAYS } from "@/lib/units";
 import { currentWorkspace } from "@/lib/workspace";
 
@@ -28,9 +28,12 @@ export const metadata: Metadata = { title: "Properties" };
 // needs next (worked out from its own dates and its state's rule pack in src/lib/next-step.ts), recent activity, and a
 // rail with the next steps, the nearest statement and refund deadline (21 days in California) and PayPal.
 
-/** What the unit holds right now, from the stored PayPal records and the deductions; the ledger counts the same way. */
+/** What the unit holds right now, from the stored PayPal records and the deductions; the ledger counts the same way.
+ *  Once the refund went, nothing, unless the deadline forfeited the deductions after it (New York after day 14): then
+ *  the rest of the deposit is still held, and owed (forfeitShort). */
 function heldNow(s: TenancySummary): number {
-  if (!s.deposit || s.returned || !wasPaid(s.deposit.status) || s.deposit.reversed) return 0;
+  if (!s.deposit || !wasPaid(s.deposit.status) || s.deposit.reversed) return 0;
+  if (s.returned) return forfeitShort(s);
   if (s.statementDeliveredAt) return refundLeft(s) ?? s.deposit.amount;
   return s.deposit.amount;
 }
@@ -103,8 +106,11 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   const refunds = lrows.filter((r) => r.effect === "returned" && r.date.startsWith(year));
   const deducted = lrows.filter((r) => r.kind === "deduction" && r.effect === "claimed" && r.date.startsWith(year) && r.amount > 0);
   // A settled dispute gave part of the deductions back: they count as settled, as the ledger and each unit's Payments
-  // tab count them (ledgerTotals), and the settlement itself is in Refunded.
-  const settled = lrows.filter((r) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending") && r.date.startsWith(year));
+  // tab count them (ledgerTotals), and the settlement itself is in Refunded. Each settlement comes off its own unit's
+  // claimed deductions and never more (settledOff): one on New York's forfeited deductions takes nothing off another's.
+  const settledRows = lrows.filter((r) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending") && r.date.startsWith(year));
+  const settledAmount = settledOff(settledRows, lrows);
+  const settledCount = settledRows.filter((r) => settledOff([r], lrows) > 0).length;
   const sum = (xs: { amount: number }[]) => Math.round(xs.reduce((s, r) => s + r.amount, 0) * 100) / 100;
 
   // The rail: a dispute waiting on the landlord first, then open steps, most urgent first (loadUnits sorts them), and
@@ -123,8 +129,10 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   // Recent activity, with a run of deductions or photos on one unit folded into one line.
   const street = new Map(rows.map((r) => [r.summary.id, r.addr.street]));
   const tenantsOf = new Map(rows.map((r) => [r.summary.id, r.summary.tenants]));
+  const stateOf = new Map(rows.map((r) => [r.summary.id, r.summary.state]));
+  // Each entry dated where its property is, as its own page dates it.
   const activity = foldActivity(log, (id) => tenantsOf.get(id) ?? [], 5).map(({ entry: e, title }) => ({
-    key: e.id, title, sub: street.get(e.tenancyId) ?? "", date: dayLabel(pacificDate(e.createdAt), today), href: `/tenancy/${e.tenancyId}`,
+    key: e.id, title, sub: street.get(e.tenancyId) ?? "", date: dayLabel(dayFor(e.createdAt, stateOf.get(e.tenancyId)), today), href: `/tenancy/${e.tenancyId}`,
   }));
 
   // Quick actions go to the unit that needs them, or to the lease check when none does.
@@ -144,8 +152,8 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
       <FactStrip className="mb-6">
         <Fact label="Deposits held" big value={<Money value={held} cents="small" />} sub={plural(holding, "tenancy", "tenancies")} />
         <Fact label="Refunded this year" big value={<Money value={sum(refunds)} cents="small" />} sub={plural(refunds.length, "refund")} />
-        <Fact label="Deducted this year" big value={<Money value={Math.max(0, Math.round((sum(deducted) - sum(settled)) * 100) / 100)} cents="small" />}
-          sub={`${plural(deducted.length, "item")}${settled.length ? `, less ${plural(settled.length, "settlement")}` : ""}`} />
+        <Fact label="Deducted this year" big value={<Money value={Math.max(0, Math.round((sum(deducted) - settledAmount) * 100) / 100)} cents="small" />}
+          sub={`${plural(deducted.length, "item")}${settledCount ? `, less ${plural(settledCount, "settlement")}` : ""}`} />
       </FactStrip>
 
       {units.length === 0 ? (
@@ -263,7 +271,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
 
             {clock && (() => {
               const s = clock.summary;
-              const left = daysBetween(today, clock.due);
+              const left = daysBetween(clock.today, clock.due); // the unit's own today, in its state's zone
               const state = s.statementDeliveredAt ? "Delivered" : s.deductions.length || s.moveOutInspectedAt ? "Draft" : "Not started";
               return (
                 <Card className="p-5">
