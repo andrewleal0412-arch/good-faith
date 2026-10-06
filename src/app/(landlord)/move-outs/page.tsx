@@ -53,7 +53,7 @@ export default async function MoveOutsPage({ searchParams }: PageProps<"/move-ou
               const due = s.moveOutDate ? dueOf(s) : null;
               return (
                 <li key={s.id} className="border-b border-line-2 last:border-b-0">
-                  <Link href={tabHref(s.id, "move-out")} className="flex items-center gap-3 px-4 py-3 hover:bg-surface">
+                  <Link href={tabHref(s.id, "move-out")} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface">
                     <Thumb src={thumbs.get(s.id) ?? null} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{splitAddress(s.address, s.city).street}</div>

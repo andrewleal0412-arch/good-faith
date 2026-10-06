@@ -89,7 +89,7 @@ export default async function DocumentsPage() {
                 <ul>
                   {g.rows.map((r) => (
                     <li key={r.key} className="border-b border-line-2">
-                      <Link href={r.href} title={r.cite} className="flex items-center gap-3 px-4 py-3 hover:bg-surface">
+                      <Link href={r.href} title={r.cite} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface">
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">{r.name}</span>
                         <StatusChip tone={r.tone}>{r.status}</StatusChip>
                       </Link>

@@ -6,6 +6,7 @@ import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
+import { WorkingDots } from "@/components/motion";
 import { Card, CardHead, Money, Notice, StatusChip } from "@/components/ui";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { PayPalDisputeView } from "@/lib/chargeback-store";
@@ -171,15 +172,15 @@ export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { ten
       <div className="border-b border-line-2 px-5 py-4">
         {running ? (
           <div role="status" className="flex items-center gap-2.5 text-sm">
-            <span aria-hidden className="size-4 shrink-0 animate-spin rounded-full border-2 border-brand-100 border-t-brand" />
             The defense agent is reading the case and preparing a response. This takes about a minute.
+            <WorkingDots className="shrink-0 text-ink-4" />
           </div>
         ) : ready ? (
           <Prepared v={v} />
         ) : r?.status === "sending" ? (
           <div role="status" className="flex items-center gap-2.5 text-sm">
-            <span aria-hidden className="size-4 shrink-0 animate-spin rounded-full border-2 border-brand-100 border-t-brand" />
             Sending your response to PayPal.
+            <WorkingDots className="shrink-0 text-ink-4" />
           </div>
         ) : r?.status === "sent" ? (
           <Sent v={v} zone={zone} />

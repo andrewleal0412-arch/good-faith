@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState, type SyntheticEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
 import { Icon } from "@/components/icons";
+import { beforePrint, DUR, firstSight, motionOff, usePainted } from "@/components/motion";
 import { focusOn, placeBox, type Box } from "@/lib/boxes";
 import type { Classification } from "@/lib/findings";
 
@@ -24,6 +25,69 @@ const STYLE: Record<Classification, { frame: string; badge: string }> = {
 };
 
 const FRAME = 3 / 2; // the side-by-side frames, the shape of a landscape phone photo
+
+/** The color a box's outline is traced in before its own border takes over: the border's own color, solid. */
+const TRACE: Record<Classification, string> = { damage: "text-red-dot", cleaning: "text-amber-dot", wear_and_tear: "text-white", unclear: "text-ink-3" };
+const STAGGER_MS = 140;
+
+/** A box's outline as a path along the middle of its 1.5px border, with the border's 3px corners, from the top left
+ *  clockwise: what the trace draws (globals.css, [data-trace="run"]). */
+function outline(w: number, h: number): string {
+  const a = 0.75, r = 2.25, x1 = w - a, y1 = h - a;
+  return `M${a + r},${a}H${x1 - r}A${r},${r} 0 0 1 ${x1},${a + r}V${y1 - r}A${r},${r} 0 0 1 ${x1 - r},${y1}H${a + r}A${r},${r} 0 0 1 ${a},${y1 - r}V${a + r}A${r},${r} 0 0 1 ${a + r},${a}Z`;
+}
+
+/** The inspection's boxes traced onto the move-out photo, the first time this viewer sees this analysis of this room
+ *  (`key`: the tenancy, when the comparison ran, the photo pair), so a new comparison traces again and a revisit never
+ *  does. Until the photo has loaded and is a third in view the boxes wait unseen; then each outline is drawn in turn,
+ *  its border takes over and its number settles in. Set on the DOM directly, not in React state, so nothing
+ *  re-renders. Boxes the server already drew (a full load of the Move-out tab) are never hidden to be traced again:
+ *  they are only marked seen. */
+function useTrace(root: React.RefObject<HTMLDivElement | null>, key: string | null | undefined, mode: CompareMode) {
+  const paintedRef = usePainted();
+  useLayoutEffect(() => {
+    const fromServer = paintedRef.current;
+    paintedRef.current = false;
+    const el = root.current;
+    if (!key || !el || firstSight.seen(key) || !el.querySelector(".gf-mark")) return;
+    if (fromServer || motionOff()) {
+      firstSight.mark(key);
+      return;
+    }
+    const img = el.querySelector<HTMLImageElement>("img[data-out]");
+    let inView = false, done = false, timer = 0;
+    el.setAttribute("data-trace", "armed");
+    const loaded = () => !img || (img.complete && img.naturalWidth > 0);
+    const go = () => {
+      if (done || !inView || !loaded()) return;
+      done = true;
+      io.disconnect();
+      firstSight.mark(key);
+      const marks = [...el.querySelectorAll<HTMLElement>(".gf-mark")];
+      for (const m of marks) m.querySelector(".gf-trace path")?.setAttribute("d", outline(m.offsetWidth, m.offsetHeight));
+      el.setAttribute("data-trace", "run");
+      timer = window.setTimeout(() => { el.removeAttribute("data-trace"); }, (marks.length - 1) * STAGGER_MS + DUR.moment + DUR.base + 200);
+    };
+    // A photo that can't load shows its boxes as they are, and so does paper.
+    const failed = () => { done = true; el.removeAttribute("data-trace"); };
+    const unprint = beforePrint(() => {
+      if (!done) firstSight.mark(key);
+      failed();
+    });
+    const io = new IntersectionObserver(([e]) => { inView = !!e && e.isIntersecting && e.intersectionRatio >= 0.35; go(); }, { threshold: [0, 0.35, 0.7] });
+    io.observe(img ?? el);
+    img?.addEventListener("load", go);
+    img?.addEventListener("error", failed);
+    return () => {
+      io.disconnect();
+      unprint();
+      img?.removeEventListener("load", go);
+      img?.removeEventListener("error", failed);
+      clearTimeout(timer);
+      el.removeAttribute("data-trace");
+    };
+  }, [root, key, mode, paintedRef]);
+}
 
 /** A photo's width over height once it has loaded (3:2 until then). The ref reads a photo the browser already had. */
 function useShape() {
@@ -61,19 +125,26 @@ function Marks({ markers, which, shape, frame, focus, hot, onHot }: {
   const reference = which === "moveInBox";
   return (
     <>
-      {markers.map((m) => {
-        const b = m[which];
-        if (!b) return null;
+      {markers.filter((m) => m[which]).map((m, i) => {
+        const b = m[which]!;
         const p = placeBox(b, shape, frame, focus);
         const s = reference ? REFERENCE : STYLE[m.kind];
         const on = hot === m.id;
         const labelAbove = p.top + p.height > 84;
+        // The move-out photo's boxes can be traced in (useTrace): each knows its place in the order (--gf-i) and carries
+        // the outline the trace draws, hidden until then.
+        const trace = !reference;
         return (
           <span key={m.id} aria-hidden title={reference ? `${m.n}. Same spot at move-in` : `${m.n}. ${m.label}`}
             onMouseEnter={onHot ? () => onHot(m.id) : undefined} onMouseLeave={onHot ? () => onHot(null) : undefined}
-            className={`absolute rounded-[3px] border-[1.5px] transition-shadow ${s.frame} ${on ? "z-[2] shadow-[0_0_0_3px_rgba(255,255,255,.75)]" : "shadow-[0_0_0_1px_rgba(255,255,255,.55)]"}`}
-            style={{ left: `${p.left}%`, top: `${p.top}%`, width: `${p.width}%`, height: `${p.height}%` }}>
-            <span className={`absolute flex size-[18px] items-center justify-center rounded-[5px] text-xs font-semibold text-white shadow-sm ${s.badge}`}
+            className={`absolute rounded-[3px] border-[1.5px] transition-shadow ${trace ? "gf-mark" : ""} ${s.frame} ${on ? "z-[2] shadow-[0_0_0_3px_rgba(255,255,255,.75)]" : "shadow-[0_0_0_1px_rgba(255,255,255,.55)]"}`}
+            style={{ left: `${p.left}%`, top: `${p.top}%`, width: `${p.width}%`, height: `${p.height}%`, ...(trace ? { "--gf-i": i } as CSSProperties : {}) }}>
+            {trace && (
+              <svg className={`gf-trace ${TRACE[m.kind]}`} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" aria-hidden="true">
+                <path pathLength={1} />
+              </svg>
+            )}
+            <span className={`gf-badge absolute flex size-[18px] items-center justify-center rounded-[5px] text-xs font-semibold text-white shadow-sm ${s.badge}`}
               style={{ left: p.left < 2.5 ? 2 : -9, top: p.top < 4 ? 2 : -9 }}>
               {m.n}
             </span>
@@ -92,7 +163,26 @@ function Marks({ markers, which, shape, frame, focus, hot, onHot }: {
 
 const tagClass = "absolute top-2 z-[3] rounded-[5px] bg-white/95 px-[7px] py-0.5 text-xs font-medium text-ink";
 
-export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }: {
+export function PhotoCompare({ room, before, after, markers, mode, hot, onHot, trace }: {
+  room: string;
+  before: { url: string | null; date: string | null };
+  after: { url: string | null; date: string | null };
+  markers: Marker[];
+  mode: CompareMode;
+  hot: string | null;
+  onHot: (id: string | null) => void;
+  trace?: string | null; // this analysis of this pair, for the boxes' first trace (useTrace)
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  useTrace(root, trace, mode);
+  return (
+    <div ref={root}>
+      <Compare room={room} before={before} after={after} markers={markers} mode={mode} hot={hot} onHot={onHot} />
+    </div>
+  );
+}
+
+function Compare({ room, before, after, markers, mode, hot, onHot }: {
   room: string;
   before: { url: string | null; date: string | null };
   after: { url: string | null; date: string | null };
@@ -134,7 +224,7 @@ export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }:
         <div className="absolute inset-0" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
           {after.url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img loading="lazy" decoding="async" ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} className="absolute inset-0 size-full object-cover"
+            <img loading="lazy" decoding="async" ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} data-out="" className="absolute inset-0 size-full object-cover"
               style={{ objectPosition: position(outShape, frameShape, focus) }} />
           )}
           <Marks markers={markers} which="box" shape={outShape} frame={frameShape} focus={focus} hot={hot} />
@@ -172,7 +262,7 @@ export function PhotoCompare({ room, before, after, markers, mode, hot, onHot }:
       <figure className="relative m-0 aspect-[3/2] overflow-hidden rounded-md bg-surface-2">
         {after.url && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img loading="lazy" decoding="async" ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} className="size-full object-cover"
+          <img loading="lazy" decoding="async" ref={outRef} onLoad={outLoad} src={after.url} alt={outAlt} data-out="" className="size-full object-cover"
             style={{ objectPosition: position(outShape, FRAME, focus) }} />
         )}
         <Marks markers={markers} which="box" shape={outShape} frame={FRAME} focus={focus} hot={hot} onHot={onHot} />

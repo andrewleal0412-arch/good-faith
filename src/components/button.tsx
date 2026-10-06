@@ -7,11 +7,13 @@ import type { ComponentProps } from "react";
 export type ButtonVariant = "primary" | "secondary" | "link";
 export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
-const BASE = "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-md font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-brand-100 disabled:cursor-default disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50";
+// Hover and press ease (the fast token, globals.css); a press sinks a button 2% so a click is felt at once; the focus
+// ring eases in with the colors.
+const BASE = "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-md font-medium transition-[color,background-color,box-shadow,scale,opacity] outline-none focus-visible:ring-3 focus-visible:ring-brand-100 disabled:cursor-default disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50";
 
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: "bg-brand text-white hover:bg-brand-hover active:bg-brand-active disabled:hover:bg-brand",
-  secondary: "bg-surface-2 text-ink hover:bg-surface-3 disabled:hover:bg-surface-2",
+  primary: "bg-brand text-white hover:bg-brand-hover active:bg-brand-active active:scale-[0.98] disabled:hover:bg-brand disabled:active:scale-100",
+  secondary: "bg-surface-2 text-ink hover:bg-surface-3 active:scale-[0.98] disabled:hover:bg-surface-2 disabled:active:scale-100",
   link: "text-brand hover:underline disabled:hover:no-underline",
 };
 

@@ -1,5 +1,7 @@
 import Link from "@/components/link";
 import { InfoTip } from "@/components/info-tip";
+import { PresenceList } from "@/components/motion";
+import { RollMoney } from "@/components/roll-money";
 import { Card, CardHead, EmptyState, Fact, FactStrip, Money, StatusChip, Table, Td, Th, trClass } from "@/components/ui";
 import { atTextIn, dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import { ledgerTotals, tagCite, type LedgerRow } from "@/lib/ledger";
@@ -15,31 +17,32 @@ export function MoneyTimeline({ tenancyId, rows, typeTip, zone = PACIFIC }: { te
   const t = ledgerTotals(rows);
   // One hero: what is still held while the deposit is held, what went back once a refund or payout has gone out.
   const back = t.returned + t.pending > 0;
-  const hero = (n: number) => <Money value={n} cents="small" phoneCents="full" />;
+  const hero = (n: number) => <RollMoney value={n} cents="small" phoneCents="full" />;
   // A settlement's money comes off the deductions (ledgerTotals), so the figure is the deductions as settled, named as
   // the amended statement names it, with the statement's own total under it.
   const settled = Math.round(rows.filter((r) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending")).reduce((s, r) => s + r.amount, 0) * 100) / 100;
   return (
     <div className="flex flex-col gap-6">
       <FactStrip cols={4}>
-        <Fact label="Collected" value={<Money value={t.collected} />} />
+        <Fact label="Collected" value={<RollMoney quick value={t.collected} />} />
         {/* Forfeited deductions keep nothing, so a settlement there gave back none of them: it is money toward the
             whole deposit, in Returned. */}
         {settled > 0 && !t.forfeited
-          ? <Fact label="Deductions as settled" value={<Money value={t.deducted} />} sub={`${shortMoney(t.deducted + settled)} less ${shortMoney(settled)} settled`} />
-          : <Fact label="Deductions" value={<Money value={t.deducted} />}
+          ? <Fact label="Deductions as settled" value={<RollMoney quick value={t.deducted} />} sub={`${shortMoney(t.deducted + settled)} less ${shortMoney(settled)} settled`} />
+          : <Fact label="Deductions" value={<RollMoney quick value={t.deducted} />}
             sub={t.forfeited ? `${shortMoney(t.forfeited)} forfeited, none kept` : t.drafted > 0 ? (t.drafted === t.deducted ? "Drafts" : `${shortMoney(t.drafted)} drafted`) : undefined} />}
         {/* The hero is always the last cell. */}
-        {back ? <Fact label="Still held" value={<Money value={t.held} />} />
-          : <Fact label="Returned" value={<Money value={t.returned} />} />}
+        {back ? <Fact label="Still held" value={<RollMoney quick value={t.held} />} />
+          : <Fact label="Returned" value={<RollMoney quick value={t.returned} />} />}
         {back ? <Fact label="Returned" big value={hero(t.returned + t.pending)} sub={t.pending > 0 ? `${shortMoney(t.pending)} pending` : undefined} />
           : <Fact label="Still held" big value={hero(t.held)} />}
       </FactStrip>
       <Card>
         <CardHead title="Payments" meta={`${rows.length}`} right={<Link href={`/ledger?tenancy=${tenancyId}`} className="text-sm text-brand hover:underline">Open in Payments</Link>} />
         {/* Below 1024px, Mercury's transaction list: the type, the date and status under it, the amount on the right. */}
+        {/* A payment that lands while the tab is seen (a refund sent, PayPal's word on one) eases in. */}
         <ul className="lg:hidden">
-          {rows.map((r) => (
+          <PresenceList>{rows.map((r) => (
             <li key={r.id} title={r.detail} className="flex items-center gap-3 border-b border-line-2 px-4 py-3 last:border-b-0">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{r.type}</div>
@@ -50,7 +53,7 @@ export function MoneyTimeline({ tenancyId, rows, typeTip, zone = PACIFIC }: { te
               <Money value={r.amount} sign={r.signed < 0 ? "minus" : r.signed > 0 ? "plus" : undefined}
                 className={`text-sm ${r.signed > 0 ? "text-green" : r.signed === 0 ? "text-ink-3" : ""}`} />
             </li>
-          ))}
+          ))}</PresenceList>
         </ul>
         <div className="max-lg:hidden">
         <Table minWidth={640}>
@@ -67,7 +70,7 @@ export function MoneyTimeline({ tenancyId, rows, typeTip, zone = PACIFIC }: { te
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            <PresenceList>{rows.map((r) => (
               <tr key={r.id} className={trClass}>
                 <Td first className="whitespace-nowrap tabular-nums text-ink-2">{shortDate(r.date)}</Td>
                 <Td className="whitespace-nowrap font-medium" title={r.tag ? `${tagCite(r)}: ${r.tagLabel}` : undefined}>{r.type}</Td>
@@ -83,7 +86,7 @@ export function MoneyTimeline({ tenancyId, rows, typeTip, zone = PACIFIC }: { te
                   <Money value={r.amount} sign={r.signed < 0 ? "minus" : r.signed > 0 ? "plus" : undefined} />
                 </Td>
               </tr>
-            ))}
+            ))}</PresenceList>
           </tbody>
         </Table>
         </div>

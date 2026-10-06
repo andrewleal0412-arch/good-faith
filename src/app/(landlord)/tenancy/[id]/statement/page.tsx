@@ -75,7 +75,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
     <div className="w-full print:max-w-none">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 print:hidden">
         <Link href={`/tenancy/${id}?tab=move-out`} aria-label="Back to the property"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-surface">
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface">
           <Icon name="arrow-left" className="size-[15px]" />
         </Link>
         <div className="min-w-0 flex-[1_1_16rem]">

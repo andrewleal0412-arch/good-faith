@@ -15,6 +15,8 @@ import { GridTip, gridModules, gridTheme } from "@/components/grid";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
+import { useMotionOff } from "@/components/motion";
+import { RollMoney } from "@/components/roll-money";
 import { Money, Notice, inputClass } from "@/components/ui";
 import { checkEdit, editableFields, editRowOf, FIELD_LABEL, inputWords, type Changes, type EditField, type EditLimits, type EditRow } from "@/lib/deduction-edit";
 import { basisWords, evidenceGaps, missingDocs, settle, usd, type StoredDeduction } from "@/lib/deductions";
@@ -169,7 +171,8 @@ function AmountCell(p: CustomCellRendererProps<Row>) {
   if (r.kind === "total") {
     const t = r.total!;
     if (t.amount == null) return <span className="text-ink-3">Not paid</span>;
-    return <Money value={t.amount} sign={t.sign} className={t.strong ? "text-lg font-medium" : ""} />;
+    // The totals count to their new figures when an input changes them (an edit in place, a row added or removed).
+    return <RollMoney value={t.amount} sign={t.sign} className={t.strong ? "text-lg font-medium" : ""} />;
   }
   if (r.kind === "wear") return <Money value={0} className="text-ink-3" />;
   if (r.kind === "room") return <Money value={r.amount ?? 0} className="text-ink-2" />;
@@ -221,6 +224,11 @@ export function DeductionsGrid(p: {
   const router = useRouter();
   const apiRef = useRef<GridApi<Row> | null>(null);
   const [confirm, confirmDialog] = useConfirm();
+  // A recomputed amount flashes and a row added while the grid is seen fades in, unless the viewer asked for less motion.
+  // (AG Grid's own row animation can't run: ensureDomOrder, which keeps the rows in reading order for a screen reader,
+  // turns it off.) `known` is every row the grid has shown at rest, so a row is new only when it wasn't among them.
+  const still = useMotionOff();
+  const known = useRef<Set<string> | null>(null);
   const [edits, setEdits] = useState<Record<string, EditRow>>(() => Object.fromEntries(p.deductions.map((d) => [d.id, editRowOf(d)])));
   const [saving, setSaving] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "red" | "gray"; text: string } | null>(null);
@@ -289,6 +297,11 @@ export function DeductionsGrid(p: {
     }
     return out;
   }, [p.deductions, p.wear, p.numbers, edits]);
+
+  // After the grid has drawn these rows, they are the ones it has shown.
+  useEffect(() => {
+    known.current = new Set(rows.map((r) => r.id));
+  }, [rows]);
 
   const pinned = useMemo<Row[]>(() => p.totals({ total: s.total, refund: s.refund, balanceClaimed: s.balanceClaimed }).map((t) => ({
     id: `total-${t.key}`, kind: "total", room: "", n: null, title: t.label, full: t.label, d: null, edit: null, amount: t.amount, total: t,
@@ -361,7 +374,7 @@ export function DeductionsGrid(p: {
     };
     const amount: ColDef<Row> = {
       colId: "amount", headerName: "Amount", width: layout === "wide" ? 124 : 112, type: "rightAligned", cellRenderer: AmountCell, cellStyle: RIGHT,
-      valueGetter: (v: ValueGetterParams<Row>) => v.data?.amount ?? null, enableCellChangeFlash: true,
+      valueGetter: (v: ValueGetterParams<Row>) => v.data?.amount ?? null, enableCellChangeFlash: !still,
       tooltipValueGetter: (t: ITooltipParams<Row>) => (t.data?.kind === "deduction" ? `${t.data.edit?.math ?? t.data.d?.math}.` : null),
     };
     // Named for a screen reader, not shown.
@@ -395,7 +408,7 @@ export function DeductionsGrid(p: {
       tooltipValueGetter: (t: ITooltipParams<Row>) => (t.data?.kind === "deduction" ? `${t.data.edit?.math ?? t.data.d?.math}.` : null),
     };
     return [item, ...(layout === "wide" ? [basis] : []), ...inputs, amount, menu];
-  }, [layout, p.allowed, p.limits, p.pack, showInvalid]);
+  }, [layout, p.allowed, p.limits, p.pack, showInvalid, still]);
 
   const defaultColDef = useMemo<ColDef<Row>>(() => ({
     sortable: false, resizable: false, suppressHeaderMenuButton: true, tooltipComponent: GridTip, suppressMovable: true, cellStyle: CENTER,
@@ -463,7 +476,10 @@ export function DeductionsGrid(p: {
           context={context}
           getRowId={(r: GetRowIdParams<Row>) => r.data.id}
           getRowHeight={(r: RowHeightParams<Row>) => (r.data?.kind === "room" ? 36 : r.data?.kind === "total" ? (r.data.total?.strong ? 48 : 34) : layout === "narrow" ? 64 : 56)}
-          getRowClass={(r: RowClassParams<Row>) => (r.data?.kind === "total" ? `gf-total${r.data.total?.strong ? " gf-total-strong" : ""}` : r.data?.kind === "room" ? "gf-room" : r.data?.kind === "wear" ? "gf-wear" : undefined)}
+          getRowClass={(r: RowClassParams<Row>) => [
+            r.data?.kind === "total" ? `gf-total${r.data.total?.strong ? " gf-total-strong" : ""}` : r.data?.kind === "room" ? "gf-room" : r.data?.kind === "wear" ? "gf-wear" : "",
+            r.data && r.data.kind !== "total" && !still && known.current && !known.current.has(r.data.id) ? "gf-row-new" : "",
+          ].filter(Boolean).join(" ") || undefined}
           readOnlyEdit
           onCellEditRequest={onEditRequest}
           invalidEditValueMode="block"
@@ -533,7 +549,7 @@ function EditTip({ rowId, field, reason, cite, keep }: { rowId: string; field: E
   }, [rowId, field, reason]);
   return (
     <div ref={tip} id={EDIT_TIP_ID} role="alert" onMouseDown={(e) => e.preventDefault()}
-      className="fixed left-0 top-0 z-40 w-[300px] max-w-[calc(100vw-24px)] rounded-md bg-ink px-3.5 py-3 text-sm text-white shadow-md">
+      className="gf-tip fixed left-0 top-0 z-40 w-[300px] max-w-[calc(100vw-24px)] rounded-md bg-ink px-3.5 py-3 text-sm text-white shadow-md">
       <span className="mb-[3px] block font-medium">Not saved</span>
       <span className="block text-white/90">{reason}</span>
       {cite && <span className="mt-1.5 block text-xs text-white/70">{cite}</span>}

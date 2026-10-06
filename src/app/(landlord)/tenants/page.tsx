@@ -40,7 +40,7 @@ export default async function TenantsPage() {
           <ul className="lg:hidden">
             {rows.map((r) => (
               <li key={`${r.id}-${r.name}`} className="border-b border-line-2 last:border-b-0">
-                <Link href={tabHref(r.id, "tenants")} className="flex items-center gap-3 px-4 py-3 hover:bg-surface">
+                <Link href={tabHref(r.id, "tenants")} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{r.name}</div>
                     <div className="truncate text-xs text-ink-3">{r.street}</div>

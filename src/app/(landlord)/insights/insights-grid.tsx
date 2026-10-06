@@ -41,7 +41,7 @@ function NameCell(p: CustomCellRendererProps<Row>) {
       <div className="flex min-w-0 items-center gap-1.5" style={pad}>
         <button type="button" onClick={(e) => { e.stopPropagation(); ctx.toggle(r.id); }} aria-expanded={open}
           aria-label={`${open ? "Close" : "Open"} ${r.label}`}
-          className="-ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-xs text-ink-3 outline-none hover:bg-surface-3 hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-100">
+          className="-ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-xs text-ink-3 outline-none transition-colors hover:bg-surface-3 hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-100">
           <Icon name={open ? "chev-down" : "chev-right"} className="size-3.5" />
         </button>
         <span className="truncate font-medium">{r.label}</span>

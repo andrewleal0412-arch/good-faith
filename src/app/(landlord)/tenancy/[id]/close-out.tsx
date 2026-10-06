@@ -65,7 +65,7 @@ export function CloseOut(p: {
 
   return (
     <Card>
-      <CardHead title="Refund" right={awaiting ? <StatusChip tone="amber">Waiting for you</StatusChip> : undefined} />
+      <CardHead title="Refund" right={awaiting ? <StatusChip live tone="amber">Waiting for you</StatusChip> : undefined} />
       {/* The words take the line; on a phone the actions drop under them instead of squeezing them a word wide. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-3 px-5 py-4">{body}</div>
       {p.returned && p.tenantView && (

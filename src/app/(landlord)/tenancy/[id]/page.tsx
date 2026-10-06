@@ -6,6 +6,8 @@ import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
+import { PresenceList } from "@/components/motion";
+import { RollMoney } from "@/components/roll-money";
 import { RulesChip } from "@/components/rules-chip";
 import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBox, Table, Td, Th, Thumb, trClass } from "@/components/ui";
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
@@ -314,7 +316,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <ButtonLink href={`/tenancy/${id}/statement`} className="max-sm:hidden"><Icon name="doc" />{statementLabel}</ButtonLink>
       )}
       {primary && <ButtonLink variant="primary" href={primary.href} className="max-sm:flex-1">{primary.label}</ButtonLink>}
-      <Menu label="More actions" items={more} buttonClass="inline-flex size-[34px] items-center justify-center rounded-md bg-surface-2 text-ink hover:bg-surface-3" />
+      <Menu label="More actions" items={more} buttonClass="inline-flex size-[34px] items-center justify-center rounded-md bg-surface-2 text-ink transition-colors hover:bg-surface-3" />
     </div>
   );
   const tenantsLabel = summary.tenants.join(" and ") || "The tenants";
@@ -346,7 +348,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const overview: ReactNode = (
     <>
       <FactStrip cols={4} className="mb-6">
-          <Fact label={returned || closed || reversal ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <Money value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
+          <Fact label={returned || closed || reversal ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <RollMoney value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
             sub={reversedSub ?? (held != null ? (returned ? `${returned.kind === "dispute_refund" ? "Returned through the PayPal dispute" : "Refunded"} ${shortDate(dayOf(returned.created_at))}`
               : via ? `${usd(via.amount)} returned through the PayPal dispute` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested")} />
           <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
@@ -381,7 +383,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <Card>
           <CardHead title="Activity" />
           <div className="px-5 py-1">
-            {activity.slice(0, 8).map((a) => <LogRow key={a.entry.id} a={a} today={today} zone={zone} />)}
+            {/* What the landlord just did eases in at the top. */}
+            <PresenceList>{activity.slice(0, 8).map((a) => <LogRow key={a.entry.id} a={a} today={today} zone={zone} />)}</PresenceList>
             {activity.length > 8 && (
               <details className="group">
                 <summary className="flex cursor-pointer list-none items-center gap-1 border-t border-line-2 py-3 text-sm font-medium text-brand hover:underline group-open:hidden">
@@ -440,10 +443,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       <FactStrip cols={4}>
         <Fact label={reversal ? "Deposit" : "Deposit held"} info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
           sub={reversedSub ?? (held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid")} />
-        <Fact label="Deductions" value={<Money value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
+        <Fact label="Deductions" value={<RollMoney quick value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
           info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />
         <Fact label={returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : via ? "Left to refund" : "Refund due"} big
-          value={<Money value={returned ? Number(returned.amount) : forfeited ? Math.max(0, Math.round(((held ?? 0) - (via?.amount ?? 0)) * 100) / 100)
+          value={<RollMoney value={returned ? Number(returned.amount) : forfeited ? Math.max(0, Math.round(((held ?? 0) - (via?.amount ?? 0)) * 100) / 100)
             : money.balanceClaimed > 0 ? money.balanceClaimed : via ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
           sub={forfeited && returned && (held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) - (summary.settledBack ?? 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) - (summary.settledBack ?? 0)) * 100) / 100)} still owed`
             : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(dayOf(returned.created_at))}` : `By PayPal, ${shortDate(dayOf(returned.created_at))}`)
@@ -582,7 +585,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         {/* On a phone the back button and the menu sit level with the address's first line, not centered on the block. */}
         <Link href="/units" aria-label="Back to Properties"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-surface max-sm:self-start">
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface max-sm:self-start">
           <Icon name="arrow-left" className="size-[15px]" />
         </Link>
         <Thumb src={thumb} size={64} className="rounded-md max-sm:hidden" />
@@ -590,7 +593,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         <div className="min-w-0 flex-[1_1_16rem]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h1 className="text-balance text-xl font-medium">{keepUnit(addr.street)}</h1>
-            <StatusChip tone={status.tone} size="lg">{status.label}</StatusChip>
+            <StatusChip live tone={status.tone} size="lg">{status.label}</StatusChip>
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-ink-3">
             <span>{addr.cityLine}</span>
@@ -744,7 +747,7 @@ async function Documents(p: {
     {
       name: "Itemized statement", sub: p.delivery ? deliveryLine(p.delivery) : p.inspected ? "With photos and invoices" : "After the move-out comparison",
       subTitle: p.delivery ? describeDelivery(p.delivery).replace(/^./, (c) => c.toUpperCase()) : undefined,
-      status: p.delivery ? <StatusChip tone="green">Delivered</StatusChip> : p.inspected ? <StatusChip tone="amber">Draft</StatusChip> : <StatusChip tone="gray">Not started</StatusChip>,
+      status: p.delivery ? <StatusChip live tone="green">Delivered</StatusChip> : p.inspected ? <StatusChip live tone="amber">Draft</StatusChip> : <StatusChip live tone="gray">Not started</StatusChip>,
       open: p.inspected ? (
         <span className="inline-flex gap-3">
           <Link href={`/tenancy/${p.id}/statement`} className="font-medium text-brand hover:underline">Open</Link>

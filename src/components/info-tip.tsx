@@ -65,12 +65,12 @@ export function InfoTip({ title, children, cite, label = "More information", tri
       <button ref={button} type="button" aria-label={trigger === "icon" ? label : undefined} aria-expanded={open} aria-describedby={open ? id : undefined}
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPinned((v) => !v); }}
         onFocus={() => setHover(true)} onBlur={() => setHover(false)}
-        className={`inline-flex items-center rounded-xs outline-none focus-visible:ring-2 focus-visible:ring-brand-100 ${trigger === "icon" ? "text-ink-4 hover:text-ink-2" : ""}`}>
+        className={`inline-flex items-center rounded-xs outline-none transition-[color,box-shadow] focus-visible:ring-2 focus-visible:ring-brand-100 ${trigger === "icon" ? "text-ink-4 hover:text-ink-2" : ""}`}>
         {face}
       </button>
       {open && (
         <span ref={tip} id={id} role="tooltip"
-          className="fixed left-0 top-0 z-40 block w-[300px] max-w-[calc(100vw-24px)] whitespace-normal rounded-md bg-ink px-3.5 py-3 text-left text-sm font-normal normal-case tracking-normal text-white shadow-md">
+          className="gf-tip fixed left-0 top-0 z-40 block w-[300px] max-w-[calc(100vw-24px)] whitespace-normal rounded-md bg-ink px-3.5 py-3 text-left text-sm font-normal normal-case tracking-normal text-white shadow-md">
           {title && <span className="mb-[3px] block font-medium text-white">{title}</span>}
           {children && <span className="block text-white/90">{children}</span>}
           {cite && <span className="mt-1.5 block text-xs text-white/70">{cite}</span>}

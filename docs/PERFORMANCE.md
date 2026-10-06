@@ -169,6 +169,36 @@ A property's page now carries all five tabs (its HTML is 1.5 to 3.4 times larger
 | The move-out unit | 190 ms | 21 | 70 ms | 0 |
 | The closed unit | 180 ms | 20 | 70 ms | 0 |
 
+## Motion (2026-10-06)
+
+Round 9 added calm motion across the app (`docs/DESIGN.md`, Motion) with one rule from this page: no animation may delay content or a click. Measured as above (local production builds of `1b0acda` and of the round, the same throwaway demo copy, Chrome at 4x CPU, the click's own timestamp), with one more figure: when the page is *settled*, no animation left running in `main`.
+
+- **Every click still answers in the next frame**, and a property's tabs still switch in 13 to 27 ms (Move-out 65 to 71 ms), with no request to the server.
+- **Content is shown as soon as before**: a page's parts arrive from 40% opacity, 4 px low, so the first frame after a skeleton is never blank, and are at rest 150 ms later (a page's first three parts 20 ms apart, 60 ms at most). Nothing is added to the layout (the shift figures are the same).
+- **Settled** comes 150 to 230 ms after the content. The two AG Grid views read longer: Payments about 350 ms after its content, and an inspected unit's Move-out about 400 ms, which there is AG Grid fading its hidden horizontal scrollbar, something nobody sees (the tab's own arrival ends at about 200 ms).
+
+| 1440 px, median | Feedback before | after | Content before | after | Settled after |
+|---|---:|---:|---:|---:|---:|
+| Sidebar: Properties | 15 ms | 16 ms | 186 ms | 182 ms | 400 ms |
+| Sidebar: Tenants | 11 ms | 14 ms | 153 ms | 128 ms | 304 ms |
+| Sidebar: Payments | 13 ms | 16 ms | 216 ms | 246 ms | 596 ms |
+| Sidebar: Insights | 20 ms | 24 ms | 340 ms | 354 ms | 580 ms |
+| Sidebar: Documents | 15 ms | 16 ms | 138 ms | 150 ms | 326 ms |
+| Sidebar: Lease check | 10 ms | 11 ms | 27 ms | 29 ms | 190 ms |
+| Sidebar: Move-outs | 10 ms | 12 ms | 133 ms | 116 ms | 309 ms |
+| Tab: Overview | | | 15 ms | 17 ms | 173 ms |
+| Tab: Move-out | | | 67 ms | 65 ms | 473 ms |
+| Tab: Payments | | | 26 ms | 27 ms | 182 ms |
+| Tab: Documents, Tenants | | | 13 ms | 14 ms | 164 to 172 ms |
+| A Properties row to its property | 26 ms | 22 ms | 252 ms | 230 ms | 410 ms |
+| Back to Properties (the arrow) | 18 ms | 20 ms | 177 ms | 182 ms | 401 ms |
+| A property to its statement | 19 ms | 21 ms | 970 ms | 956 ms | 1,122 ms |
+| Move-out to Review refund | 15 ms | 19 ms | 919 ms | 878 ms | 1,111 ms |
+
+Sidebar figures are six rounds per build, tabs nine clicks each (three units, three rounds), the common clicks six each. At 390 px the pattern is the same: feedback 14 to 21 ms (10 to 16 before; the click there also closes the navigation drawer, which now eases out), tabs 13 to 24 ms and Move-out 71 ms (79 before), and sidebar content within the run-to-run spread of the server's answer (Insights 479 ms against 401, its range 377 to 581 against 269 to 543). The sidebar's content figures move by tens of milliseconds between runs of the same build, since they wait on Supabase.
+
+**JavaScript:** no motion library was added (CSS, and the Web Animations API in `src/components/motion.tsx`). Every page loads 2 to 4 kB less gzipped JavaScript than before (Properties 159.1 to 155.0 kB, Payments 518.8 to 514.8 kB; the build split the shared code differently), except the refund review, which gains 10.5 kB (157.6 to 168.1 kB) for the step timeline and the success moment it now carries.
+
 ## On Render: the free plan and Starter
 
 Render's free plan gives the service a tenth of a CPU, Starter ($7 a month) half of one. The server's share of a page scales with that; the network share doesn't. Calibrated on the hosted demo before (its warm first bytes, 0.5 to 1.4 s, match about ten times the local CPU plus the database waits, within about 20 percent), the estimates:

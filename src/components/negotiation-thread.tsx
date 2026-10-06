@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { CHECKED_NOTE } from "@/lib/jev-notes";
 import type { TurnLineView, TurnView } from "@/lib/negotiation";
 import { Icon } from "./icons";
 import { InfoTip } from "./info-tip";
+import { PresenceList, WorkingDots } from "./motion";
 import { Money, StatusChip } from "./ui";
 
 // The negotiation as both sides see it: every turn, who made it (an agent or a person), the move, what it gives back,
@@ -26,30 +27,55 @@ export function whoMade(t: Pick<TurnView, "side" | "actor" | "by">, p: Perspecti
   return t.actor === "agent" ? `${/s$/i.test(names.landlord) ? `${names.landlord}'` : `${names.landlord}'s`} negotiator` : names.landlord;
 }
 
-export function NegotiationThread({ turns, perspective, names }: { turns: TurnView[]; perspective: Perspective; names: { landlord: string; tenants: string } }) {
+/** The turns, oldest first. A turn that lands while the page is open eases in, like a message, and the app's check
+ *  mark on it settles in just after (gf-settle). `working` is the side whose agent is writing its turn right now: its
+ *  typing row shows only while the run is going, and is gone the moment the turn lands (data-leave), the turn opening
+ *  where it was. */
+export function NegotiationThread({ turns, perspective, names, working }: {
+  turns: TurnView[]; perspective: Perspective; names: { landlord: string; tenants: string }; working?: "landlord" | "tenant" | null;
+}) {
+  const writer = working ? whoMade({ side: working, actor: "agent", by: null }, perspective, names) : null;
   return (
     <ol>
-      {turns.map((t) => <TurnRow key={t.n} t={t} p={perspective} names={names} />)}
+      <PresenceList>
+        {turns.map((t) => <TurnRow key={t.n} t={t} p={perspective} names={names} />)}
+        {working && writer && (
+          <li key="working" data-leave="at-once" className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-x-3 border-t border-line-2 py-3.5 first:border-t-0">
+            <Avatar side={working} agent />
+            <div role="status" className="flex min-h-6 items-center gap-2.5">
+              <span className="font-medium">{writer}</span>
+              <WorkingDots className="text-ink-4" />
+              <span className="sr-only">is writing its turn. Each turn appears here as it is made.</span>
+            </div>
+          </li>
+        )}
+      </PresenceList>
     </ol>
   );
 }
 
-function TurnRow({ t, p, names }: { t: TurnView; p: Perspective; names: { landlord: string; tenants: string } }) {
+function Avatar({ side, agent }: { side: "landlord" | "tenant"; agent: boolean }) {
+  return (
+    <span aria-hidden className={`mt-px flex size-6 items-center justify-center rounded-full text-xs font-semibold ${side === "landlord" ? "bg-surface-2 text-ink-2" : "bg-brand-50 text-brand-700"}`}>
+      {agent ? <span className="text-[10px] tracking-tight">AI</span> : <Icon name="users" className="size-3" />}
+    </span>
+  );
+}
+
+function TurnRow({ t, p, names, ref }: { t: TurnView; p: Perspective; names: { landlord: string; tenants: string }; ref?: Ref<HTMLLIElement> }) {
   const who = whoMade(t, p, names);
   const agrees = t.move === "concede" || t.move === "accept";
   const verb = t.side === "tenant" ? (t.move === "accept" ? "Accepts" : "Asks") : (t.move === "concede" ? "Gives" : "Offers");
   const moved = t.lines.filter((l) => l.move && l.move !== "agreed");
   return (
-    <li className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-x-3 border-t border-line-2 py-3.5 first:border-t-0">
-      <span aria-hidden className={`mt-px flex size-6 items-center justify-center rounded-full text-xs font-semibold ${t.side === "landlord" ? "bg-surface-2 text-ink-2" : "bg-brand-50 text-brand-700"}`}>
-        {t.actor === "agent" ? <span className="text-[10px] tracking-tight">AI</span> : <Icon name="users" className="size-3" />}
-      </span>
+    <li ref={ref} className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-x-3 border-t border-line-2 py-3.5 first:border-t-0">
+      <Avatar side={t.side} agent={t.actor === "agent"} />
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium">{who}</span>
-          <StatusChip tone={agrees ? "green" : "gray"} dot={false} size="sm">{MOVE[t.move] ?? t.move}</StatusChip>
+          <StatusChip tone={agrees ? "green" : "gray"} dot={false} size="sm" className="gf-settle">{MOVE[t.move] ?? t.move}</StatusChip>
           {(t.adjustments.length > 0 || t.reasonsChecked) && (
-            <InfoTip title="Checked by the app">
+            <InfoTip title="Checked by the app" className="gf-settle">
               The app held this turn to each charge&apos;s lawful range and to the negotiation&apos;s rules{t.adjustments.length ? `: ${t.adjustments.join(" ")}` : "."}
               {t.reasonsChecked ? ` ${CHECKED_NOTE}` : ""}
             </InfoTip>

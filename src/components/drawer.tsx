@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Icon } from "./icons";
+import { usePresence } from "./motion";
 
 // A side drawer for a form that belongs to one thing on the page (a deduction for a finding, a finding for a room):
 // 480px from the right on a computer, the full screen on a phone. It is a modal: focus moves in and stays in, Escape
@@ -56,23 +57,28 @@ export function Drawer({ open, onClose, title, sub, children }: {
   const body = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useModal(open, panel, onClose, body);
-
-  if (!open) return null;
+  // It slides in from the right over a fading backdrop and leaves the same way (a sheet rising on a phone); while it
+  // leaves it shows what it last held, and takes no clicks or focus.
+  const { mounted, state } = usePresence(open);
+  const [kept, setKept] = useState<{ title: ReactNode; sub: ReactNode; children: ReactNode }>({ title, sub, children });
+  if (open && (kept.title !== title || kept.sub !== sub || kept.children !== children)) setKept({ title, sub, children });
+  if (!mounted) return null;
+  const shown = open ? { title, sub, children } : kept;
   return (
-    <div className="fixed inset-0 z-50 print:hidden" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <button type="button" aria-hidden tabIndex={-1} className="absolute inset-0 cursor-default bg-ink/30" onClick={onClose} />
-      <div ref={panel} className="absolute inset-y-0 right-0 flex w-full flex-col bg-canvas shadow-md sm:w-[480px] sm:border-l sm:border-line">
+    <div className="fixed inset-0 z-50 print:hidden" role="dialog" aria-modal={open ? "true" : undefined} aria-labelledby={titleId} inert={!open}>
+      <button type="button" aria-hidden tabIndex={-1} data-state={state} className="gf-scrim absolute inset-0 cursor-default bg-ink/30" onClick={onClose} />
+      <div ref={panel} data-state={state} className="gf-drawer absolute inset-y-0 right-0 flex w-full flex-col bg-canvas shadow-md sm:w-[480px] sm:border-l sm:border-line">
         <div className="flex items-start gap-3 border-b border-line-2 px-5 py-4">
           <div className="min-w-0 flex-1">
-            <h2 id={titleId} className="text-lg font-medium">{title}</h2>
-            {sub && <p className="mt-0.5 truncate text-sm text-ink-3">{sub}</p>}
+            <h2 id={titleId} className="text-lg font-medium">{shown.title}</h2>
+            {shown.sub && <p className="mt-0.5 truncate text-sm text-ink-3">{shown.sub}</p>}
           </div>
           <button type="button" aria-label="Close" onClick={onClose}
-            className="-mr-1.5 -mt-0.5 inline-flex size-[34px] shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-surface">
+            className="-mr-1.5 -mt-0.5 inline-flex size-[34px] shrink-0 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface">
             <Icon name="x" />
           </button>
         </div>
-        <div ref={body} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
+        <div ref={body} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{shown.children}</div>
       </div>
     </div>
   );

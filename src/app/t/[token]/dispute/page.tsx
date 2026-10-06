@@ -35,7 +35,7 @@ export default async function DisputePage({ params }: PageProps<"/t/[token]/disp
     <div className="min-h-screen bg-canvas">
       <header className="border-b border-line">
         <div className="mx-auto flex h-[52px] w-full max-w-[600px] items-center gap-3 px-4 sm:px-5">
-          <Link href={`/t/${token}`} aria-label="Back to your deposit" className="-ml-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-surface">
+          <Link href={`/t/${token}`} aria-label="Back to your deposit" className="-ml-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-surface">
             <Icon name="arrow-left" className="size-[15px]" />
           </Link>
           <span className="min-w-0 truncate text-base font-medium">{landlord}</span>
@@ -43,7 +43,7 @@ export default async function DisputePage({ params }: PageProps<"/t/[token]/disp
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[600px] px-4 pb-12 pt-6 sm:px-5 sm:pt-10">
+      <main className="gf-page mx-auto w-full max-w-[600px] px-4 pb-12 pt-6 sm:px-5 sm:pt-10">
         <h1 className="text-xl font-medium">{sent ? "Your dispute" : "Dispute a deduction"}</h1>
         <p className="mt-0.5 text-sm text-ink-3">{keepUnit(streetLine(v.address))}</p>
 

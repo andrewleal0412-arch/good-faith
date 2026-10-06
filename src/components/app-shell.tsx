@@ -2,10 +2,11 @@
 
 import Link from "@/components/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, use, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { Suspense, use, useEffect, useRef, useState, type MouseEvent, type ReactNode, type Ref } from "react";
 import { ConfirmDialog } from "./confirm";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { Menu } from "./menu";
+import { PresenceList, usePresence } from "./motion";
 import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
 import { Avatar, Notice, Wordmark } from "./ui";
 
@@ -47,6 +48,7 @@ const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) =>
 export function AppShell({ sandbox, signOut, startOver, account, chrome, children }: ShellProps) {
   const path = usePathname();
   const [drawer, setDrawer] = useState(false);
+  const nav = usePresence(drawer);
   const opener = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
   // The page a click is opening, shown as that page's skeleton in the same frame as the click, until the address
@@ -115,12 +117,13 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
         <Sidebar {...side} />
       </aside>
 
-      {drawer && (
-        <div className="fixed inset-0 z-50 md:hidden print:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <button type="button" aria-hidden tabIndex={-1} className="absolute inset-0 bg-ink/30" onClick={() => setDrawer(false)} />
-          <aside ref={panel} className="absolute inset-y-0 left-0 flex w-[264px] flex-col border-r border-line bg-canvas px-3 pb-3 pt-4 shadow-md">
+      {/* The phone's navigation slides in from the left over a fading backdrop, and back out. */}
+      {nav.mounted && (
+        <div className="fixed inset-0 z-50 md:hidden print:hidden" role="dialog" aria-modal={drawer ? "true" : undefined} aria-label="Navigation" inert={!drawer}>
+          <button type="button" aria-hidden tabIndex={-1} data-state={nav.state} className="gf-scrim absolute inset-0 bg-ink/30" onClick={() => setDrawer(false)} />
+          <aside ref={panel} data-state={nav.state} className="gf-nav absolute inset-y-0 left-0 flex w-[264px] flex-col border-r border-line bg-canvas px-3 pb-3 pt-4 shadow-md">
             <button type="button" aria-label="Close navigation" onClick={() => setDrawer(false)}
-              className="absolute right-2.5 top-3.5 inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface">
+              className="absolute right-2.5 top-3.5 inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface">
               <Icon name="x" />
             </button>
             <Sidebar {...side} onNavigate={() => setDrawer(false)} />
@@ -131,7 +134,7 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
       <div className="flex min-w-0 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-line bg-canvas px-4 md:gap-3 md:px-7 print:hidden">
           <button ref={opener} type="button" aria-label="Open navigation" aria-expanded={drawer} onClick={() => setDrawer(true)}
-            className="-ml-1.5 inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface md:hidden">
+            className="-ml-1.5 inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface md:hidden">
             <Icon name="menu" />
           </button>
           <Link href="/units" className="md:hidden"><Wordmark /></Link>
@@ -140,13 +143,13 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
           </Suspense>
           <div className="ml-auto flex items-center gap-1.5">
             <button type="button" aria-label="Search" onClick={() => window.dispatchEvent(new Event("gf:search"))}
-              className="inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface md:hidden">
+              className="inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface md:hidden">
               <Icon name="search" />
             </button>
             <span className="mr-2 hidden items-center gap-2 text-sm text-ink-2 lg:inline-flex" title={sandbox ? "PayPal sandbox: no real money moves" : "Live PayPal"}>
               Test mode
               <span aria-hidden className={`relative h-4 w-7 rounded-full ${sandbox ? "bg-brand" : "bg-line"}`}>
-                <span className={`absolute top-0.5 size-3 rounded-full bg-white shadow-sm ${sandbox ? "left-3.5" : "left-0.5"}`} />
+                <span className={`absolute top-0.5 size-3 rounded-full bg-white shadow-sm transition-[left] duration-(--dur-base) ${sandbox ? "left-3.5" : "left-0.5"}`} />
               </span>
               <span className="sr-only">{sandbox ? "on" : "off"}</span>
             </span>
@@ -164,8 +167,9 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
         </header>
         <main className="w-full max-w-content px-4 pb-12 pt-5 md:px-7 md:pt-7 print:max-w-none print:p-0">
           {/* The page stays mounted while the next one is opened, under its skeleton; a filter being applied dims it,
-              after a moment, so a quick answer doesn't flicker. */}
-          <div aria-busy={live?.same || undefined} className={opening ? "hidden" : live?.same ? "block opacity-60 transition-opacity delay-150 duration-150" : "contents"}>{children}</div>
+              after a moment, so a quick answer doesn't flicker. A page arriving rises into place (gf-page, globals.css):
+              its parts are new, or were hidden under the skeleton, so their arrival plays; a re-render plays nothing. */}
+          <div aria-busy={live?.same || undefined} className={`gf-page ${opening ? "hidden" : live?.same ? "block opacity-60 transition-opacity delay-150 duration-(--dur-base)" : "contents"}`}>{children}</div>
           {opening}
         </main>
       </div>
@@ -176,7 +180,7 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
   );
 }
 
-const iconButton = "inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 hover:bg-surface";
+const iconButton = "inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface";
 
 /** The bell: what needs the landlord, then what PayPal reported. */
 function Bell({ chrome }: { chrome: Promise<ShellChrome> }) {
@@ -185,12 +189,13 @@ function Bell({ chrome }: { chrome: Promise<ShellChrome> }) {
     <Menu label="Notifications" width={320} buttonClass={`relative ${iconButton}`}
       trigger={<><Icon name="bell" />{data.alerts.length + data.paypal.length > 0 && <span className="absolute right-[9px] top-2 size-1.5 rounded-full bg-brand ring-2 ring-white" />}</>}>
       <div className="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-3">Needs you</div>
-      {data.alerts.length ? data.alerts.map((a, i) => <AlertRow key={i} a={a} />)
+      {/* A line that arrives or goes while the bell is open eases in or out. */}
+      {data.alerts.length ? <PresenceList>{lineKeys(data.alerts).map((k, i) => <AlertRow key={k} a={data.alerts[i]} />)}</PresenceList>
         : <p className="px-2.5 pb-2.5 text-sm text-ink-3">Nothing needs you right now.</p>}
       {data.paypal.length > 0 && (
         <>
           <div className="mt-1 flex items-center gap-1.5 border-t border-line-2 px-2.5 pb-1 pt-2.5 text-xs font-medium text-ink-3"><PayPalMark size={12} />From PayPal</div>
-          {data.paypal.map((a, i) => <AlertRow key={i} a={a} />)}
+          <PresenceList>{lineKeys(data.paypal).map((k, i) => <AlertRow key={k} a={data.paypal[i]} />)}</PresenceList>
         </>
       )}
     </Menu>
@@ -226,10 +231,22 @@ function ChromeAccountName({ chrome }: { chrome: Promise<ShellChrome> }) {
 
 /** The question behind the account menu's Start over: a fresh copy of the demo for this browser. It lives outside the
  *  menu, which closes when an item is chosen, and opens on the gf:start-over event. */
+/** A key for each of the bell's lines that stays with the line while the list changes: what it says, and a count for a
+ *  line that says the same as one before it (two reports of the same kind on one property). */
+function lineKeys(xs: ShellAlert[]): string[] {
+  const seen = new Map<string, number>();
+  return xs.map((a) => {
+    const k = `${a.href}|${a.title}|${a.sub}`;
+    const n = seen.get(k) ?? 0;
+    seen.set(k, n + 1);
+    return n ? `${k}|${n}` : k;
+  });
+}
+
 /** One line in the bell: a status dot, the title, the property under it. */
-function AlertRow({ a }: { a: ShellAlert }) {
+function AlertRow({ a, ref }: { a: ShellAlert; ref?: Ref<HTMLAnchorElement> }) {
   return (
-    <Link href={a.href} className="flex items-start gap-2.5 rounded-sm px-2.5 py-2 hover:bg-surface">
+    <Link ref={ref} href={a.href} className="flex items-start gap-2.5 rounded-sm px-2.5 py-2 transition-colors hover:bg-surface">
       <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${a.tone === "red" ? "bg-red-dot" : a.tone === "green" ? "bg-green-dot" : "bg-amber-dot"}`} />
       <span className="min-w-0">
         <span className="block text-sm font-medium text-ink">{a.title}</span>
@@ -289,7 +306,7 @@ function Sidebar({ onNavigate, ...p }: SideProps & { onNavigate?: () => void }) 
           <div key={i} className="px-2.5 pb-1.5 pt-4 text-xs font-medium text-ink-3">{n.group}</div>
         ) : (
           <Link key={n.href} href={n.href} onClick={onNavigate} aria-current={n.match(p.path) ? "page" : undefined}
-            className={`flex h-9 items-center gap-2.5 rounded-md px-2.5 text-base ${n.match(p.path)
+            className={`flex h-9 items-center gap-2.5 rounded-md px-2.5 text-base transition-colors ${n.match(p.path)
               ? "bg-brand-50 font-medium text-brand-700 [&_svg]:text-brand" : "text-ink-2 hover:bg-surface hover:text-ink [&_svg]:text-ink-3"}`}>
             <Icon name={n.icon} />
             {n.label}
@@ -302,7 +319,7 @@ function Sidebar({ onNavigate, ...p }: SideProps & { onNavigate?: () => void }) 
           PayPal connected
         </div>
         <Menu label="Account" side="top" align="start" width={232}
-          buttonClass="flex h-10 w-full items-center gap-2.5 rounded-md px-2 text-left hover:bg-surface"
+          buttonClass="flex h-10 w-full items-center gap-2.5 rounded-md px-2 text-left transition-colors hover:bg-surface"
           trigger={<>
             <AccountAvatar account={p.account} chrome={p.chrome} />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -337,12 +354,12 @@ function AccountCard(p: SideProps & { close: () => void }) {
         <form method="post" action="/api/access/sign-out" className="mt-1.5 border-t border-line-2 pt-1.5">
           {p.startOver && (
             <button type="button" role="menuitem" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:start-over")); }}
-              className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 hover:bg-surface hover:text-ink">
+              className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
               <Icon name="restart" className="size-[15px] text-ink-3" />Start over
             </button>
           )}
           <button type="submit" role="menuitem"
-            className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 hover:bg-surface hover:text-ink">
+            className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
             <Icon name="sign-out" className="size-[15px] text-ink-3" />Sign out
           </button>
         </form>
@@ -394,8 +411,8 @@ function Search({ onSearch }: { onSearch: (to: string) => void }) {
 
   return (
     <form role="search" onSubmit={submit} key={current}
-        className={`${mobile ? "absolute inset-x-0 top-0 z-10 flex h-14 bg-canvas px-4" : "hidden"} items-center md:static md:flex md:h-auto md:px-0`}>
-        <label className="flex h-9 w-full items-center gap-2 rounded-md border border-line bg-surface pl-3 pr-2.5 text-ink-4 focus-within:border-brand focus-within:bg-canvas focus-within:ring-3 focus-within:ring-brand-50 md:w-[400px]">
+        className={`${mobile ? "gf-fade-in absolute inset-x-0 top-0 z-10 flex h-14 bg-canvas px-4 md:animate-none" : "hidden"} items-center md:static md:flex md:h-auto md:px-0`}>
+        <label className="flex h-9 w-full items-center gap-2 rounded-md border border-line bg-surface pl-3 pr-2.5 text-ink-4 transition-[border-color,background-color,box-shadow] focus-within:border-brand focus-within:bg-canvas focus-within:ring-3 focus-within:ring-brand-50 md:w-[400px]">
           <Icon name="search" className="size-[15px]" />
           <input ref={field} name="q" defaultValue={current} placeholder={onLedger ? "Search payments" : "Search properties, tenants"}
             aria-label={onLedger ? "Search payments" : "Search properties and tenants"}

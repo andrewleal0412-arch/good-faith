@@ -5,6 +5,7 @@ import { Button } from "@/components/button";
 import { drawerFooter } from "@/components/drawer";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
+import { ChipFace, DUR, usePresence } from "@/components/motion";
 import { Notice, inputClass, textareaClass } from "@/components/ui";
 import { kindsFor, type Classification } from "@/lib/findings";
 import type { FindingRead } from "@/lib/jev";
@@ -75,6 +76,15 @@ export function FindingForm({ tenancyId, state, room, like, reads = false, onDon
   // A read only for the words as they are now.
   const shown = reads && enough(it, ob) && read?.key === key ? read.read : null;
   const kind: Classification | null = picked ?? shown?.preselect ?? (reads ? null : "damage");
+  // On screen, the chip keeps the last read while the next one is on its way, dimmed and counting for nothing, so a
+  // new read changes it in place instead of it vanishing and coming back; it slides in under Type the first time and
+  // fades when the words no longer make a read. Only `shown` ever picks a Type.
+  const latest = reads && enough(it, ob) ? read?.read ?? null : null;
+  const stale = !shown && !!latest;
+  const { mounted: chipOn, state: chipState } = usePresence(!!latest, DUR.fast);
+  const [kept, setKept] = useState<Read | null>(latest);
+  if (latest && latest !== kept) setKept(latest);
+  const view = latest ?? kept;
 
   async function save() {
     if (!kind) return setError("Pick the type: damage, cleaning or wear and tear.");
@@ -89,17 +99,19 @@ export function FindingForm({ tenancyId, state, room, like, reads = false, onDon
     onDone();
   }
 
-  const label = shown ? KIND[shown.kind].label.toLowerCase() : "";
+  const label = view ? KIND[view.kind].label.toLowerCase() : "";
   // The citation's parts never break inside ("1950.5(b)" then "(2)" on the next line).
-  const cite = shown?.cite.split(/,\s+/).map((part, i, all) => (
+  const cite = view?.cite.split(/,\s+/).map((part, i, all) => (
     <span key={i} className="whitespace-nowrap">{part}{i < all.length - 1 ? ", " : ""}</span>
   ));
   // "Pick the type" only while nothing is picked.
   const ask = picked ? "" : "Pick the type. ";
-  const chip = !shown ? null
-    : shown.preselect ? <>Reads as {label}, {pct(shown.p)}, under {cite}</>
-      : shown.kind === "unclear" ? `${ask}The words don't say enough to tell`
-        : `${ask}Closest read: ${label}, ${pct(shown.p)}`;
+  const chip = !view ? null
+    : view.preselect ? <>Reads as {label}, {pct(view.p)}, under {cite}</>
+      : view.kind === "unclear" ? `${ask}The words don't say enough to tell`
+        : `${ask}Closest read: ${label}, ${pct(view.p)}`;
+  // What the chip says, to tell a new read from the same one.
+  const chipKey = view ? `${view.kind}:${pct(view.p)}:${view.preselect ? 1 : 0}:${ask}` : "";
 
   return (
     <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (item.trim() && !busy) save(); }}>
@@ -110,25 +122,33 @@ export function FindingForm({ tenancyId, state, room, like, reads = false, onDon
         <div className="inline-flex flex-wrap gap-0.5 rounded-md bg-surface-2 p-[3px]">
           {KINDS.map((k) => (
             <button key={k} type="button" aria-pressed={kind === k} onClick={() => { setPicked(k); setError(""); }}
-              className={`h-7 rounded-sm px-2.5 text-sm ${kind === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
+              className={`h-7 rounded-sm px-2.5 text-sm transition-[color,background-color,box-shadow] ${kind === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
               {KIND[k].label}
             </button>
           ))}
         </div>
         {reads && (
           <div aria-live="polite" className="mt-2 flex min-h-5 items-start gap-1.5">
-            {chip && (
-              <>
+            {chipOn && chip && view && (
+              <div data-state={chipState} aria-busy={stale || undefined} className={`gf-pop flex min-w-0 items-start gap-1.5 transition-opacity duration-(--dur-base) ${stale ? "opacity-50" : ""}`}>
                 <div className="flex min-w-0 flex-wrap gap-1">
-                  <span data-testid="finding-read" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">{chip}</span>
-                  {shown?.there && shown.existedAtMoveIn != null && (
-                    <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">Reads as there at move-in, {pct(shown.existedAtMoveIn)}</span>
+                  <span data-testid="finding-read" className="inline-flex items-center gap-1.5 rounded-sm bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">
+                    {/* How likely the read is, as a bar that fills to it and moves when a new read comes. */}
+                    {view.kind !== "unclear" && (
+                      <span aria-hidden className="relative h-1 w-5 shrink-0 overflow-hidden rounded-full bg-surface-3">
+                        <span className="gf-fill absolute inset-y-0 left-0 rounded-full bg-brand transition-[width] duration-(--dur-slow)" style={{ width: pct(view.p) }} />
+                      </span>
+                    )}
+                    <ChipFace k={chipKey}><span>{chip}</span></ChipFace>
+                  </span>
+                  {view.there && view.existedAtMoveIn != null && (
+                    <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">Reads as there at move-in, {pct(view.existedAtMoveIn)}</span>
                   )}
                 </div>
                 <InfoTip title="A quick read of your words" label="About this read" className="mt-0.5 shrink-0">
                   As you type, a fast model (TypeSafe&apos;s Jev) reads what you wrote against {pack.name}&apos;s rules and gives the closest type with how likely it is. It picks the Type only when it is sure, and your pick always stands. Only these words and the state&apos;s rules are sent, with names and addresses taken out.
                 </InfoTip>
-              </>
+              </div>
             )}
           </div>
         )}

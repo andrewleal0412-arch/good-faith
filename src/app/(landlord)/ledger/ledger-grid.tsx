@@ -17,6 +17,7 @@ import { Icon, PayPalMark } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
 import { Tabs } from "@/components/tabs";
+import { RollMoney } from "@/components/roll-money";
 import { KV, Money, StatusChip, inlineInputClass } from "@/components/ui";
 import { ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
 import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
@@ -462,7 +463,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
   const virtual = shown > 24;
 
   const chip = "inline-flex h-[30px] items-center gap-1.5 rounded-sm border px-2.5 text-sm [&_svg]:size-[13px]";
-  const off = `${chip} border-line bg-canvas text-ink-2 hover:bg-surface [&_svg]:text-ink-4`;
+  const off = `${chip} border-line bg-canvas text-ink-2 transition-colors hover:bg-surface [&_svg]:text-ink-4`;
   const onC = `${chip} border-brand-100 bg-brand-50 text-brand-700 [&_svg]:text-brand`;
   const unit = units.find((u) => u.id === property);
   const streets = new Map<string, number>();
@@ -474,7 +475,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
       <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
         <h1 className="text-xl font-medium">Payments</h1>
         <div className="ml-auto flex items-center gap-2">
-          <Menu label="Columns" align="end" width={220} buttonClass="inline-flex h-[34px] items-center gap-[7px] rounded-md bg-surface-2 px-3.5 text-sm font-medium text-ink hover:bg-surface-3 max-sm:hidden"
+          <Menu label="Columns" align="end" width={220} buttonClass="inline-flex h-[34px] items-center gap-[7px] rounded-md bg-surface-2 px-3.5 text-sm font-medium text-ink transition-colors hover:bg-surface-3 max-sm:hidden"
             trigger={<><Icon name="columns" className="size-[15px]" />Columns</>}
             items={[
               { heading: `${V.label}: columns` },
@@ -681,7 +682,7 @@ function Tile({ label, value, sub }: { label: React.ReactNode; value: number; su
   return (
     <div className="rounded-lg border border-line bg-canvas px-5 py-4">
       <div className="flex items-center gap-1.5 text-sm text-ink-3">{label}</div>
-      <Money value={value} cents="small" phoneCents="raised" className="mt-1 block text-xl font-medium" />
+      <RollMoney quick value={value} cents="small" phoneCents="raised" className="mt-1 block text-xl font-medium" />
       <div className="mt-0.5 truncate text-xs text-ink-3">{sub}</div>
     </div>
   );

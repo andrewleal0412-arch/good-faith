@@ -87,7 +87,9 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
     // The connection dropped mid-run: the run goes on on the server, and the polling shows it.
     if (!r) return;
     const j = await r.json().catch(() => ({}));
-    if (!r.ok && !j.running) { setError(j.error ?? "The agents couldn't negotiate. Try again."); setPolling(false); }
+    // The run is over (it answered), so nothing is left to wait for: the typing row goes with this refresh.
+    if (r.ok) setPolling(false);
+    else if (!j.running) { setError(j.error ?? "The agents couldn't negotiate. Try again."); setPolling(false); }
     router.refresh();
   }
 
@@ -141,12 +143,15 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
     router.refresh();
   }
 
-  const chip = settled ? <StatusChip tone="green">Settled</StatusChip>
-    : v.status === "withdrawn" ? <StatusChip tone="gray">Withdrawn</StatusChip>
-    : v.status === "agreed" ? <StatusChip tone="amber">{s?.tenantAcceptedAt ? "Waiting for you" : "Agreed"}</StatusChip>
-      : v.status === "no_agreement" ? <StatusChip tone="red">No agreement</StatusChip>
-        : v.running || polling ? <StatusChip tone="amber">Negotiating</StatusChip>
-          : v.turns.length > 1 ? <StatusChip tone="amber">Negotiating</StatusChip> : <StatusChip tone="amber">Waiting on you</StatusChip>;
+  const chip = settled ? <StatusChip live tone="green">Settled</StatusChip>
+    : v.status === "withdrawn" ? <StatusChip live tone="gray">Withdrawn</StatusChip>
+    : v.status === "agreed" ? <StatusChip live tone="amber">{s?.tenantAcceptedAt ? "Waiting for you" : "Agreed"}</StatusChip>
+      : v.status === "no_agreement" ? <StatusChip live tone="red">No agreement</StatusChip>
+        : v.running || polling ? <StatusChip live tone="amber">Negotiating</StatusChip>
+          : v.turns.length > 1 ? <StatusChip live tone="amber">Negotiating</StatusChip> : <StatusChip live tone="amber">Waiting on you</StatusChip>;
+  // While the run really goes on (the server says so, or this page's request for it is still open), the side whose
+  // agent writes the next turn: the other side from the last turn's. Not while polling only waits to hear it ended.
+  const working = v.running || busy === "run" ? (v.turns[v.turns.length - 1]?.side === "landlord" ? "tenant" : "landlord") : null;
 
   return (
     <Card id="negotiation" className="scroll-mt-24">
@@ -280,17 +285,10 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
         </div>
       )}
 
-      {(v.running || polling) && (
-        <div role="status" className="flex items-center gap-2.5 border-b border-line-2 px-5 py-3.5 text-sm">
-          <span aria-hidden className="size-4 shrink-0 animate-spin rounded-full border-2 border-brand-100 border-t-brand" />
-          Your negotiator and their advocate are negotiating. Each turn appears below as it is made.
-        </div>
-      )}
-
       {error && <div className="border-b border-line-2 px-5 py-3"><Notice>{error}</Notice></div>}
 
       <div className="px-5 py-1">
-        <NegotiationThread turns={v.turns} perspective="landlord" names={names} />
+        <NegotiationThread turns={v.turns} perspective="landlord" names={names} working={working} />
       </div>
 
       {canOffer && !noOtherOffer && (

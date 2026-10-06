@@ -3,6 +3,7 @@
 import { useCallback, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "./button";
 import { useModal } from "./drawer";
+import { usePresence } from "./motion";
 
 // The app's yes-or-no question, instead of the browser's own confirm box: a small centered dialog (Mercury and
 // Stripe keep side panels for forms), a sheet along the bottom on a phone. A question for a title, one line on what
@@ -15,15 +16,20 @@ export function ConfirmDialog({ open, title, body, action, onConfirm, onCancel }
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useModal(open, panel, onCancel);
-  if (!open) return null;
+  // It rises a few pixels into place over a fading backdrop and leaves by fading, showing what it last asked.
+  const { mounted, state } = usePresence(open);
+  const [kept, setKept] = useState({ title, body, action });
+  if (open && (kept.title !== title || kept.body !== body || kept.action !== action)) setKept({ title, body, action });
+  if (!mounted) return null;
+  const shown = open ? { title, body, action } : kept;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6 print:hidden" role="alertdialog" aria-modal="true" aria-labelledby={titleId}>
-      <button type="button" aria-hidden tabIndex={-1} className="absolute inset-0 cursor-default bg-ink/30" onClick={onCancel} />
-      <div ref={panel} className="relative w-full rounded-t-lg border border-line bg-canvas px-5 pb-5 pt-4 shadow-md sm:max-w-[400px] sm:rounded-lg">
-        <h2 id={titleId} className="text-lg font-medium">{title}</h2>
-        <div className="mt-1 text-sm text-ink-2">{body}</div>
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6 print:hidden" role="alertdialog" aria-modal={open ? "true" : undefined} aria-labelledby={titleId} inert={!open}>
+      <button type="button" aria-hidden tabIndex={-1} data-state={state} className="gf-scrim absolute inset-0 cursor-default bg-ink/30" onClick={onCancel} />
+      <div ref={panel} data-state={state} className="gf-dialog relative w-full rounded-t-lg border border-line bg-canvas px-5 pb-5 pt-4 shadow-md sm:max-w-[400px] sm:rounded-lg">
+        <h2 id={titleId} className="text-lg font-medium">{shown.title}</h2>
+        <div className="mt-1 text-sm text-ink-2">{shown.body}</div>
         <div className="mt-5 flex flex-row-reverse gap-2 max-sm:flex-col">
-          <Button variant="primary" onClick={onConfirm} className="max-sm:h-10 max-sm:w-full">{action}</Button>
+          <Button variant="primary" onClick={onConfirm} className="max-sm:h-10 max-sm:w-full">{shown.action}</Button>
           <Button data-autofocus onClick={onCancel} className="max-sm:h-10 max-sm:w-full">Cancel</Button>
         </div>
       </div>

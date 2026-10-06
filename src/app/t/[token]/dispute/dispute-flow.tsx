@@ -7,6 +7,7 @@ import { useConfirm } from "@/components/confirm";
 import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
+import { WorkingDots } from "@/components/motion";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
@@ -203,8 +204,8 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
     return (
       <div role="status" className="mt-6 rounded-lg border border-line-2 bg-surface px-4 py-5">
         <p className="flex items-center gap-2.5 font-medium">
-          <span aria-hidden className="size-4 shrink-0 animate-spin rounded-full border-2 border-brand-100 border-t-brand" />
           Your advocate is reading your file
+          <WorkingDots className="text-ink-4" />
         </p>
         <ul className="mt-3 flex flex-col gap-1.5 text-sm text-ink-3">
           {["The itemized statement", "The photos and what the comparison found", "The math and the documents", `${stateName}'s rules`].map((s) => (
@@ -353,7 +354,7 @@ function Photos({ token, line, saved, picked, room, busy, onPick, onRemove }: {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img loading="lazy" decoding="async" src={`/api/t/${token}/dispute/evidence/${e.id}`} alt={`Your photo for line ${line.n}`} className="size-16 rounded-md border border-line bg-surface object-cover" />
               <button type="button" disabled={busy} onClick={() => onRemove(e.id)} aria-label={`Remove ${e.name}`}
-                className="absolute -right-1.5 -top-1.5 inline-flex size-6 items-center justify-center rounded-full border border-line bg-canvas text-ink-2 shadow-sm hover:bg-surface">
+                className="absolute -right-1.5 -top-1.5 inline-flex size-6 items-center justify-center rounded-full border border-line bg-canvas text-ink-2 shadow-sm transition-colors hover:bg-surface">
                 <Icon name="x" className="size-3" />
               </button>
             </li>
@@ -736,7 +737,8 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
               Your advocate, a Claude agent working for you, answers {possessive(landlord)} negotiator, a Claude agent working for them. The app holds every figure to what the law and the record allow, allows three exchanges at most, and nothing takes effect until you accept and {landlord} approves. Not legal advice.
             </InfoTip>
           </p>
-          <NegotiationThread turns={n.turns} perspective="tenant" names={names} />
+          <NegotiationThread turns={n.turns} perspective="tenant" names={names}
+            working={n.running ? (n.turns[n.turns.length - 1]?.side === "landlord" ? "tenant" : "landlord") : null} />
         </Block>
       )}
 

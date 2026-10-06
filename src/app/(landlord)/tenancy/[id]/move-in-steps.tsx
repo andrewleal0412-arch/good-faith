@@ -6,6 +6,7 @@ import { Button, buttonClass } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
+import { StepLine, StepMark } from "@/components/steps";
 import { Money, Notice, StatusChip, inputClass, inlineInputClass } from "@/components/ui";
 import { atTextIn, shortDate, todayIn } from "@/lib/dates";
 import { wasPaid } from "@/lib/invoice-status";
@@ -140,7 +141,7 @@ export function MoveInSteps(p: Props) {
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Money value={p.invoice.amount} className="font-medium" />
-                <StatusChip tone={p.invoice.reversed ? "red" : paid ? "green" : "gray"}>{p.invoice.reversed ? "Reversed" : paid ? "Paid" : p.invoice.status.charAt(0) + p.invoice.status.slice(1).toLowerCase().replace(/_/g, " ")}</StatusChip>
+                <StatusChip live tone={p.invoice.reversed ? "red" : paid ? "green" : "gray"}>{p.invoice.reversed ? "Reversed" : paid ? "Paid" : p.invoice.status.charAt(0) + p.invoice.status.slice(1).toLowerCase().replace(/_/g, " ")}</StatusChip>
                 {p.invoice.id && <span className="text-xs text-ink-3">Invoice {p.invoice.id}</span>}
               </div>
               {p.invoice.fromPayPal && <span className="text-xs text-ink-3">From PayPal, {atTextIn(p.invoice.fromPayPal, pack.timeZone.id)}</span>}
@@ -205,15 +206,13 @@ export function MoveInSteps(p: Props) {
   );
 }
 
-/** One step on the timeline: a green check when done, a brand dot for the current one, an empty ring after. */
+/** One step on the timeline: a green check when done, a brand dot for the current one, an empty ring after. A step
+ *  completed here (the agreement recorded, the deposit paid) draws its check and fills the line to the next. */
 function Step({ state, title, info, last, children }: { state: "done" | "now" | "todo"; title: string; info?: React.ReactNode; last?: boolean; children: React.ReactNode }) {
   return (
     <li className={`relative grid grid-cols-[20px_minmax(0,1fr)] gap-x-3 ${last ? "" : "pb-5"}`}>
-      {!last && <span className="absolute bottom-0 left-[9.5px] top-6 w-px bg-line" />}
-      <span className={`relative z-10 flex size-5 items-center justify-center rounded-full ${state === "done" ? "bg-green-bg text-green"
-        : state === "now" ? "bg-brand-50" : "border border-line bg-canvas"}`}>
-        {state === "done" ? <Icon name="check" className="size-3" /> : state === "now" ? <span className="size-2 rounded-full bg-brand" /> : null}
-      </span>
+      {!last && <StepLine done={state === "done"} className="absolute bottom-0 left-[9.5px] top-6 w-px" />}
+      <StepMark state={state} />
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-base font-medium">{title}{info}</div>
         <div className="mt-1">{children}</div>

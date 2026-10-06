@@ -67,7 +67,7 @@ export const gridTheme = themeQuartz.withParams({
 
 /** The grid's tooltips in the app's own dark tip. */
 export function GridTip(p: CustomTooltipProps) {
-  return <div className="max-w-[300px] rounded-md bg-ink px-3 py-2 text-sm text-white shadow-md">{String(p.value ?? "")}</div>;
+  return <div className="gf-tip max-w-[300px] rounded-md bg-ink px-3 py-2 text-sm text-white shadow-md">{String(p.value ?? "")}</div>;
 }
 
 /** Spreadsheets run a cell that starts with = + - @ or a tab as a formula, so such a value gets a leading apostrophe. */

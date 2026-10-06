@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type Ref } from "react";
 import { Button, buttonClass } from "@/components/button";
 import { ConfirmDialog } from "@/components/confirm";
 import { Drawer, drawerFooter } from "@/components/drawer";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu } from "@/components/menu";
+import { PresenceList } from "@/components/motion";
 import { FilePick } from "@/components/file-pick";
 import { Card, CardHead, Money, Notice, StatusChip, Thumb, inlineInputClass } from "@/components/ui";
 import type { Box } from "@/lib/boxes";
@@ -256,6 +257,7 @@ export function MoveOut(p: {
       <div className="flex flex-col gap-4">
         {groups.map((g) => (
           <RoomCard key={g.key} pack={pack} room={g.room} before={g.before} after={g.after} items={g.items} locked={p.locked} busy={busy}
+            trace={p.inspectedAt ? `trace:${p.tenancyId}:${p.inspectedAt}:${g.key}` : null}
             onDeduct={(f) => f.id && setDrawer({ kind: "deduction", f: { ...f, id: f.id } })}
             onReview={review} onRemove={remove}
             onAddFinding={() => setDrawer({ kind: "finding", room: g.room, like: g.items.find((f) => f.id)?.id ?? null })} />
@@ -271,8 +273,9 @@ export function MoveOut(p: {
   );
 }
 
-function RoomCard({ pack, room, before, after, items, locked, busy, onDeduct, onReview, onRemove, onAddFinding }: {
+function RoomCard({ pack, room, before, after, items, locked, busy, trace, onDeduct, onReview, onRemove, onAddFinding }: {
   pack: ClientPack;
+  trace?: string | null; // this comparison of this pair: its boxes are traced in the first time this viewer sees them
   room: string;
   before: { url: string | null; date: string | null };
   after: { url: string | null; date: string | null };
@@ -305,7 +308,7 @@ function RoomCard({ pack, room, before, after, items, locked, busy, onDeduct, on
         <div role="group" aria-label="Photo view" className="ml-auto inline-flex gap-0.5 rounded-sm bg-surface-2 p-[3px]">
           {([["side", "Side by side"], ["slider", "Slider"]] as const).map(([k, label]) => (
             <button key={k} type="button" aria-pressed={mode === k} onClick={() => setMode(k)}
-              className={`h-6 rounded-xs px-2 text-xs ${mode === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
+              className={`h-6 rounded-xs px-2 text-xs transition-[color,background-color,box-shadow] ${mode === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
               {label}
             </button>
           ))}
@@ -315,18 +318,19 @@ function RoomCard({ pack, room, before, after, items, locked, busy, onDeduct, on
           takes 232px, so the viewport alone can't say); stacked below that. */}
       <div className="grid @3xl:grid-cols-[minmax(0,1fr)_332px]">
         <div className="min-w-0 p-3 sm:p-3.5 @3xl:border-r @3xl:border-line-2">
-          <PhotoCompare room={room} before={before} after={after} markers={markers} mode={mode} hot={hot} onHot={setHot} />
+          <PhotoCompare room={room} before={before} after={after} markers={markers} mode={mode} hot={hot} onHot={setHot} trace={trace} />
         </div>
         <div className="flex flex-col @max-3xl:border-t @max-3xl:border-line-2">
           <div className="flex items-center gap-1.5 px-4 pb-1.5 pt-3 text-xs">
             <Icon name="image" className="size-3.5 text-ink-4" /><span className="font-medium text-ink-3">Suggested</span>
             {active.length > 0 && <span className="ml-auto text-ink-3">{locked ? `${charged} of ${active.length} charged` : `${accepted} of ${active.length} accepted`}</span>}
           </div>
-          {items.length ? items.map((f) => (
+          {/* A finding added or removed while the room is seen opens or closes in place. */}
+          {items.length ? <PresenceList>{items.map((f) => (
             <FindingRow key={f.id ?? f.n} pack={pack} f={f} locked={locked} busy={busy === `review-${f.id}`} hot={hot === (f.id ?? String(f.n))}
               onHot={(on) => setHot(on ? f.id ?? String(f.n) : null)}
               onDeduct={() => onDeduct(f)} onReview={(s) => onReview(f, s)} onRemove={() => onRemove(f)} />
-          )) : (
+          ))}</PresenceList> : (
             <p className="px-4 pb-3 pt-1 text-xs text-ink-3">Nothing changed between the move-in and move-out photos.</p>
           )}
           {!locked && (
@@ -343,9 +347,9 @@ function RoomCard({ pack, room, before, after, items, locked, busy, onDeduct, on
 /** One finding, as the mockup's rows read: its number in the box color, the title, the classification chip and one
  *  line of what changed with "Why?" at its end; on the right, the amount and its state, or until it is reviewed the one
  *  action that accepts it (a deduction, or for wear and tear agreeing it isn't charged) over a quiet Dismiss. */
-function FindingRow({ pack, f, locked, busy, hot, onHot, onDeduct, onReview, onRemove }: {
+function FindingRow({ pack, f, locked, busy, hot, onHot, onDeduct, onReview, onRemove, ref }: {
   pack: ClientPack; f: FindingView; locked: boolean; busy: boolean; hot: boolean; onHot: (on: boolean) => void;
-  onDeduct: () => void; onReview: (s: FindingStatus | null) => void; onRemove: () => void;
+  onDeduct: () => void; onReview: (s: FindingStatus | null) => void; onRemove: () => void; ref?: Ref<HTMLDivElement>;
 }) {
   const k = kindsFor(pack)[f.classification];
   const dismissed = f.status === "dismissed";
@@ -369,8 +373,8 @@ function FindingRow({ pack, f, locked, busy, hot, onHot, onDeduct, onReview, onR
     : findingLine(f);
 
   return (
-    <div onMouseEnter={() => onHot(true)} onMouseLeave={() => onHot(false)} onFocus={() => onHot(true)} onBlur={() => onHot(false)}
-      className={`flex gap-2.5 border-t border-line-2 px-4 pb-3 pt-2.5 [&:nth-child(2)]:border-t-0 ${hot ? "bg-surface" : ""}`}>
+    <div ref={ref} onMouseEnter={() => onHot(true)} onMouseLeave={() => onHot(false)} onFocus={() => onHot(true)} onBlur={() => onHot(false)}
+      className={`flex gap-2.5 border-t border-line-2 px-4 pb-3 pt-2.5 transition-colors [&:nth-child(2)]:border-t-0 ${hot ? "bg-surface" : ""}`}>
       <span className={`flex size-5 shrink-0 items-center justify-center rounded-[5px] text-xs font-semibold ${dismissed ? "bg-surface-3 text-ink-3" : `${BADGE[f.classification]} text-white`}`}>{f.n}</span>
       <div className={`min-w-0 flex-1 ${dismissed ? "opacity-60" : ""}`}>
         <div className="text-sm font-medium" title={f.item}>{findingTitle(f)}</div>

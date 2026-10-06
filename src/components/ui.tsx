@@ -1,6 +1,7 @@
 import Link from "@/components/link";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
+import { ChipFace } from "./motion";
 
 // The shared pieces of the Good Faith system: chips, money, cards, tabs, tables, the facts strip, lists and empty
 // states. Server-safe (no hooks), so pages and client components both use them.
@@ -22,17 +23,27 @@ const TONE: Record<Tone, string> = {
   gray: "bg-surface-2 text-ink-3",
 };
 
-/** A dot for workflow status, plain (`dot={false}`) for a classification such as Damage or Wear and tear. */
-export function StatusChip({ tone, children, dot = true, size = "md", className }: {
-  tone: Tone; children: ReactNode; dot?: boolean; size?: "sm" | "md" | "lg"; className?: string;
+/** A dot for workflow status, plain (`dot={false}`) for a classification such as Damage or Wear and tear. A `live`
+ *  chip (a status that can change while it is seen: the record header's, a negotiation's, a refund's) eases to its new
+ *  width and words when it does; its color always eases. */
+export function StatusChip({ tone, children, dot = true, size = "md", live, className }: {
+  tone: Tone; children: ReactNode; dot?: boolean; size?: "sm" | "md" | "lg"; live?: boolean; className?: string;
 }) {
   const s = size === "lg" ? "h-[26px] px-2.5 text-sm" : size === "sm" ? "h-[18px] px-1.5 text-xs" : "h-[22px] px-2 text-xs";
+  const face = <>{dot && <span className="size-1.5 rounded-full bg-current opacity-90" />}{children}</>;
   return (
-    <span className={cx("inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm font-medium", s, TONE[tone], className)}>
-      {dot && <span className="size-1.5 rounded-full bg-current opacity-90" />}
-      {children}
+    <span className={cx("inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm font-medium transition-colors duration-(--dur-base)", s, TONE[tone], className)}>
+      {live ? <ChipFace k={`${tone}:${textOf(children)}`}>{face}</ChipFace> : face}
     </span>
   );
+}
+
+/** The words of a chip's children, to tell when its status changed. */
+function textOf(n: ReactNode): string {
+  if (n == null || typeof n === "boolean") return "";
+  if (typeof n === "string" || typeof n === "number") return String(n);
+  if (Array.isArray(n)) return n.map(textOf).join("");
+  return "";
 }
 
 /* ---------- Money ---------- */
@@ -107,7 +118,7 @@ export function Segmented({ items, active, className }: { items: TabItem[]; acti
         const on = t.key === active;
         return (
           <Link key={t.key} href={t.href} scroll={false} aria-current={on ? "true" : undefined}
-            className={cx("inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm",
+            className={cx("inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm transition-[color,background-color,box-shadow]",
               on ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink")}>
             {t.label}
             {t.count != null && <span className="font-normal text-ink-3">{t.count}</span>}
@@ -184,12 +195,12 @@ export function ListRow({ title, sub, right, href, icon, hint }: { title: ReactN
     </>
   );
   const cls = "flex items-center gap-3 border-b border-line-2 py-[11px] last:border-b-0";
-  return href ? <Link href={href} title={hint} className={cx(cls, "hover:text-ink")}>{body}</Link> : <div title={hint} className={cls}>{body}</div>;
+  return href ? <Link href={href} title={hint} className={cx(cls, "transition-colors hover:text-ink")}>{body}</Link> : <div title={hint} className={cls}>{body}</div>;
 }
 
 /** Zillow's next-step box: a flat brand icon, a title, one sub line, a chevron. */
 export function StepBox({ icon, title, sub, href, plain }: { icon: IconName; title: ReactNode; sub?: ReactNode; href: string; plain?: boolean }) {
-  const cls = "flex items-center gap-3 rounded-md border border-line bg-canvas px-3.5 py-3 hover:bg-surface";
+  const cls = "flex items-center gap-3 rounded-md border border-line bg-canvas px-3.5 py-3 transition-colors hover:bg-surface active:bg-surface-2";
   const body = (
     <>
       <Icon name={icon} className="size-4 text-brand" />
@@ -233,7 +244,7 @@ export function Td({ children, align = "left", className, first, last, ...rest }
 }
 
 /** A body row: no rule under the last one, surface on hover. */
-export const trClass = "hover:bg-surface [&:last-child>td]:border-b-0";
+export const trClass = "transition-colors hover:bg-surface [&:last-child>td]:border-b-0";
 
 /* ---------- Empty state ---------- */
 
@@ -265,9 +276,9 @@ export function Notice({ tone = "red", children, className }: { tone?: "red" | "
 /* ---------- Form fields ---------- */
 
 /** Inputs: 36px, radius 8, line border; focus is a brand border with a 3px brand-50 ring. */
-export const inlineInputClass = "h-9 rounded-md border border-line bg-canvas px-3 text-base text-ink outline-none placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50 disabled:bg-surface";
+export const inlineInputClass = "h-9 rounded-md border border-line bg-canvas px-3 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50 disabled:bg-surface";
 export const inputClass = `${inlineInputClass} w-full`;
-export const textareaClass = "w-full rounded-md border border-line bg-canvas px-3 py-2 text-base text-ink outline-none placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50";
+export const textareaClass = "w-full rounded-md border border-line bg-canvas px-3 py-2 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50";
 
 /** Round thumbnail-free avatar with initials. */
 export function Avatar({ initials, className }: { initials: string; className?: string }) {

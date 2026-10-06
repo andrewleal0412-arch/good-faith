@@ -351,7 +351,7 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
         </p>
         {reading && (
           <span aria-hidden className="mt-4 block h-1 w-48 overflow-hidden rounded-full bg-line">
-            <span className="block h-full w-1/3 animate-pulse rounded-full bg-brand" />
+            <span className="gf-sweep block h-full w-1/3 rounded-full bg-brand" />
           </span>
         )}
       </label>

@@ -7,7 +7,9 @@ import { Card, CardHead, FactStrip, Wordmark } from "./ui";
 // link is clicked (app-shell.tsx), before the server has answered, and the landlord layout streams one first on a
 // full page load (route-skeleton.tsx); the refund review's loading.tsx has its own.
 // Server-safe (no hooks). The root carries data-skeleton (the timing checks wait for it to go), aria-busy, and one
-// status line for a screen reader. The bones pulse gently after a short delay; never with reduced motion (globals.css).
+// status line for a screen reader. A skeleton is there in the frame of the click, never easing in (gf-still marks the
+// parts of a property's skeleton outside its root); a soft light passes over the bones after a short delay, never
+// with reduced motion (globals.css).
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -203,7 +205,7 @@ export function MoveOutsSkeleton() {
 /** The record header of a property: back, photo, address and status, the buttons. */
 export function RecordHeadSkeleton() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+    <div className="gf-still flex flex-wrap items-center gap-x-4 gap-y-3">
       <Bone w={32} h={32} className="rounded-full max-sm:self-start" />
       <Bone w={64} h={64} className="rounded-md max-sm:hidden" />
       <div className="flex min-w-0 flex-[1_1_16rem] flex-col gap-2"><div className="flex items-center gap-3"><Bone w={230} h={26} className="max-w-[70%]" /><Bone w={96} h={26} className="rounded-sm" /></div><Bone w={170} h={14} /></div>
@@ -253,7 +255,7 @@ export function TabBodySkeleton({ tab }: { tab: string }) {
 /** The tab row as it reads, with the tab being opened underlined (not links: the real row replaces it). */
 export function TabBarSkeleton({ active }: { active: string }) {
   return (
-    <div aria-hidden className="-mx-4 mb-6 mt-5 flex gap-0.5 overflow-hidden border-b border-line px-4 sm:mx-0 sm:gap-1 sm:px-0">
+    <div aria-hidden className="gf-still -mx-4 mb-6 mt-5 flex gap-0.5 overflow-hidden border-b border-line px-4 sm:mx-0 sm:gap-1 sm:px-0">
       {TABS.map((t) => (
         <span key={t.key} className={cx("-mb-px inline-flex h-[38px] shrink-0 items-center border-b-2 px-2 text-sm sm:px-3 sm:text-base",
           t.key === active ? "border-brand font-medium text-ink" : "border-transparent text-ink-3")}>{t.label}</span>

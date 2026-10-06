@@ -4,6 +4,7 @@ import Link from "@/components/link";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon, MoreGlyph, type IconName } from "./icons";
+import { DUR, usePresence } from "./motion";
 
 // A small popover menu: the row overflow (three dots), the record header's More, the bell and the account button.
 // Items are links (a file download, an .ics or a PDF, is a plain <a>) or actions on the page. The popover is fixed to
@@ -31,6 +32,8 @@ export function Menu({ items, label = "More", trigger, align = "end", side = "bo
   const host = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
+  // It drops from its trigger (rises, when it opens upward) and fades as it closes.
+  const { mounted, state } = usePresence(open, DUR.fast);
 
   useEffect(() => {
     if (!open) return;
@@ -61,6 +64,7 @@ export function Menu({ items, label = "More", trigger, align = "end", side = "bo
       const left = Math.max(12, Math.min(align === "end" ? b.right - w : b.left, vw - 12 - w));
       m.style.top = `${Math.round(top)}px`;
       m.style.left = `${Math.round(left)}px`;
+      m.dataset.side = top < b.top ? "top" : "bottom";
     };
     place();
     window.addEventListener("scroll", place, true);
@@ -70,12 +74,12 @@ export function Menu({ items, label = "More", trigger, align = "end", side = "bo
 
   // The list itself, rendered in place or, with `portal`, on the body.
   const popover = () => (
-    <div ref={pop} role="menu" style={{ width }}
-      className="fixed left-0 top-0 z-40 max-w-[calc(100vw-24px)] rounded-md border border-line bg-canvas p-1 shadow-md">
+    <div ref={pop} role="menu" style={{ width }} data-state={state} inert={!open}
+      className="gf-pop fixed left-0 top-0 z-40 max-w-[calc(100vw-24px)] rounded-md border border-line bg-canvas p-1 shadow-md">
       {items?.map((it, i) => {
         if ("divider" in it) return <div key={i} className="my-1 h-px bg-line-2" />;
         if ("heading" in it) return <div key={i} className="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-3">{it.heading}</div>;
-        const cls = "flex h-8 items-center gap-2.5 rounded-sm px-2.5 text-sm text-ink-2 hover:bg-surface hover:text-ink";
+        const cls = "flex h-8 items-center gap-2.5 rounded-sm px-2.5 text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink";
         const body = <>{it.icon && <Icon name={it.icon} className="size-[15px] text-ink-3" />}<span className="truncate">{it.label}</span></>;
         if ("onSelect" in it) {
           return (
@@ -94,10 +98,10 @@ export function Menu({ items, label = "More", trigger, align = "end", side = "bo
   return (
     <div ref={host} className="relative inline-flex max-w-full">
       <button ref={button} type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}
-        className={buttonClass ?? "inline-flex size-7 items-center justify-center rounded-sm text-ink-4 hover:bg-surface-2 hover:text-ink-2"}>
+        className={buttonClass ?? "inline-flex size-7 items-center justify-center rounded-sm text-ink-4 transition-colors hover:bg-surface-2 hover:text-ink-2"}>
         {trigger ?? <MoreGlyph className="size-4" />}
       </button>
-      {open && (portal ? createPortal(popover(), document.body) : popover())}
+      {mounted && (portal ? createPortal(popover(), document.body) : popover())}
     </div>
   );
 }

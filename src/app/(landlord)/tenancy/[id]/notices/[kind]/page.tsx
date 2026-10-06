@@ -62,7 +62,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
     <div className="w-full print:max-w-none">
       <nav className="flex items-center gap-3 print:hidden">
         <Link href={`/tenancy/${id}?tab=move-out#notice`} aria-label="Back to the property"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-surface">
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface">
           <Icon name="arrow-left" className="size-[15px]" />
         </Link>
         <div className="min-w-0 flex-1">
@@ -241,7 +241,7 @@ async function PackRecordPage({ id, t, pack, def, today }: { id: string; t: NonN
     <div className="w-full print:max-w-none">
       <nav className="flex items-center gap-3 print:hidden">
         <Link href={`/tenancy/${id}${def.phase === "move_in" ? "#move-in" : "?tab=move-out#notice"}`} aria-label="Back to the property"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-surface">
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface">
           <Icon name="arrow-left" className="size-[15px]" />
         </Link>
         <div className="min-w-0 flex-1">

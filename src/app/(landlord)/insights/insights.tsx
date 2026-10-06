@@ -5,7 +5,8 @@ import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
-import { Card, CardHead, Fact, FactStrip, Money } from "@/components/ui";
+import { RollMoney } from "@/components/roll-money";
+import { Card, CardHead, Fact, FactStrip } from "@/components/ui";
 import { usd } from "@/lib/deductions";
 import { byCategory, firstMoneyDate, insightRows, periods, series, type InsightUnit } from "@/lib/insights";
 import type { LedgerRow } from "@/lib/ledger";
@@ -43,7 +44,7 @@ export function Insights({ units, rows, today }: { units: InsightUnit[]; rows: L
   const t = view.tree.total;
   const holding = view.tree.tenancies.filter((x) => x.held > 0).length;
   const paidBy = view.tree.tenancies.filter((x) => x.collected > 0).length;
-  const btn = (on: boolean) => `inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm ${on ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`;
+  const btn = (on: boolean) => `inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm transition-[color,background-color,box-shadow] ${on ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`;
 
   return (
     <>
@@ -68,12 +69,12 @@ export function Insights({ units, rows, today }: { units: InsightUnit[]; rows: L
       )}
 
       <FactStrip cols={4} className="mb-6">
-        <Fact label="Deposits held" big value={<Money value={t.held} cents="small" phoneCents="full" />}
+        <Fact label="Deposits held" big value={<RollMoney value={t.held} cents="small" phoneCents="full" />}
           sub={holding ? `${holding} ${holding === 1 ? "tenancy" : "tenancies"}` : "Nothing held"}
           info={<InfoTip title="Deposits held">What was collected, less what went back and what a statement that went out kept. The same figure as Payments and Properties.</InfoTip>} />
-        <Fact label="Collected" value={<Money value={t.collected} />} sub={paidBy === 1 ? "1 deposit paid" : `${paidBy} deposits paid`} />
-        <Fact label="Returned" value={<Money value={t.returned + t.settled} />} sub={t.settled ? `${usd(t.settled)} of it in settlements` : "Refunds and Payouts"} />
-        <Fact label="Kept as deductions" value={<Money value={t.kept} />} sub={`${t.deductions} charge${t.deductions === 1 ? "" : "s"} on file`}
+        <Fact label="Collected" value={<RollMoney quick value={t.collected} />} sub={paidBy === 1 ? "1 deposit paid" : `${paidBy} deposits paid`} />
+        <Fact label="Returned" value={<RollMoney quick value={t.returned + t.settled} />} sub={t.settled ? `${usd(t.settled)} of it in settlements` : "Refunds and Payouts"} />
+        <Fact label="Kept as deductions" value={<RollMoney quick value={t.kept} />} sub={`${t.deductions} charge${t.deductions === 1 ? "" : "s"} on file`}
           info={<InfoTip title="Kept as deductions" align="end">What the statements kept, after any settlement gave part of it back. Wear and tear is never charged.</InfoTip>} />
       </FactStrip>
 

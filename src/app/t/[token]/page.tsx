@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
@@ -5,6 +6,7 @@ import { buttonClass } from "@/components/button";
 import { CopyId } from "@/components/copy-id";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
+import { StepLine, StepMark } from "@/components/steps";
 import { Money } from "@/components/ui";
 import { DEMO_EXAMPLE, displayName, maskEmail } from "@/lib/copy";
 import { draftAction, isClosed, reopens, tenantDisputeStatus, type TenantDisputeStatus } from "@/lib/disputes";
@@ -19,6 +21,7 @@ import { describeDelivery, recordedWords, type DeliveryRecord } from "@/lib/stat
 import { resolveTenantToken } from "@/lib/tenant-links";
 import { loadTenantView, type TenantDeduction, type TenantView } from "@/lib/tenant-view";
 import { MovingOutForm } from "./moving-out-form";
+import { TenantProgress } from "./progress";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +67,9 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
   const moveInPhotosRequired = !!photosFrom && !!v.startDate && v.startDate >= photosFrom;
   const rooms = [...new Set(v.photos.map((p) => p.room))];
   const landlord = v.landlord ? displayName(v.landlord) : "Your landlord";
+  // This page's key for what this browser has already seen move (the progress and the timeline's steps), from the
+  // token without keeping the token itself.
+  const sight = `t:${createHash("sha256").update(token).digest("base64url").slice(0, 16)}`;
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -75,7 +81,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[600px] px-5 pb-10 pt-6 sm:pt-10">
+      <main className="gf-page mx-auto w-full max-w-[600px] px-5 pb-10 pt-6 sm:pt-10">
         <h1 className="text-xl font-medium">{v.moveOutDate || st ? "Your deposit refund" : "Your security deposit"}</h1>
         <p className="mt-0.5 text-sm text-ink-3">{keepUnit(streetLine(v.address))}</p>
         <p className="mt-0.5 text-xs text-ink-3">{pack.name} law applies: {pack.statute.short}</p>
@@ -94,7 +100,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
               Pay deposit with PayPal<Icon name="arrow-up-right" />
             </a>
           )}
-          {steps && <Progress steps={steps} />}
+          {steps && <TenantProgress steps={steps.map((s) => ({ key: s.key, label: s.label, done: s.done }))} sight={`${sight}:progress`} />}
         </section>
 
         <Section title="Details" info={<InfoTip align="end" title={pack.tenant.detailsTip.title} cite={pack.tenant.detailsTip.cite}>
@@ -131,7 +137,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
             settlement. */}
         {st && disputeSent && (
           <Section title="Your dispute">
-            <a href={`/t/${token}/dispute`} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3.5 hover:bg-surface">
+            <a href={`/t/${token}/dispute`} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3.5 transition-colors hover:bg-surface">
               <StatusMark tone={dispute.status === "settled" ? "green" : disputeClosed ? "gray" : "amber"} />
               <span className="min-w-0 flex-1">
                 <span className="block font-medium">{disputeLine(dispute, landlord, v.state)}</span>
@@ -155,7 +161,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
 
         {steps && (
           <Section title="Timeline">
-            <Timeline steps={steps} due={st ? null : v.statementDue} delivery={st?.delivery ?? null} recordedOn={st?.recordedOn ?? null} deliveryCite={pack.tenant.deliveryCite} />
+            <Timeline steps={steps} due={st ? null : v.statementDue} delivery={st?.delivery ?? null} recordedOn={st?.recordedOn ?? null} deliveryCite={pack.tenant.deliveryCite} sight={`${sight}:timeline`} />
           </Section>
         )}
 
@@ -368,33 +374,9 @@ function progress(v: TenantView): Step[] {
 
 const deliveredWord = (d: DeliveryRecord) => (d.method === "mail" ? "mailed" : d.method === "email" ? "emailed" : "delivered");
 
-/** Apple's order progress: a green bar with tick marks and a label under each of the four steps. */
-function Progress({ steps }: { steps: Step[] }) {
-  const last = steps.reduce((n, s, i) => (s.done ? i : n), -1);
-  const at = (i: number) => `${(i / (steps.length - 1)) * 100}%`;
-  return (
-    <div className="mt-5" role="img" aria-label={`Progress: ${steps.filter((s) => s.done).map((s) => s.label).join(", ") || "not started"}`}>
-      <div className="relative mx-[5px] h-1 rounded-full bg-line">
-        {last > 0 && <div className="absolute inset-y-0 left-0 rounded-full bg-green-dot" style={{ width: at(last) }} />}
-        {steps.map((s, i) => (
-          <span key={s.key} style={{ left: at(i) }}
-            className={`absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white ${s.done ? "bg-green-dot" : "bg-line"}`} />
-        ))}
-      </div>
-      <div className="relative mt-2.5 h-4 text-xs text-ink-3">
-        {steps.map((s, i) => (
-          <span key={s.key} style={{ left: at(i) }}
-            className={`absolute top-0 whitespace-nowrap ${i === 0 ? "" : i === steps.length - 1 ? "-translate-x-full" : "-translate-x-1/2"} ${i === last ? "font-medium text-ink" : ""}`}>
-            {s.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** The same four steps with their dates: green checks for what happened, the brand dot for what comes next. */
-function Timeline({ steps, due, delivery, recordedOn, deliveryCite }: { steps: Step[]; due: string | null; delivery: DeliveryRecord | null; recordedOn: string | null; deliveryCite: string }) {
+/** The same four steps with their dates: green checks for what happened, the brand dot for what comes next. The first
+ *  time this browser sees a step done, its check draws and the line from it fills (one after another, in order). */
+function Timeline({ steps, due, delivery, recordedOn, deliveryCite, sight }: { steps: Step[]; due: string | null; delivery: DeliveryRecord | null; recordedOn: string | null; deliveryCite: string; sight: string }) {
   const next = steps.findIndex((s) => !s.done);
   return (
     <ol>
@@ -403,10 +385,8 @@ function Timeline({ steps, due, delivery, recordedOn, deliveryCite }: { steps: S
         const sub = s.date ? `${shortDate(s.date)}${s.note ? `, ${s.note}` : ""}` : due && (s.key === "refund" || s.key === "statement") ? `Due by ${shortDate(due)}` : "Not yet";
         return (
           <li key={s.key} className="relative grid grid-cols-[20px_minmax(0,1fr)] gap-x-2.5 pb-[18px] last:pb-0">
-            {i < steps.length - 1 && <span aria-hidden className="absolute bottom-[-2px] left-[9.5px] top-5 w-px bg-line" />}
-            <span aria-hidden className={`relative z-[1] inline-flex size-5 items-center justify-center rounded-full ${state === "done" ? "bg-green-bg text-green" : state === "now" ? "bg-brand-50" : "border border-line bg-canvas"}`}>
-              {state === "done" ? <Icon name="check" className="size-3" /> : state === "now" ? <span className="size-2 rounded-full bg-brand" /> : null}
-            </span>
+            {i < steps.length - 1 && <StepLine done={s.done} sight={`${sight}:${s.key}:line`} delay={i * 140 + 160} className="absolute bottom-[-2px] left-[9.5px] top-5 w-px" />}
+            <StepMark state={state} sight={`${sight}:${s.key}`} delay={i * 140} />
             <div>
               <p className={`flex items-center gap-1.5 font-medium ${state === "todo" ? "text-ink-3" : ""}`}>
                 {s.title}

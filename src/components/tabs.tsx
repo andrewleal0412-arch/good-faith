@@ -34,7 +34,8 @@ export function Tabs({ items, active, className, label = "Sections", onSelect }:
         className="-mx-4 flex gap-0.5 overflow-x-auto border-b border-line px-4 [scrollbar-width:none] sm:mx-0 sm:gap-1 sm:px-0 [&::-webkit-scrollbar]:hidden">
         {(items as (Omit<TabItem, "href"> & { href?: string })[]).map((t) => {
           const on = t.key === active;
-          const cls = `-mb-px inline-flex h-[38px] shrink-0 items-center gap-1.5 border-b-2 px-2 text-sm sm:px-3 sm:text-base ${
+          // The underline and the words ease from the old tab to the new one (the fast token), in the frame of the click.
+          const cls = `-mb-px inline-flex h-[38px] shrink-0 items-center gap-1.5 border-b-2 px-2 text-sm transition-[color,border-color] sm:px-3 sm:text-base ${
             on ? "border-brand font-medium text-ink" : "border-transparent text-ink-3 hover:text-ink"}`;
           const body = <>{t.label}{t.count != null && <span className="text-xs font-normal text-ink-3">{t.count}</span>}</>;
           return onSelect ? (

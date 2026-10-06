@@ -69,9 +69,10 @@ export function TabState({ id, children }: { id: string; children: ReactNode }) 
     }
   };
 
+  // gf-page: the property's parts rise into place when it arrives (globals.css); the tab shown is the one that moves.
   return (
     <Current.Provider value={tab}>
-      <div className="contents" onClickCapture={onClickCapture}>{children}</div>
+      <div className="gf-page contents" onClickCapture={onClickCapture}>{children}</div>
     </Current.Provider>
   );
 }
@@ -83,12 +84,16 @@ export function TabBar({ id, className }: { id: string; className?: string }) {
 }
 
 /** One tab's content: shown while its tab is, hidden (and kept, with its state) otherwise. A tab whose content is still
- *  on its way from the server shows its skeleton. */
+ *  on its way from the server shows its skeleton. Shown, it rises 5px into place in the frame of the click (gf-tab,
+ *  globals.css: a CSS animation, which the browser plays again whenever a hidden element is shown, and never on a
+ *  re-render). */
 export function TabPanel({ tab, children }: { tab: TabKey; children: ReactNode }) {
   const shown = useTab() === tab;
   return (
     <Activity mode={shown ? "visible" : "hidden"}>
-      <Suspense fallback={<TabBodySkeleton tab={tab} />}>{children}</Suspense>
+      <div className="gf-tab">
+        <Suspense fallback={<TabBodySkeleton tab={tab} />}>{children}</Suspense>
+      </div>
     </Activity>
   );
 }

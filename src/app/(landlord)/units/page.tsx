@@ -170,7 +170,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                 ...groups.filter(([g, n]) => n > 0 || g === filter).map(([g, n]) => ({ key: g, label: GROUP_LABEL[g], count: n, href: href(g) })),
               ]} />
               {q && (
-                <Link href={href(filter)} className="ml-1 inline-flex h-[30px] items-center gap-1.5 rounded-md border border-line px-2.5 text-sm text-ink-2 hover:bg-surface">
+                <Link href={href(filter)} className="ml-1 inline-flex h-[30px] items-center gap-1.5 rounded-md border border-line px-2.5 text-sm text-ink-2 transition-colors hover:bg-surface">
                   &ldquo;{q}&rdquo;<Icon name="x" className="size-3 text-ink-4" />
                 </Link>
               )}

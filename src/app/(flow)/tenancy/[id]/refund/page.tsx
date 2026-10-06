@@ -16,6 +16,8 @@ import { loadRefundView, maskEmail, type Check, type RefundView, type RunView } 
 import { refundRecordWords } from "@/lib/states/server";
 import { tenancyPack } from "@/lib/tenancy-pack";
 import { CopyId } from "@/components/copy-id";
+import { Moment } from "@/components/motion";
+import { StepLine, StepMark } from "@/components/steps";
 import { ownedTenancy, pageTenancy } from "@/lib/workspace";
 import { RefundActions } from "./actions";
 
@@ -47,12 +49,12 @@ export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/re
         <span aria-hidden className="h-5 w-px shrink-0 bg-line" />
         <span className="min-w-0 truncate text-base text-ink-2">{v.landlord}</span>
         <Link href={v.back} aria-label="Close"
-          className="ml-auto inline-flex size-[34px] shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-surface">
+          className="ml-auto inline-flex size-[34px] shrink-0 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface">
           <Icon name="x" />
         </Link>
       </header>
       <main className="flex flex-1 justify-center px-4 pb-20 pt-6 sm:px-8 sm:pt-16">
-        <div className="w-[560px] max-w-full">
+        <div className="gf-page w-[560px] max-w-full">
           {v.sent ? <Sent v={v} statute={statute} zone={pack.timeZone.id} /> : <Review v={v} statute={statute} record={refundRecordWords(pack).name.toLowerCase()} zone={pack.timeZone.id} />}
         </div>
       </main>
@@ -179,7 +181,7 @@ function Review({ v, statute, record, zone }: { v: RefundView; statute: string; 
             )}
           </ul>
           {failedCheck && <Notice className="mt-2">{failedCheck}</Notice>}
-          {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} statute={statute} zone={zone} />}
+          {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} statute={statute} zone={zone} trace />}
         </div>
       </details>
 
@@ -279,6 +281,9 @@ function agentRows(steps: Step[], p: { amount: number; deposit: number; word: st
   return out;
 }
 
+/** The agent's steps draw one after another, this far apart. */
+const STEP_MS = 110;
+
 /** A page path in the agent's words, as a link. */
 function withLinks(text: string): ReactNode[] {
   return text.split(PAGE_PATH).map((part, i) => {
@@ -287,17 +292,23 @@ function withLinks(text: string): ReactNode[] {
   });
 }
 
-function AgentRun({ run, amount, deposit, word, statute, zone }: { run: RunView; amount: number; deposit: number; word: string; statute: string; zone: string }) {
+/** The agent's steps as a timeline. With `trace` (the review), the first time this viewer sees a run its steps' checks
+ *  draw in order and the line fills down to the step waiting for them. */
+function AgentRun({ run, amount, deposit, word, statute, zone, trace }: { run: RunView; amount: number; deposit: number; word: string; statute: string; zone: string; trace?: boolean }) {
   const n = runNotes(run.items);
   const rows = agentRows(n.steps, { amount, deposit, word, proposedAt: run.proposedAt, zone });
   if (!rows.length && !n.summary.length) return null;
+  const sight = (key: string, part: string) => (trace ? `run:${run.id}:${key}:${part}` : null);
   return (
     <>
       <GroupHead title="Done by the agent" right={atTextIn(run.startedAt, zone)} className="mt-4" />
       <ul>
-        {rows.map((x) => (
-          <li key={x.key} className="flex min-w-0 items-start gap-2.5 py-[7px] text-sm text-ink-2">
-            <span className="mt-px"><StateMark state={x.state} /></span>
+        {rows.map((x, i) => (
+          <li key={x.key} className="relative flex min-w-0 items-start gap-2.5 py-[7px] text-sm text-ink-2">
+            {i < rows.length - 1 && (
+              <StepLine done={x.state === "ok"} sight={sight(x.key, "line")} delay={i * STEP_MS + 200} className="absolute -bottom-[7px] left-[8.5px] top-[27px] w-px" />
+            )}
+            <span className="relative mt-px">{x.state === "ok" ? <StepMark small state="done" sight={sight(x.key, "check")} delay={i * STEP_MS} /> : <StateMark state={x.state} />}</span>
             <div className="min-w-0 flex-1" title={x.detail || undefined}>
               <p>{x.title}</p>
               {x.state === "fail" && x.detail && <p className="mt-0.5 text-xs text-ink-3">{x.detail}</p>}
@@ -336,27 +347,59 @@ function Sent({ v, statute, zone }: { v: RefundView; statute: string; zone: stri
   const failed = s.tone === "red";
   const statementHref = `/tenancy/${v.tenancyId}/statement`;
   const d = v.statement.delivery;
+  // The refund's own short timeline: prepared, approved, sent. Its last step is the one this page completes.
+  const prepared = s.run?.proposedAt ?? s.run?.startedAt ?? null;
+  const trail: { key: string; label: string; at: string }[] = failed ? [] : [
+    ...(prepared ? [{ key: "prepared", label: "Prepared by the agent", at: prepared }] : []),
+    ...(s.approvedAt ? [{ key: "approved", label: "Approved by you", at: s.approvedAt }] : []),
+    { key: "sent", label: `Sent through PayPal`, at: s.at },
+  ];
+  // The success moment, the first time this viewer sees a refund sent in the last few minutes, after a click in the
+  // browser (in practice: right after Send). In about 600 ms: the mark scales in and its check draws, the amount
+  // settles, the timeline's last step completes, and the rest of the receipt fades in. Never on a receipt opened later
+  // or by a full page load, never with reduced motion (Moment, motion.tsx, which judges "the last few minutes" in the
+  // browser, so the page itself stays the same at any hour).
+  const moment = !failed ? `sent:${v.tenancyId}:${s.paypalId ?? s.at}` : null;
+  const last = trail.length - 1;
   return (
-    <>
+    <Moment sight={moment} since={s.at}>
       <h1 className="flex items-center gap-3 text-xl font-medium">
-        <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${failed ? "bg-red-bg text-red" : "bg-green-bg text-green"}`}>
-          <Icon name={failed ? "alert" : "check"} className="size-[15px]" />
+        <span data-moment="pop" className={`flex size-7 shrink-0 items-center justify-center rounded-full ${failed ? "bg-red-bg text-red" : "bg-green-bg text-green"}`}>
+          <Icon data-moment="draw" data-delay="60" name={failed ? "alert" : "check"} className="size-[15px]" />
         </span>
         {failed ? `${word} did not go through` : `${word} sent`}
       </h1>
       <Lead to="To" v={v} />
-      <Money value={s.amount} className="mt-3 block text-2xl font-medium" />
-      <p className="mt-2 text-ink-3">Sent {atTextIn(s.at, zone)} through PayPal.</p>
+      <div data-moment="rise" data-delay="80"><Money value={s.amount} className="mt-3 block text-2xl font-medium" /></div>
+      {failed ? (
+        <p className="mt-2 text-ink-3">Sent {atTextIn(s.at, zone)} through PayPal.</p>
+      ) : (
+        <ol className="mt-4" aria-label={`${word} timeline`}>
+          {trail.map((t, i) => (
+            <li key={t.key} className="relative grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2.5 pb-2.5 text-sm last:pb-0">
+              {i < last && <span aria-hidden data-moment={i === last - 1 ? "grow-y" : undefined} data-delay="140" className="absolute -bottom-px left-[8.5px] top-[21px] w-px bg-green-dot/45" />}
+              <span data-moment={i === last ? "pop" : undefined} data-delay="220" className="relative mt-px flex size-[18px] items-center justify-center rounded-full bg-green-bg text-green">
+                <Icon data-moment={i === last ? "draw" : undefined} data-delay="260" name="check" className="size-3" />
+              </span>
+              <span className={i === last ? "text-ink" : "text-ink-2"}>{t.label}</span>
+              <span className="whitespace-nowrap tabular-nums text-ink-3">{atTextIn(t.at, zone)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
 
+      <div data-moment="fade" data-delay="200">
       <Divider />
       <Rows rows={[
         ...(s.paypalId ? [[<><span className="max-sm:hidden">PayPal {s.kind === "payout" ? "payout" : "refund"} ID</span><span className="sm:hidden">{word} ID</span></>, <CopyId key="id" text={s.paypalId} label={`Copy the PayPal ${s.kind} ID`} />] as [ReactNode, ReactNode]] : []),
-        ["Status", <StatusChip key="st" tone={s.tone}>{s.status}</StatusChip>, s.fromPayPal ? `From PayPal, ${atTextIn(s.fromPayPal, zone)}` : undefined],
+        ["Status", <StatusChip key="st" live tone={s.tone}>{s.status}</StatusChip>, s.fromPayPal ? `From PayPal, ${atTextIn(s.fromPayPal, zone)}` : undefined],
         ...partyRows(v),
-        ...(s.approvedAt ? [["Approved by", "You", atTextIn(s.approvedAt, zone)] as [ReactNode, ReactNode, ReactNode]] : []),
+        // The timeline above says who approved it and when; a refund that didn't go through says it here.
+        ...(s.approvedAt && failed ? [["Approved by", "You", atTextIn(s.approvedAt, zone)] as [ReactNode, ReactNode, ReactNode]] : []),
       ]} />
+      </div>
 
-      <div className="mt-7 rounded-lg border border-line-2 bg-surface px-5 py-4">
+      <div data-moment="fade" data-delay="240" className="mt-7 rounded-lg border border-line-2 bg-surface px-5 py-4">
         {d ? (
           <>
             <p className="font-medium">Statement delivered {shortDate(d.date)}</p>
@@ -370,7 +413,7 @@ function Sent({ v, statute, zone }: { v: RefundView; statute: string; zone: stri
         )}
       </div>
 
-      <div className="mt-7 flex flex-wrap items-center gap-2.5">
+      <div data-moment="fade" data-delay="280" className="mt-7 flex flex-wrap items-center gap-2.5">
         {d ? (
           <>
             <ButtonLink variant="primary" size="lg" href={v.back}>Done</ButtonLink>
@@ -392,6 +435,6 @@ function Sent({ v, statute, zone }: { v: RefundView; statute: string; zone: stri
           </div>
         </details>
       )}
-    </>
+    </Moment>
   );
 }
