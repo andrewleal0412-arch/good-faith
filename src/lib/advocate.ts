@@ -5,7 +5,9 @@
 // the tenants' proposal. Code then checks that case against the lawful range (lawful-range.ts) and fixes or refuses
 // what falls outside it, so the model never decides an amount the law doesn't allow, never calls a charge unlawful or
 // unsupported the code doesn't, and never speaks past informing (telling the tenants to sue, predicting a court,
-// threatening): such wording is replaced with the code's own.
+// threatening): such wording is replaced with the code's own. With a TypeSafe key, Jev then checks each line's reason
+// against that line's record in one request (checkCaseReasons, src/lib/jev.ts), and a reason the record contradicts
+// gives way to the app's own.
 //
 // No database here: the case file is built by src/lib/disputes.ts and the photos come through `loadPhoto`, so the
 // agent and its checks run the same against a stubbed model (scripts/lawful-range-check.mjs). Not legal advice: it
@@ -16,6 +18,7 @@ import { generateText, isStepCount, Output, tool, type LanguageModel, type ToolS
 import { z } from "zod";
 import type { Box } from "./boxes";
 import { usd } from "./deductions";
+import { appReason, checkReasons, defaultJev, demotedNote, INJECTION_NOTE, injectionFlagged, isAppReason, tenantsWords, type JevCall, type ReasonsCheck } from "./jev";
 import { checkProposal, type LineRange, type Ranges } from "./lawful-range";
 import type { StateCode, StatePack } from "./states/types";
 
@@ -57,6 +60,9 @@ export type CaseFile = {
   state: StateCode;
   today: string;
   address: string;
+  /** The tenants' forwarding address and the statement's mailing address, when on file: never shown to a model, only
+   *  taken out of what goes to Jev (src/lib/jev.ts, caseKnown). */
+  otherAddresses?: string[];
   landlord: string | null;
   tenants: string[];
   moveOutDate: string | null;
@@ -92,6 +98,9 @@ export type AdvocateCase = {
   model: string;
   steps: number;
   at: string;
+  /** Jev's record-support check of the reasons (checkCaseReasons), when it ran: each reason asked about, and whether
+   *  the tenants' text read as instructions to an AI. Absent without a TypeSafe key, or when the call failed. */
+  support?: Pick<ReasonsCheck, "model" | "lines" | "injection">;
 };
 
 /** What the model returns. Range limits aren't in the schema (structured outputs drop them); validateCase checks. */
@@ -361,9 +370,35 @@ function tools(file: CaseFile, pack: StatePack, loadPhoto: LoadPhoto): ToolSet {
 
 export type LoadPhoto = (p: CasePhoto) => Promise<{ data: Uint8Array; mediaType: string } | null>;
 
-/** Run the advocate on a case file and return its case, checked against the lawful range. Throws when the model
- *  gave no case at all. `model` is for tests; the app uses Claude. */
-export async function runAdvocate(file: CaseFile, pack: StatePack, opts: { loadPhoto: LoadPhoto; model?: LanguageModel; maxSteps?: number }): Promise<AdvocateCase> {
+/** The case's reasons checked against the record by Jev (src/lib/jev.ts), in one request: a reason with a claim the
+ *  line's record contradicts gives way to the app's own reason for that line (appReason: the code's when it argues the
+ *  tenants' side as the advocate's verdict does, else what the record holds, neutrally), with an adjustment saying so,
+ *  and tenants' text that reads as instructions to an AI adds one. The record includes the tenants' own account of
+ *  each disputed line, and a claim resting on their photos or account is never what demotes a reason, since Jev sees
+ *  no photo. Demote only: no amount, verdict or citation changes, a reason that is already the app's own isn't asked
+ *  about, and nothing is marked as checked. Without a key, or when Jev is slow or fails, the case comes back exactly
+ *  as it went in. */
+export async function checkCaseReasons(c: AdvocateCase, file: CaseFile, pack: StatePack, jev: JevCall | null): Promise<AdvocateCase> {
+  if (!jev) return c;
+  const range = (n: number) => file.ranges.lines.find((r) => r.n === n);
+  const reasons = c.lines.filter((l) => { const r = range(l.n); return l.reason && r && !isAppReason(file, r, l.reason); }).map((l) => ({ n: l.n, reason: l.reason }));
+  const check = await checkReasons({ file, pack, reasons, tenantsText: tenantsWords(file), side: "tenant", jev });
+  if (!check) return c;
+  const adjustments = [...c.adjustments];
+  const lines = c.lines.map((l) => {
+    const r = range(l.n);
+    if (!check.demote.includes(l.n) || !r) return l;
+    adjustments.push(demotedNote(l.n, "advocate"));
+    return { ...l, reason: appReason(file, r, l.verdict === "solid" ? "landlord" : "tenant") };
+  });
+  if (injectionFlagged(check)) adjustments.push(INJECTION_NOTE);
+  return { ...c, lines, adjustments, support: { model: check.model, lines: check.lines, injection: check.injection } };
+}
+
+/** Run the advocate on a case file and return its case, checked against the lawful range and then, with a TypeSafe
+ *  key, its reasons against the record (checkCaseReasons). Throws when the model gave no case at all. `model` is for
+ *  tests; the app uses Claude. `jev` is for tests too: without it, a stubbed model runs with no Jev check. */
+export async function runAdvocate(file: CaseFile, pack: StatePack, opts: { loadPhoto: LoadPhoto; model?: LanguageModel; maxSteps?: number; jev?: JevCall | null }): Promise<AdvocateCase> {
   const model = opts.model ?? anthropic(MODEL);
   const result = await generateText({
     model,
@@ -380,5 +415,6 @@ export async function runAdvocate(file: CaseFile, pack: StatePack, opts: { loadP
     raw = undefined; // no structured answer at all (the step limit ran out first)
   }
   if (!raw) throw new Error("The advocate didn't finish its case.");
-  return validateCase(raw, file, pack, { model: opts.model ? "test" : MODEL, steps: result.steps.length });
+  const checked = validateCase(raw, file, pack, { model: opts.model ? "test" : MODEL, steps: result.steps.length });
+  return checkCaseReasons(checked, file, pack, opts.jev === undefined ? (opts.model ? null : defaultJev()) : opts.jev);
 }

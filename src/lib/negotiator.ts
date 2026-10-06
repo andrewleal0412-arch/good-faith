@@ -6,7 +6,8 @@
 // Code holds both agents to the law and to the negotiation itself (checkTurn): every figure inside the charge's lawful
 // range (lawful-range.ts), so whatever the law or the record doesn't support is conceded automatically; every counter
 // between the two sides' last figures, so nobody takes back a concession; the landlord's policy limit (what its agent
-// may give back without asking); citations from the pack's list; and no wording past informing. The loop
+// may give back without asking); citations from the pack's list; and no wording past informing. With a TypeSafe key,
+// Jev then checks each agent turn's reasons against the record (checkTurnReasons, src/lib/jev.ts). The loop
 // (runNegotiation) stops early on agreement (both sides' figures add up to the same amount back) or when an exchange
 // moves neither side, and pauses when the landlord's agent wants to give back more than its limit allows.
 //
@@ -19,6 +20,7 @@ import { generateText, Output, type LanguageModel } from "ai";
 import { z } from "zod";
 import { allowedCitations, beyondInforming, cleanText, type CaseFile } from "./advocate";
 import { usd } from "./deductions";
+import { appReason, checkReasons, defaultJev, demotedNote, INJECTION_NOTE, injectionFlagged, isAppReason, tenantsWords, untilFailure, type JevCall, type ReasonsCheck } from "./jev";
 import { backFor, checkProposal, type LineRange, type Ranges } from "./lawful-range";
 import type { StatePack } from "./states/types";
 
@@ -50,6 +52,7 @@ export type TurnChecks = {
   private?: { limit?: { wanted: number; limit: number } };
   advocate?: string; // round 1: whether the tenants' case was their advocate's
   by?: string | null; // a human's own offer: the tenant who made it, as on the lease
+  support?: Pick<ReasonsCheck, "model" | "lines" | "injection">; // Jev's check of an agent turn's reasons (checkTurnReasons)
 };
 
 export type Turn = {
@@ -456,10 +459,44 @@ Citations you may use: ${allowedCitations(pack, r).join(" | ")}
 Answer every line (${r.lines.length} in all).`;
 }
 
-/** One agent's turn: a single call with the file in the prompt (no tools), answered as a structured turn and then
- *  checked. Throws when the model gave no answer at all. */
+/** An agent turn's reasons checked against the record by Jev (src/lib/jev.ts), in one request, after checkTurn: a
+ *  reason with a claim the line's record contradicts gives way to the app's own (appReason: the code's when it argues
+ *  the side the turn's figure does, else what the record holds, neutrally), with an adjustment both sides see, and
+ *  tenants' text that reads as instructions to an AI adds one (once in a negotiation: not again after an earlier turn
+ *  said so). The tenants' account of a line is part of its record only on the tenants' own turns, so nothing they
+ *  wrote steers how the landlord's reasons are judged. Demote only: no figure, move or citation changes, and lines
+ *  both sides already agree on, or whose reason is already the app's, aren't asked about. Without a key, or when Jev
+ *  is slow or fails, the turn is exactly checkTurn's. */
+export async function checkTurnReasons(turn: Omit<Turn, "n">, file: CaseFile, pack: StatePack, turns: Turn[], jev: JevCall | null): Promise<Omit<Turn, "n">> {
+  if (!jev) return turn;
+  const range = (n: number) => file.ranges.lines.find((r) => r.n === n);
+  const reasons = turn.proposal
+    .filter((l) => { const r = range(l.n); return l.move !== "agreed" && l.reason && r && !isAppReason(file, r, l.reason); })
+    .map((l) => ({ n: l.n, reason: l.reason as string }));
+  const flaggedBefore = turns.some((t) => t.checks?.adjustments?.includes(INJECTION_NOTE));
+  const humans = turns.filter((t) => t.side === "tenant" && t.actor === "human").map((t) => t.message);
+  const check = await checkReasons({ file, pack, reasons, tenantsText: flaggedBefore ? [] : tenantsWords(file, humans), side: turn.side, jev });
+  if (!check) return turn;
+  const adjustments = [...(turn.checks?.adjustments ?? [])];
+  const who = turn.side === "landlord" ? "negotiator" : "advocate";
+  const proposal = turn.proposal.map((l) => {
+    const r = range(l.n);
+    if (!check.demote.includes(l.n) || !r) return l;
+    adjustments.push(demotedNote(l.n, who));
+    // The side the line's figure argues: all the record supports is the landlord's, the floor the tenants', and a
+    // figure between the two is the turn's own side's.
+    const stance = l.keep >= r.max - 0.005 ? "landlord" : l.keep <= r.min + 0.005 ? "tenant" : turn.side;
+    return { ...l, reason: appReason(file, r, stance) };
+  });
+  if (!flaggedBefore && injectionFlagged(check)) adjustments.push(INJECTION_NOTE);
+  return { ...turn, proposal, checks: { ...(turn.checks ?? {}), adjustments, support: { model: check.model, lines: check.lines, injection: check.injection } } };
+}
+
+/** One agent's turn: a single call with the file in the prompt (no tools), answered as a structured turn, checked,
+ *  and with a TypeSafe key its reasons checked against the record (checkTurnReasons). Throws when the model gave no
+ *  answer at all. `model` and `jev` are for tests: a stubbed model runs with no Jev check unless one is passed. */
 export async function agentTurn(o: {
-  side: Side; file: CaseFile; pack: StatePack; turns: Turn[]; policy: NegotiationPolicy; model?: LanguageModel;
+  side: Side; file: CaseFile; pack: StatePack; turns: Turn[]; policy: NegotiationPolicy; model?: LanguageModel; jev?: JevCall | null;
 }): Promise<CheckResult> {
   const limit = o.side === "landlord" ? effectiveLimit(o.policy, o.file.ranges) : null;
   const result = await generateText({
@@ -477,11 +514,14 @@ export async function agentTurn(o: {
   }
   if (!raw) throw new Error(`The ${o.side === "landlord" ? "landlord's negotiator" : "tenants' advocate"} didn't answer.`);
   const own = latestOf(o.turns, o.side), other = latestOf(o.turns, o.side === "landlord" ? "tenant" : "landlord");
-  return checkTurn({
+  const res = checkTurn({
     side: o.side, actor: "agent", ranges: o.file.ranges,
     own: own ? keepsOf(own) : statementKeeps(o.file.ranges), other: other ? keepsOf(other) : statementKeeps(o.file.ranges),
     raw, allowed: new Set(allowedCitations(o.pack, o.file.ranges)), limit,
   });
+  const jev = o.jev === undefined ? (o.model ? null : defaultJev()) : o.jev;
+  if (!res.ok || !jev) return res;
+  return { ok: true, turn: await checkTurnReasons(res.turn, o.file, o.pack, o.turns, jev) };
 }
 
 /** The landlord's answer when the state forfeits the deposit over a late statement and its statute names no defense
@@ -524,6 +564,7 @@ export type Outcome = {
 export async function runNegotiation(o: {
   file: CaseFile; pack: StatePack; turns: Turn[]; policy: NegotiationPolicy;
   models?: { landlord?: LanguageModel; tenant?: LanguageModel };
+  jev?: JevCall | null; // for tests; the app's agents use the key's Jev, stubbed ones none. Either way it stops for the rest of the run after a failure (untilFailure)
   persist: (turn: Turn, agreement: boolean) => Promise<string | null>;
   onCall?: () => Promise<void> | void;
   maxAgentTurns?: number;
@@ -533,6 +574,9 @@ export async function runNegotiation(o: {
   const added: Turn[] = [];
   let calls = 0;
   let limitHit: { wanted: number; limit: number } | null = null;
+  // One Jev for the whole run, which stops asking after its first failure: a TypeSafe that is down costs one turn its
+  // timeouts, not every turn. A stubbed model's side gets none unless the test passed one.
+  const jev = untilFailure(o.jev === undefined ? defaultJev() : o.jev);
   const done = (reason: StopReason, extra: Partial<Outcome> = {}): Outcome => ({
     reason, turns: added, calls,
     landlordBack: Number(latestOf(all, "landlord")?.amount_back ?? 0), tenantBack: Number(latestOf(all, "tenant")?.amount_back ?? 0), ...extra,
@@ -552,7 +596,7 @@ export async function runNegotiation(o: {
       await o.onCall?.();
     }
     const res = forced ? forfeitTurn({ file: o.file, pack: o.pack, turns: all, policy: o.policy })
-      : await agentTurn({ side, file: o.file, pack: o.pack, turns: all, policy: o.policy, model: o.models?.[side] });
+      : await agentTurn({ side, file: o.file, pack: o.pack, turns: all, policy: o.policy, model: o.models?.[side], jev: o.jev === undefined && o.models?.[side] ? null : jev });
     if (!res.ok) return done("limit", { wanted: res.wanted, limit: res.limit });
     const turn: Turn = { ...res.turn, n: last.n + 1 };
     const agreement = same(turn.amount_back, Number(latestOf(all, otherSide)?.amount_back ?? -1));

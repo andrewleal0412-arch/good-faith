@@ -2,6 +2,7 @@ import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Money, StatusChip } from "@/components/ui";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { DisputeStatus, LandlordDisputeView } from "@/lib/disputes";
+import { CHECKED_NOTE } from "@/lib/jev-notes";
 
 // The tenants' dispute on the property's Move-out tab: what they dispute and why, the case their advocate wrote, each
 // charge's lawful range as the code computed it, and their photos. Read-only: the answer, the negotiation and the
@@ -35,7 +36,7 @@ export function DisputeCard({ v, photoUrl, tenantsLabel, zone = PACIFIC }: { v: 
         right={<><StatusChip tone={st.tone}>{st.label}</StatusChip>
           <InfoTip align="end" title="How this was checked">
             {v.advocate ? "The tenants' advocate, a Claude agent working for them, wrote this case. " : "The tenants wrote this case themselves. "}
-            The app computed each charge&apos;s lawful range from the law and your records and held every amount to it. Not legal advice: the advocate drafts the tenants&apos; case from the records and the state&apos;s rules, and can&apos;t say what a court would decide.
+            The app computed each charge&apos;s lawful range from the law and your records and held every amount to it.{v.advocate?.support ? ` ${CHECKED_NOTE}` : ""} Not legal advice: the advocate drafts the tenants&apos; case from the records and the state&apos;s rules, and can&apos;t say what a court would decide.
           </InfoTip></>} />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-line-2 px-5 py-4 sm:grid-cols-3">

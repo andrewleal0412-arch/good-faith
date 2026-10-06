@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CHECKED_NOTE } from "@/lib/jev-notes";
 import type { TurnLineView, TurnView } from "@/lib/negotiation";
 import { Icon } from "./icons";
 import { InfoTip } from "./info-tip";
@@ -47,9 +48,10 @@ function TurnRow({ t, p, names }: { t: TurnView; p: Perspective; names: { landlo
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium">{who}</span>
           <StatusChip tone={agrees ? "green" : "gray"} dot={false} size="sm">{MOVE[t.move] ?? t.move}</StatusChip>
-          {t.adjustments.length > 0 && (
+          {(t.adjustments.length > 0 || t.reasonsChecked) && (
             <InfoTip title="Checked by the app">
-              The app held this turn to each charge&apos;s lawful range and to the negotiation&apos;s rules: {t.adjustments.join(" ")}
+              The app held this turn to each charge&apos;s lawful range and to the negotiation&apos;s rules{t.adjustments.length ? `: ${t.adjustments.join(" ")}` : "."}
+              {t.reasonsChecked ? ` ${CHECKED_NOTE}` : ""}
             </InfoTip>
           )}
           <span className="ml-auto whitespace-nowrap text-sm">

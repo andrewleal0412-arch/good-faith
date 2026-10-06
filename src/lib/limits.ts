@@ -19,8 +19,12 @@ import { currentSession } from "./session-server";
 // link for the same tenancy starts no new count. The totals
 // and the Anthropic console's spend limit are the real ceiling; the per-session limits are soft, since a new sign-in
 // is a new session.
+//
+// Jev's reads on the finding form (src/lib/jev.ts) count as 'jev': one unit per read, with their own per-session limit
+// and their own total ('jev_total'), so typing never spends the Claude allowance. A read costs a small fraction of a
+// cent; the limits only stop an open URL from making it many thousands a day.
 
-export type UsageKind = "lease" | "inspect" | "close_out" | "invoice" | "tenancy" | "upload_mb" | "advocate";
+export type UsageKind = "lease" | "inspect" | "close_out" | "invoice" | "tenancy" | "upload_mb" | "advocate" | "jev";
 
 /** A whole number from the environment, or the default when it is unset or not a whole number. */
 function envInt(name: string, fallback: number): number {
@@ -41,6 +45,7 @@ export function dailyLimits() {
       tenancy: envInt("GOOD_FAITH_DAILY_TENANCY", 10),
       upload_mb: envInt("GOOD_FAITH_DAILY_UPLOAD_MB", 100),
       advocate: envInt("GOOD_FAITH_DAILY_ADVOCATE", 3), // the landlord's negotiator runs (the tenants' advocate counts per tenancy)
+      jev: envInt("GOOD_FAITH_DAILY_JEV", 300), // Jev's reads as the landlord types a finding
     } satisfies Record<UsageKind, number>,
     total: {
       lease: aiTotal,
@@ -50,6 +55,7 @@ export function dailyLimits() {
       tenancy: envInt("GOOD_FAITH_DAILY_TENANCY_TOTAL", 50),
       upload_mb: envInt("GOOD_FAITH_DAILY_UPLOAD_MB_TOTAL", 400),
       advocate: aiTotal,
+      jev: envInt("GOOD_FAITH_DAILY_JEV_TOTAL", 3000),
     } satisfies Record<UsageKind, number>,
     /** What the tenants of one tenancy may use a day from their page: the advocate's runs, and the megabytes of the
      *  photos they add to a dispute. Counted under the tenancy (tn:<tenancy id>), not a session or a link (a landlord can

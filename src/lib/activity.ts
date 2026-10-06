@@ -66,7 +66,10 @@ export function describe(action: string, d: Record<string, unknown> | null): str
       : "PayPal rejected the deposit invoice";
     case "deposit_invoice_unsaved": return `PayPal made the deposit invoice ${d?.paypal_invoice} for ${usd(d?.amount as number)}, but it couldn't be saved here; sending it again picks up that invoice`;
     case "move_out_inspected": return `Compared move-in and move-out photos (${(d?.rooms as string[])?.join(", ")}): ${d?.damage} damage, ${d?.cleaning} cleaning, ${d?.wear_and_tear} wear and tear (not chargeable)${(d?.unclear as number) ? `, ${d?.unclear} unclear` : ""}`;
-    case "finding_added": return `Added a finding by hand: ${String(d?.item).toLowerCase()} (${String(d?.classification).replace(/_/g, " ")}), ${d?.room}`;
+    case "finding_added": {
+      const read = d?.read as { kind?: string; p?: number } | undefined;
+      return `Added a finding by hand: ${String(d?.item).toLowerCase()} (${String(d?.classification).replace(/_/g, " ")}), ${d?.room}${read?.kind && typeof read.p === "number" ? `; the quick read said ${read.kind.replace(/_/g, " ")}, ${Math.round(read.p * 100)}%` : ""}`;
+    }
     case "finding_reviewed": return d?.status === "accepted" ? `Accepted ${String(d?.item).toLowerCase()} as ordinary wear and tear, not charged`
       : d?.status === "dismissed" ? `Dismissed the suggested finding: ${String(d?.item).toLowerCase()}` : `Reopened the finding: ${String(d?.item).toLowerCase()}`;
     case "finding_removed": return `Removed the finding added by hand: ${String(d?.item).toLowerCase()}`;

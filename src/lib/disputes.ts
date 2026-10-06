@@ -75,6 +75,7 @@ export type DisputeFacts = {
   pack: StatePack;
   today: string;
   address: string;
+  otherAddresses: string[]; // the tenants' forwarding address and the statement's mailing address: only ever redacted (jev.ts)
   landlord: string | null;
   tenants: string[];
   moveOutDate: string | null;
@@ -92,7 +93,7 @@ export type DisputeFacts = {
 
 export async function disputeFacts(tenancyId: string): Promise<DisputeFacts | null> {
   const [{ data: t }, { data: rows }, { data: payments }] = await Promise.all([
-    db.from("tenancies").select("workspace_id, tenants, end_date, move_out_date, planned_move_out, notices, statement_delivered_at, statement_delivery, move_out_findings, properties(address, owner_name, state)")
+    db.from("tenancies").select("workspace_id, tenants, end_date, move_out_date, planned_move_out, notices, statement_delivered_at, statement_delivery, tenant_move_out, move_out_findings, properties(address, owner_name, state)")
       .eq("id", tenancyId).maybeSingle(),
     db.from("deductions").select("*").eq("tenancy_id", tenancyId).order("created_at"),
     db.from("payments").select("kind, amount, status, created_at").eq("tenancy_id", tenancyId).order("created_at"),
@@ -132,6 +133,8 @@ export function factsFrom(tenancyId: string, t: Record<string, unknown>, rows: R
   return {
     tenancyId, workspaceId: (t.workspace_id as string | null) ?? null, pack, today,
     address: prop?.address ?? "Address not recorded", landlord: prop?.owner_name ?? null,
+    otherAddresses: [((t.tenant_move_out ?? null) as { forwarding_address?: string | null } | null)?.forwarding_address, delivery?.address]
+      .filter((a): a is string => typeof a === "string" && !!a.trim()),
     tenants: ((t.tenants ?? []) as { name: string }[]).map((x) => x.name),
     moveOutDate: clock.moveOutDate,
     statementDue: pack.deadline.due({ ...clock, claimed: deductions.length > 0, claimNoticeDate: notices.claim_notice?.date ?? null }),
@@ -254,7 +257,7 @@ export function caseFile(facts: DisputeFacts, d: DisputeRow): CaseFile {
   });
   const lineOf = (id: string | null) => (id ? lines.find((l) => l.id === id)?.n ?? null : null);
   return {
-    state: facts.pack.code, today: facts.today, address: facts.address, landlord: facts.landlord, tenants: facts.tenants,
+    state: facts.pack.code, today: facts.today, address: facts.address, otherAddresses: facts.otherAddresses, landlord: facts.landlord, tenants: facts.tenants,
     moveOutDate: facts.moveOutDate, statementDue: facts.statementDue,
     delivery: facts.delivery ? { method: facts.delivery.method, date: facts.delivery.date } : null,
     depositHeld: facts.depositHeld, statementRefund: facts.statementRefund, refunded: facts.refunded?.amount ?? null,

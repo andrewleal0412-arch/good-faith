@@ -14,6 +14,7 @@ import { DEMO_EXAMPLE } from "@/lib/copy";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import { canWithdraw } from "@/lib/dispute-status";
 import type { DisputeLineView, TenantDisputeView } from "@/lib/disputes";
+import { CHECKED_NOTE, INJECTION_NOTE } from "@/lib/jev-notes";
 import type { LoadedNegotiation } from "@/lib/negotiation";
 import { uploadPhotos } from "@/lib/uploads";
 
@@ -372,6 +373,8 @@ function Photos({ token, line, saved, picked, room, busy, onPick, onRemove }: {
 /* ---------- The advocate's case ---------- */
 
 function CaseView({ c, view, notLegalAdvice }: { c: AdvocateCase; view: TenantDisputeView; notLegalAdvice: string }) {
+  // The answers the app changed; the note on instructions aimed at an AI changes none, so it is told apart.
+  const changed = c.adjustments.filter((a) => a !== INJECTION_NOTE);
   return (
     <>
       <section aria-label="Your advocate's case" className="mt-6">
@@ -385,7 +388,8 @@ function CaseView({ c, view, notLegalAdvice }: { c: AdvocateCase; view: TenantDi
         <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-3">
           Not legal advice
           <InfoTip title="How this was checked">
-            {notLegalAdvice} The app checked every amount against what the law and the record allow{c.adjustments.length ? ` and changed ${c.adjustments.length} of the advocate's answers to fit` : ""}.
+            {notLegalAdvice} The app checked every amount against what the law and the record allow{changed.length ? ` and changed ${changed.length} of the advocate's answers to fit: ${changed.join(" ")}` : "."}
+            {c.support ? ` ${CHECKED_NOTE}` : ""}{c.adjustments.includes(INJECTION_NOTE) ? ` ${INJECTION_NOTE}` : ""}
           </InfoTip>
         </p>
       </section>

@@ -22,6 +22,7 @@ import { limitsFor } from "@/lib/deduction-edit";
 import { loadNegotiation } from "@/lib/negotiation";
 import { dateIn, dayLabel, daysBetween, shortDate, todayIn, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
+import { jevConfigured } from "@/lib/jev";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
 import { closedOut, dueLabelOf, dueOf, inspectionExcused, liveDispute, nextStep, notKeptAfterDispute, refundLeft } from "@/lib/next-step";
 import { disputeReturns } from "@/lib/refund-rail";
@@ -475,6 +476,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           moveOutDate={t.move_out_date as string | null}
           locked={!!returned}
           quiet={quiet}
+          reads={jevConfigured()}
         />
       </section>
 

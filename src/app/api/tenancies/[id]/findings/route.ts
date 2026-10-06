@@ -1,5 +1,6 @@
 import { audit, db } from "@/lib/db";
 import { KIND, type Classification, type StoredFinding } from "@/lib/findings";
+import { openSeal } from "@/lib/jev";
 import { routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -51,6 +52,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     console.error("finding insert failed", error?.message ?? "no tenancy");
     return Response.json({ error: "Couldn't save. Try again." }, { status: 500 });
   }
-  await audit(id, "landlord", "finding_added", { item, room: pair.room, classification });
+  // Jev's read the form showed when it was saved, for the audit log, only when the classify route sealed it for these
+  // very words (openSeal): a read the browser made up isn't recorded. The landlord's pick stands either way.
+  const sealed = openSeal(id, { item, observation }, b.read);
+  const read = sealed ? { kind: sealed.kind, p: Math.round(sealed.p * 100) / 100 } : undefined;
+  await audit(id, "landlord", "finding_added", { item, room: pair.room, classification, ...(read ? { read } : {}) });
   return Response.json({ id: finding.id });
 }

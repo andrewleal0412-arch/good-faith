@@ -41,6 +41,10 @@ services:
       # Optional: leave empty for the defaults in docs/DEPLOY.md, section 8
       - key: ANTHROPIC_MODEL
         sync: false
+      - key: TYPESAFE_API_KEY # Jev's quick read and reasons check (docs/DEPLOY.md, section 3.5); unset, both are absent
+        sync: false
+      - key: TYPESAFE_DEFAULT_MODEL # leave empty for jev-1.13.0
+        sync: false
       - key: GOOD_FAITH_ACCOUNT # the owner workspace's account name; demo copies always show Harbor View Rentals
         sync: false
       - key: GOOD_FAITH_DAILY_AI_TOTAL # set it to what a day of judging needs, for example 40
@@ -62,6 +66,10 @@ services:
       - key: GOOD_FAITH_DAILY_UPLOAD_MB
         sync: false
       - key: GOOD_FAITH_DAILY_UPLOAD_MB_TOTAL
+        sync: false
+      - key: GOOD_FAITH_DAILY_JEV
+        sync: false
+      - key: GOOD_FAITH_DAILY_JEV_TOTAL
         sync: false
       - key: GOOD_FAITH_DAILY_COPIES # new demo copies per caller address a day; set 15 to 20 for judging (judges may share one network)
         sync: false

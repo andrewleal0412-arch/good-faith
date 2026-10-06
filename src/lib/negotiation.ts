@@ -278,6 +278,7 @@ export type TurnLineView = { n: number; title: string; amount: number; keep: num
 export type TurnView = {
   n: number; side: Side; actor: Turn["actor"]; move: TurnMove; amountBack: number; totalKeep: number;
   message: string | null; reasoning: string | null; citations: string[]; adjustments: string[]; at: string | null;
+  reasonsChecked: boolean; // Jev compared the turn's reasons with the record (src/lib/jev.ts)
   lines: TurnLineView[];
   limit: { wanted: number; limit: number } | null; // the landlord's page only
   by: string | null; // the tenant who made a human tenant turn
@@ -331,6 +332,7 @@ export function negotiationView(d: NegotiationRow, facts: DisputeFacts, turns: T
     n: t.n, side: t.side, actor: t.actor, move: t.move, amountBack: t.amount_back, totalKeep: t.total_keep,
     message: t.message, reasoning: t.reasoning, citations: t.citations ?? [],
     adjustments: (t.checks?.adjustments ?? []),
+    reasonsChecked: !!t.checks?.support || (t.n === 1 && t.actor === "agent" && !!d.advocate?.support),
     at: t.created_at ?? null, lines: linesOf(caseLines(t)),
     limit: side === "landlord" ? t.checks?.private?.limit ?? null : null,
     by: t.side === "tenant" && t.actor === "human" ? t.checks?.by ?? (t.n === 1 ? d.opened_by : null) : null,

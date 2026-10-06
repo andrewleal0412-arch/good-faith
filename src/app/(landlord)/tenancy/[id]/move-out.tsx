@@ -68,6 +68,7 @@ export function MoveOut(p: {
   moveOutDate: string | null;
   locked: boolean; // the deposit has been returned, so the findings and deductions are final
   quiet?: boolean; // the record header holds the view's primary button, so Compare shows as secondary
+  reads?: boolean; // a TypeSafe key is set: the Add finding form reads the words as they are typed (src/lib/jev.ts)
 }) {
   const router = useRouter();
   const pack = packFor(p.state);
@@ -144,7 +145,7 @@ export function MoveOut(p: {
       </Drawer>
       <Drawer open={drawer?.kind === "finding"} onClose={() => setDrawer(null)} title="Add finding" sub={drawer?.kind === "finding" ? drawer.room : undefined}>
         {drawer?.kind === "finding" && (
-          <FindingForm tenancyId={p.tenancyId} state={pack.code} room={drawer.room} like={drawer.like}
+          <FindingForm tenancyId={p.tenancyId} state={pack.code} room={drawer.room} like={drawer.like} reads={p.reads}
             onCancel={() => setDrawer(null)} onDone={() => { setDrawer(null); router.refresh(); }} />
         )}
       </Drawer>

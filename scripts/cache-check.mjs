@@ -100,6 +100,8 @@ const KEPT = {
   "src/app/api/paypal/webhook/route.ts toldAddress": "whether the rate limit's address header was logged once",
   "src/proxy.ts PUBLIC_EXACT": "a fixed list of public paths, never changed",
   "src/lib/dates.ts ZONES": "date formatters, one set per time zone name (a state pack's zone): no data, only Intl formatters",
+  "src/lib/jev.ts shared": "the app's TypeSafe client (the key and the transport): it keeps no request or answer between calls",
+  "src/lib/jev.ts EVERYDAY": "a fixed list of everyday English words the redactor reads as words in lower case, never changed",
 };
 const TOP = /^(?:export\s+)?(?:let\s+([A-Za-z_$][\w$]*)|var\s+([A-Za-z_$][\w$]*)|const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*new\s+(?:Map|Set|WeakMap|WeakSet)\b)/;
 const found = new Set();
