@@ -1,10 +1,10 @@
 import "server-only";
 import { closeOutFacts, type CloseOutFacts } from "./closeout";
 import { CATEGORY_ORDER, isDemoExample } from "./copy";
-import { dateIn, longDate } from "./dates";
+import { dateIn, daysBetween, longDate, todayIn } from "./dates";
 import { db } from "./db";
 import { describeDelivery, recordedLater, type DeliveryRecord } from "./delivery";
-import { missingDocs, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
+import { missingDocs, settle, usd, type Proration, type StoredDeduction, type Work } from "./deductions";
 import { findingTitle, type StoredFinding } from "./findings";
 import { paidElectronically, wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
@@ -139,50 +139,94 @@ type Row = StoredDeduction & { hours: number | null; hourly_rate: number | null 
 
 const ORDER: Record<Category, number> = CATEGORY_ORDER;
 
-export async function buildStatement(tenancyId: string): Promise<Statement | null> {
-  const [{ data: t }, { data: rows }] = await Promise.all([
+/** The statement's own rows, in one round of reads: the tenancy with its property, its deductions, and the latest
+ *  settlement that was paid (the amended statement). Everything the statement says that isn't PayPal's comes from these. */
+export type StatementRows = { t: Record<string, unknown>; rows: Row[]; settled: SettledRow | null };
+type SettledRow = {
+  amount: number | string; terms: unknown; tenant_name: string | null; tenant_accepted_at: string | null; landlord_approved_at: string | null;
+  sent_at: string | null; rail: string | null; paypal_id: string | null; paypal_status: string | null; raw: unknown;
+};
+
+export async function statementRows(tenancyId: string): Promise<StatementRows | null> {
+  const [{ data: t }, { data: rows }, { data: settled }] = await Promise.all([
     db.from("tenancies").select("*, properties(*)").eq("id", tenancyId).single(),
     db.from("deductions").select("*").eq("tenancy_id", tenancyId).order("created_at"),
+    db.from("settlements").select("amount, terms, tenant_name, tenant_accepted_at, landlord_approved_at, sent_at, rail, paypal_id, paypal_status, raw")
+      .eq("tenancy_id", tenancyId).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
   if (!t) return null;
-  const facts = await closeOutFacts(tenancyId);
+  return { t: t as Record<string, unknown>, rows: (rows ?? []) as Row[], settled: (settled ?? null) as SettledRow | null };
+}
 
+/** What the statement page shows before PayPal has answered: every part of the statement that comes from its own rows
+ *  alone (who, where, the dates and the deadline, each deduction with its photos and documents, the documents rule,
+ *  interest, the delivery record), computed as buildStatement computes them. The deposit, the totals, the refund, a
+ *  settlement's figures and the checklist wait for PayPal's live answer (buildStatement). */
+export type StatementFrame = Pick<Statement, "tenancyId" | "state" | "today" | "statementDate" | "landlord" | "property" | "tenants" | "tenantContacts"
+  | "moveOutDate" | "statementDue" | "daysLeft" | "deductions" | "documents" | "interest" | "delivery" | "deliveredAt" | "deliveryRecordedOn" | "tenantForwarding" | "wear"> & {
+  totals: { deductions: number; repairAndCleaning: number };
+  amended: boolean; // a paid settlement amends it (its figures wait for PayPal)
+};
+
+export function statementFrame(tenancyId: string, r: StatementRows): StatementFrame {
+  const t = r.t;
+  const parts = rowParts(r);
+  const { pack, delivery } = parts;
+  const today = todayIn(pack.timeZone.id);
+  const moveOut = (t.move_out_date ?? null) as string | null;
+  // The deadline from the same inputs the close-out counts it from (closeout.ts).
+  const notices = (t.notices ?? {}) as Notices;
+  const due = moveOut ? pack.deadline.due({
+    moveOutDate: moveOut, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null,
+    claimed: r.rows.length > 0, claimNoticeDate: notices.claim_notice?.date ?? null,
+  }) : null;
+  const documentsRequired = settle(0, parts.stored, pack).documentsRequired;
+  const deductions = deductionLines(parts, documentsRequired);
+  const total = settle(0, parts.stored, pack).total;
+  const repairAndCleaning = Math.round(deductions.filter((d) => d.category !== "rent").reduce((s, d) => s + d.amount, 0) * 100) / 100;
+  const f: StatementFrame = {
+    tenancyId, state: pack.code, today, statementDate: delivery?.date ?? today, landlord: parts.landlord, property: { address: parts.prop.address, city: parts.city },
+    tenants: parts.tenants, tenantContacts: parts.tenantContacts, moveOutDate: moveOut, statementDue: due,
+    daysLeft: delivery ? null : due ? daysBetween(today, due) : null,
+    deductions, totals: { deductions: total, repairAndCleaning },
+    documents: { required: documentsRequired, note: pack.statement.documentsNote(documentsRequired, repairAndCleaning, deductions.some((d) => d.category !== "rent")) },
+    interest: pack.statement.interest(parts.city, { buildingUnits: parts.terms?.buildingUnitCount ?? null, notices }),
+    delivery, deliveredAt: parts.deliveredAt, tenantForwarding: parts.tenantForwarding, amended: !!r.settled,
+  };
+  const recordedOn = recordedLater(delivery, t.statement_delivery_recorded_at as string | null, pack.timeZone.id);
+  if (recordedOn) f.deliveryRecordedOn = recordedOn;
+  if (pack.statement.wearAtZero) f.wear = wearOf(t);
+  return f;
+}
+
+/** The parts of the statement read straight from its rows, shared by the frame and the full statement. */
+function rowParts(r: StatementRows) {
+  const t = r.t;
   const prop = t.properties as { address: string; city: string | null; owner_name: string | null; state?: string | null };
   const pack = packFor(prop.state);
-  // A timestamp's day where the property is: the statement dates everything as the state counts it.
-  const dayOf = (ts: string) => dateIn(ts, pack.timeZone.id);
   const terms = (t.lease_terms ?? null) as LeaseTerms | null;
   const tenantContacts = (t.tenants as { name: string; email?: string | null }[]).map((x) => ({ name: x.name, email: x.email ?? null }));
-  const tenants = tenantContacts.map((x) => x.name);
-  const landlord = prop.owner_name ?? terms?.landlordName ?? "Landlord";
-  const city = prop.city ?? terms?.city ?? null;
-  const photosFrom = pack.moveIn.photosFrom;
-  const moveInPhotosRequired = !!photosFrom && !!t.start_date && (t.start_date as string) >= photosFrom;
+  const tm = (t.tenant_move_out ?? null) as TenantMoveOut | null;
+  return {
+    prop, pack, terms, tenantContacts, tenants: tenantContacts.map((x) => x.name),
+    landlord: prop.owner_name ?? terms?.landlordName ?? "Landlord",
+    city: prop.city ?? terms?.city ?? null,
+    // Once delivered, the document is frozen on the day it went out; until then it carries today's date and the clock.
+    delivery: (t.statement_delivery ?? null) as DeliveryRecord | null,
+    deliveredAt: (t.statement_delivered_at ?? null) as string | null,
+    stored: r.rows.map((d) => ({ ...d, amount: Number(d.amount) })).sort((a, b) => ORDER[a.category] - ORDER[b.category]),
+    // 13. Where the statement is mailed: the forwarding address the tenants gave through their link, if they did
+    // ((h)(6)), dated by its latest change, since the address as it stands is what matters here.
+    tenantForwarding: tm ? { address: tm.forwarding_address, name: tm.name, date: tenantMoveOutUpdatedOn(tm, pack.timeZone.id) } : null,
+  };
+}
 
-  // Once delivered, the document is frozen on the day it went out; until then it carries today's date and the clock.
-  const delivery = (t.statement_delivery ?? null) as DeliveryRecord | null;
-  const deliveredAt = (t.statement_delivered_at ?? null) as string | null;
-  const statementDate = delivery?.date ?? facts.today;
-
-  // 2. Security received and its basis. The amount is what PayPal collected; the pack's note explains how the lease
-  // labeled it (California: every move-in charge but first month's rent is security, D1) and the cap when the lease
-  // asked for more.
-  const lawful = terms ? lawfulDeposit(terms, pack) : null;
-  const dep = facts.deposit;
-  const basisNote = terms && dep ? pack.statement.basisNote(terms, dep.amount, lawful) : null;
-  const security: Statement["security"] = dep ? {
-    amount: dep.amount, paid: wasPaid(dep.status),
-    electronic: paidElectronically(dep.status, dep.method),
-    live: dep.live, paidAt: dep.paidAt, method: dep.method, invoiceId: dep.invoiceId, invoiceStatus: dep.status,
-    leaseAsked: lawful?.charged ?? null, cap: lawful?.cap ?? null, basisNote,
-  } : null;
-
-  // 3 to 8. One line per deduction with its tag, cost explanation, labor or vendor details and photo evidence.
-  // Unpaid rent ((b)(1)) has no work behind it, so it carries neither labor nor vendor details.
-  const stored = ((rows ?? []) as Row[]).map((d) => ({ ...d, amount: Number(d.amount) }))
-    .sort((a, b) => ORDER[a.category] - ORDER[b.category]);
+/** 3 to 8. One line per deduction with its tag, cost explanation, labor or vendor details and photo evidence. Unpaid
+ *  rent ((b)(1)) has no work behind it, so it carries neither labor nor vendor details. */
+function deductionLines(parts: ReturnType<typeof rowParts>, documentsRequired: boolean): StatementDeduction[] {
+  const { pack } = parts;
   const tags = pack.tags;
-  const deductions: StatementDeduction[] = stored.map((d, i) => {
+  return parts.stored.map((d, i) => {
     const photos: StatementPhoto[] = [];
     const verb = d.work === "clean" ? "cleaning" : "repair";
     if (d.finding?.moveInPath) photos.push({ role: "move_in", label: "Move-in", path: d.finding.moveInPath });
@@ -200,9 +244,49 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
         ? { name: d.vendor?.name ?? null, address: d.vendor?.address ?? null, phone: d.vendor?.phone ?? null, invoicePath: d.receipt_path }
         : null,
       photos,
-      missing: missingDocs(d, facts.totals.documentsRequired, pack),
+      missing: missingDocs(d, documentsRequired, pack),
     };
   });
+}
+
+/** Considered and not charged: every wear-and-tear finding the landlord did not dismiss, so the tenants see it was
+ *  looked at and excluded. */
+const wearOf = (t: Record<string, unknown>) => ((t.move_out_findings ?? []) as StoredFinding[])
+  .filter((f) => f.classification === "wear_and_tear" && f.status !== "dismissed")
+  .map((f) => ({ item: findingTitle(f), room: f.room }));
+
+/** The whole statement, PayPal's live answer included (closeOutFacts). `rows` and `facts`, when given, are reads the
+ *  caller already started (the statement page paints its frame from the same rows while PayPal answers). */
+export async function buildStatement(tenancyId: string, rows?: StatementRows | null, factsRead?: Promise<CloseOutFacts>): Promise<Statement | null> {
+  const factsP = factsRead ?? (rows ? closeOutFacts(tenancyId) : null);
+  const r = rows ?? await statementRows(tenancyId);
+  if (!r) return null;
+  const t = r.t;
+  const facts = await (factsP ?? closeOutFacts(tenancyId));
+
+  const parts = rowParts(r);
+  const { pack, terms, tenantContacts, tenants, landlord, city, delivery, deliveredAt } = parts;
+  // A timestamp's day where the property is: the statement dates everything as the state counts it.
+  const dayOf = (ts: string) => dateIn(ts, pack.timeZone.id);
+  const photosFrom = pack.moveIn.photosFrom;
+  const moveInPhotosRequired = !!photosFrom && !!t.start_date && (t.start_date as string) >= photosFrom;
+  const statementDate = delivery?.date ?? facts.today;
+
+  // 2. Security received and its basis. The amount is what PayPal collected; the pack's note explains how the lease
+  // labeled it (California: every move-in charge but first month's rent is security, D1) and the cap when the lease
+  // asked for more.
+  const lawful = terms ? lawfulDeposit(terms, pack) : null;
+  const dep = facts.deposit;
+  const basisNote = terms && dep ? pack.statement.basisNote(terms, dep.amount, lawful) : null;
+  const security: Statement["security"] = dep ? {
+    amount: dep.amount, paid: wasPaid(dep.status),
+    electronic: paidElectronically(dep.status, dep.method),
+    live: dep.live, paidAt: dep.paidAt, method: dep.method, invoiceId: dep.invoiceId, invoiceStatus: dep.status,
+    leaseAsked: lawful?.charged ?? null, cap: lawful?.cap ?? null, basisNote,
+  } : null;
+
+  // 3 to 8. One line per deduction (deductionLines).
+  const deductions = deductionLines(parts, facts.totals.documentsRequired);
 
   const repairAndCleaning = Math.round(deductions.filter((d) => d.category !== "rent").reduce((s, d) => s + d.amount, 0) * 100) / 100;
   const totals = { ...facts.totals, repairAndCleaning };
@@ -264,15 +348,13 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
     ? { amount: totals.balanceClaimed, text: `The deductions exceed the security held by ${usd(totals.balanceClaimed)}. This statement records that amount as a claim. It is not a demand for immediate payment.` }
     : null;
 
-  // 13. Where the statement is mailed: the forwarding address the tenants gave through their link, if they did ((h)(6)),
-  // dated by its latest change, since the address as it stands is what matters here.
-  const tm = (t.tenant_move_out ?? null) as TenantMoveOut | null;
+  // 13. Where the statement is mailed (rowParts).
   const s: Statement = {
-    tenancyId, state: pack.code, today: facts.today, statementDate, landlord, property: { address: prop.address, city }, tenants, tenantContacts,
+    tenancyId, state: pack.code, today: facts.today, statementDate, landlord, property: { address: parts.prop.address, city }, tenants, tenantContacts,
     moveOutDate: facts.tenancy.moveOutDate, statementDue: facts.tenancy.statementDue, daysLeft: delivery ? null : facts.tenancy.daysLeft,
     security, deductions, totals, documents, refund, balanceClaimed,
     interest: pack.statement.interest(city, { buildingUnits: terms?.buildingUnitCount ?? null, notices: (t.notices ?? {}) as Notices }), delivery, deliveredAt,
-    tenantForwarding: tm ? { address: tm.forwarding_address, name: tm.name, date: tenantMoveOutUpdatedOn(tm, pack.timeZone.id) } : null,
+    tenantForwarding: parts.tenantForwarding,
     checklist: [],
   };
   const recordedOn = recordedLater(delivery, t.statement_delivery_recorded_at as string | null, pack.timeZone.id);
@@ -282,8 +364,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
   if (outside) s.outside = { amount: outside.amount, refunds: outside.refunds, notKept: outside.notKept, asRefund: outsideIsRefund };
   // The amended statement: a settlement of the tenants' dispute that was paid (or needed no money). Only then; one
   // agreed and not yet approved changes nothing here.
-  const { data: settled } = await db.from("settlements").select("amount, terms, tenant_name, tenant_accepted_at, landlord_approved_at, sent_at, rail, paypal_id, paypal_status, raw")
-    .eq("tenancy_id", tenancyId).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle();
+  const settled = r.settled;
   if (settled) {
     const terms = (settled.terms ?? []) as { deduction_id: string; keep: number | string }[];
     const keepOf = (id: string, amount: number) => { const t = terms.find((x) => x.deduction_id === id); return t ? Number(t.keep) : amount; };
@@ -304,13 +385,8 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
       example: isDemoExample(settled.raw),
     };
   }
-  // Considered and not charged: every wear-and-tear finding the landlord did not dismiss, so the tenants see it was
-  // looked at and excluded.
-  if (pack.statement.wearAtZero) {
-    s.wear = ((t.move_out_findings ?? []) as StoredFinding[])
-      .filter((f) => f.classification === "wear_and_tear" && f.status !== "dismissed")
-      .map((f) => ({ item: findingTitle(f), room: f.room }));
-  }
+  // Considered and not charged (wearOf).
+  if (pack.statement.wearAtZero) s.wear = wearOf(t);
   s.checklist = pack.statement.checklist(s, {
     moveInPhotosRequired, documentsRequired: totals.documentsRequired, notices: (t.notices ?? {}) as Notices,
     ending: { givenOn: (t.notice_given_on ?? null) as string | null, givenBy: (t.notice_given_by ?? null) as "tenant" | "landlord" | null, ends: (t.planned_move_out ?? t.end_date ?? null) as string | null },

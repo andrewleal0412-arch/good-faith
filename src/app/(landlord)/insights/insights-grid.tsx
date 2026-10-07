@@ -6,6 +6,7 @@ import { AgGridProvider, AgGridReact, type CustomCellRendererProps } from "ag-gr
 import type {
   ColDef, GetRowIdParams, GridApi, IRowNode, ITooltipParams, PostSortRowsParams, ProcessCellForExportParams, RowClassParams, ValueGetterParams,
 } from "ag-grid-community";
+import { CsvExportModule, ExternalFilterModule, PinnedRowModule, RenderApiModule } from "ag-grid-community";
 import { browserStore, csvSafe, GridTip, gridModules, gridTheme } from "@/components/grid";
 import { Icon } from "@/components/icons";
 import { Money, StatusChip, inlineInputClass } from "@/components/ui";
@@ -19,6 +20,10 @@ import type { InsightGroup, InsightRow, Money as M } from "@/lib/insights";
 // tenancies with the total. Row grouping is an Enterprise feature; none of this uses it.
 
 type Row = (InsightRow | InsightGroup) & { level: number; parent: string | null; grandparent: string | null };
+
+/** What this grid draws with, beyond what every grid shares (gridModules): the filter box and the open groups, the
+ *  pinned total, the CSV, and the names drawn again when a group opens or closes. */
+const MODULES = gridModules(ExternalFilterModule, PinnedRowModule, CsvExportModule, RenderApiModule);
 type Layout = "narrow" | "wide";
 type Ctx = { open: Set<string>; toggle: (id: string) => void; layout: Layout };
 
@@ -74,7 +79,7 @@ function AmountCell(p: CustomCellRendererProps<Row, number> & { strong?: boolean
 
 export type InsightsGridHandle = { exportCsv: () => void };
 
-export const InsightsGrid = forwardRef<InsightsGridHandle, { tenancies: InsightRow[]; groups: InsightGroup[]; total: M; today: string }>(function InsightsGrid(p, ref) {
+export const InsightsGrid = forwardRef<InsightsGridHandle, { tenancies: InsightRow[]; groups: InsightGroup[]; total: M; today: string; onDrawn?: () => void }>(function InsightsGrid(p, ref) {
   const apiRef = useRef<GridApi<Row> | null>(null);
   // Every group open to start; what the landlord closes is remembered in this browser.
   // (Read once, in the browser: the grid's rows only render there, so the server's markup has none to differ.)
@@ -213,7 +218,7 @@ export const InsightsGrid = forwardRef<InsightsGridHandle, { tenancies: InsightR
         <span className="text-xs text-ink-3 sm:ml-auto">{matches.size} of {p.tenancies.length} tenancies</span>
       </div>
       <div className="gf-grid">
-        <AgGridProvider modules={gridModules}>
+        <AgGridProvider modules={MODULES}>
           <AgGridReact<Row>
             theme={gridTheme}
             rowData={rows}
@@ -249,6 +254,7 @@ export const InsightsGrid = forwardRef<InsightsGridHandle, { tenancies: InsightR
             enableCellTextSelection
             tooltipShowDelay={300}
             onGridReady={(e) => { apiRef.current = e.api; }}
+            onFirstDataRendered={() => p.onDrawn?.()}
             overlayComponentParams={{ noMatchingRows: { overlayText: "No properties match." } }}
           />
         </AgGridProvider>

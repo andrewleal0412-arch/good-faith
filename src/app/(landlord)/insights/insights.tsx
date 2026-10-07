@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
@@ -12,11 +12,15 @@ import { byCategory, firstMoneyDate, insightRows, periods, series, type InsightU
 import type { LedgerRow } from "@/lib/ledger";
 import { InsightsGrid, type InsightsGridHandle } from "./insights-grid";
 
-// The charts draw on a canvas in the browser only, so they load there, after the page's own figures.
-const InsightsCharts = dynamic(() => import("./insights-charts").then((m) => m.InsightsCharts), {
-  ssr: false,
-  loading: () => <div className="grid gap-4 lg:grid-cols-2">{[0, 1, 2, 3].map((i) => <div key={i} className="h-[300px] rounded-lg border border-line bg-surface" />)}</div>,
-});
+// The charts draw on a canvas in the browser only, so they load there, after the page's own figures, and they are
+// built only once the grid below them has drawn its rows and the browser has painted them: building the four charts
+// is the page's longest task, and it no longer holds up the grid (docs/PERFORMANCE.md). Their code is fetched at once
+// meanwhile. Each chart's place is held at its size until then.
+const loadCharts = () => import("./insights-charts").then((m) => m.InsightsCharts);
+const ChartsWaiting = () => <div className="grid gap-4 lg:grid-cols-2">{[0, 1, 2, 3].map((i) => <div key={i} className="h-[300px] rounded-lg border border-line bg-surface" />)}</div>;
+const InsightsCharts = dynamic(loadCharts, { ssr: false, loading: ChartsWaiting });
+/** The charts are built no later than this after the page opens, whatever the grid does. */
+const CHARTS_BY_MS = 1500;
 
 // Insights' body: one row of state filters, the facts strip (what is held is the view's one hero number), the four
 // charts, then every property in the grid. The state filter narrows all of it at once.
@@ -25,6 +29,17 @@ export function Insights({ units, rows, today }: { units: InsightUnit[]; rows: L
   const states = useMemo(() => [...new Map(units.map((u) => [u.state, u.stateName])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [units]);
   const [state, setState] = useState<string | null>(null);
   const grid = useRef<InsightsGridHandle>(null);
+  // Whether the charts may be built: once the grid has drawn and that frame is painted (or CHARTS_BY_MS has passed).
+  const [chartsOn, setChartsOn] = useState(false);
+  const showCharts = useCallback(() => startTransition(() => setChartsOn(true)), []);
+  useEffect(() => {
+    void loadCharts();
+    const t = window.setTimeout(showCharts, CHARTS_BY_MS);
+    return () => window.clearTimeout(t);
+  }, [showCharts]);
+  const gridDrawn = useCallback(() => {
+    requestAnimationFrame(() => window.setTimeout(showCharts, 0));
+  }, [showCharts]);
 
   const view = useMemo(() => {
     const us = state ? units.filter((u) => u.state === state) : units;
@@ -78,12 +93,12 @@ export function Insights({ units, rows, today }: { units: InsightUnit[]; rows: L
           info={<InfoTip title="Kept as deductions" align="end">What the statements kept, after any settlement gave part of it back. Wear and tear is never charged.</InfoTip>} />
       </FactStrip>
 
-      <InsightsCharts series={view.series} grain={view.grain} categories={view.categories} states={view.states} />
+      {chartsOn ? <InsightsCharts series={view.series} grain={view.grain} categories={view.categories} states={view.states} /> : <ChartsWaiting />}
 
       <Card className="mt-6">
         <CardHead title="Properties" meta={`${view.tree.tenancies.length} ${view.tree.tenancies.length === 1 ? "tenancy" : "tenancies"}, by state`}
           right={<InfoTip align="end" title="Properties by state">Each state, and each property that has held more than one tenancy, is a row of its own with its totals. Close one with its chevron or Enter; sort any column and the groups stay together. Export CSV lists every tenancy and the total.</InfoTip>} />
-        <InsightsGrid key={state ?? "all"} ref={grid} tenancies={view.tree.tenancies} groups={view.tree.groups} total={view.tree.total} today={today} />
+        <InsightsGrid key={state ?? "all"} ref={grid} tenancies={view.tree.tenancies} groups={view.tree.groups} total={view.tree.total} today={today} onDrawn={gridDrawn} />
       </Card>
     </>
   );

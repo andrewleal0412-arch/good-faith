@@ -94,6 +94,12 @@ const KEPT = {
   "src/lib/paypal-webhook-store.ts templates": "the template tenancy ids, the same for every workspace",
   "src/lib/outside-refunds.ts templates": "the template tenancy ids, the same for every workspace, so a refund on one is never noted or recorded",
   "src/lib/db.ts recentLinks": "signed links to stored files, keyed by path; only signedUrlsFor (workspace.ts) asks for them, after dropping every path the session's workspace may not see (checked below)",
+  "src/lib/thumbs.ts made": "small versions of stored photos, keyed by storage path; handed out only by the thumbnail routes, each after its own check of the path (the landlord's: maySign for the session's workspace; the tenants': the photo or dispute photo of their link's own tenancy), checked below",
+  "src/lib/thumbs.ts held": "how many bytes the thumbnail cache holds, a count",
+  "src/lib/thumbs.ts making": "thumbnails being made, by storage path, on their way into made",
+  "src/lib/thumbs.ts running": "how many thumbnails are being made at once, a count",
+  "src/lib/thumbs.ts bundled": "the index of the demo templates' thumbnails made ahead (data/template-thumbs, from the repo): the same read-only list for every workspace, handed out only through thumbnail() after a route's own check",
+  "src/lib/deposit.ts lastRead": "PayPal's deposit invoice as a property page last read it, for a minute, keyed by the session's workspace id, the invoice row and a digest of that tenancy's payment records (checked below), so only the same workspace's next view of the same records reads it back",
   "src/lib/paypal.ts cached": "the app's own PayPal OAuth token, not a workspace's data",
   "src/lib/chargeback-store.ts lastCheck": "when Check PayPal last ran per tenancy, a throttle: a time, no data",
   "src/lib/access-throttle.ts tries": "wrong access codes per address, a throttle",
@@ -129,6 +135,21 @@ for (const f of files) {
   }
 }
 check("signedUrlsFor drops paths the workspace may not see before signing", /signedUrlsFor[\s\S]*?maySign\(ws, p\)[\s\S]*?signedUrls\(bucket, allowed\)/.test(read(join(SRC, "lib/workspace.ts"))));
+
+// The thumbnail cache is reached only by the thumbnail routes, the landlord's after maySign for the session's workspace,
+// the tenants' after finding the photo under their own link's tenancy; uploads only add to it.
+for (const f of files) {
+  const r = rel(f);
+  for (const m of read(f).matchAll(/\bthumbnail\(/g)) {
+    const ok = ["src/lib/thumbs.ts", "src/app/api/thumbs/[...path]/route.ts", "src/app/api/t/[token]/photos/[photoId]/route.ts", "src/app/api/t/[token]/dispute/evidence/[evidenceId]/route.ts"].includes(r);
+    check(`thumbnail() is called only by the thumbnail routes: ${r}`, ok, `at offset ${m.index}`);
+  }
+}
+check("the landlord's thumbnail route checks the workspace before the cache", /currentWorkspace\(\)[\s\S]*?maySign\(ws, path\)[\s\S]*?thumbnail\(path\)/.test(read(join(SRC, "app/api/thumbs/[...path]/route.ts"))));
+check("the tenants' photo route finds the photo under the link's tenancy before the cache", /eq\("tenancy_id", link\.tenancyId\)[\s\S]*?thumbnail\(p\.storage_path\)/.test(read(join(SRC, "app/api/t/[token]/photos/[photoId]/route.ts"))));
+check("the tenants' dispute photo route finds the photo under the link's tenancy before the cache", /eq\("tenancy_id", link\.tenancyId\)[\s\S]*?thumbnail\(hit\.path\)/.test(read(join(SRC, "app/api/t/[token]/dispute/evidence/[evidenceId]/route.ts"))));
+// The minute-old invoice read is kept per workspace and per state of the records.
+check("a reused invoice read is keyed by workspace and records", /const key = opts\.reuse \? `\$\{opts\.reuse\.workspaceId\}\|[^`]*\$\{opts\.reuse\.records\}`/.test(read(join(SRC, "lib/deposit.ts"))));
 
 // React's cache() memoizes for one request only. List its uses, so a reader sees what is shared within a request.
 const perRequest = files.filter((f) => /\bcache\s*\(/.test(read(f)) && /from "react"/.test(read(f)) && !isClient(read(f))).map(rel);

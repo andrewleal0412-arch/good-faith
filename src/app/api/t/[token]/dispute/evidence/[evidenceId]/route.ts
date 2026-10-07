@@ -2,14 +2,16 @@ import sharp from "sharp";
 import { audit, db } from "@/lib/db";
 import { bad, evidencePrefix, liveDispute, tenantWrite, type Evidence } from "@/lib/disputes";
 import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
+import { thumbnail } from "@/lib/thumbs";
 
 export const runtime = "nodejs";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // One of the tenants' dispute photos, for their own page: read from the private bucket here (a signed URL would carry
-// the storage path, and the path carries the tenancy id), downscaled for the page. DELETE takes it off a draft.
-export async function GET(_req: Request, ctx: RouteContext<"/api/t/[token]/dispute/evidence/[evidenceId]">) {
+// the storage path, and the path carries the tenancy id), downscaled for the page; with ?size=thumb, its small version
+// (src/lib/thumbs.ts), for the page's tiles. DELETE takes it off a draft.
+export async function GET(req: Request, ctx: RouteContext<"/api/t/[token]/dispute/evidence/[evidenceId]">) {
   const { token, evidenceId } = await ctx.params;
   if (!UUID_RE.test(evidenceId)) return tokenNotFound();
   const link = await resolveTenantToken(token, { touch: false });
@@ -17,6 +19,11 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const { data: rows } = await db.from("disputes").select("evidence").eq("tenancy_id", link.tenancyId);
   const hit = (rows ?? []).flatMap((r) => (r.evidence ?? []) as Evidence[]).find((e) => e.id === evidenceId);
   if (!hit) return tokenNotFound();
+  if (new URL(req.url).searchParams.get("size") === "thumb") {
+    const t = await thumbnail(hit.path);
+    if (!t) return tokenNotFound();
+    return new Response(t.bytes, { headers: { "Content-Type": t.type, "Content-Disposition": "inline", "Cache-Control": "private, max-age=600" } });
+  }
   const { data, error } = await db.storage.from("photos").download(hit.path);
   if (error || !data) return tokenNotFound();
   const original = new Uint8Array(await data.arrayBuffer());

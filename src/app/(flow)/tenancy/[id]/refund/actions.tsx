@@ -35,6 +35,7 @@ export function RefundActions(p: {
   const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
 
   async function call(kind: "start" | "approve" | "decline") {
+    if (kind !== "start" && !p.runId) return;
     if (kind === "decline" && !(await confirm({ title: "Decline this refund?", body: "Nothing is sent, and the agent stops.", action: "Decline" }))) return;
     setStartedAt(Date.now());
     setNow(Date.now());
@@ -62,8 +63,9 @@ export function RefundActions(p: {
           onClick={() => call(p.mode === "send" ? "approve" : "start")}>
           {busy === "approve" ? "Sending..." : busy === "start" ? "Preparing..." : p.label}
         </Button>
+        {/* No run id yet: the review is still waiting for PayPal (the page's fallback), so there is nothing to decline. */}
         {p.mode === "send" && (
-          <Button variant="link" className="ml-auto" disabled={!!busy} onClick={() => call("decline")}>
+          <Button variant="link" className="ml-auto" disabled={!!busy || !p.runId} onClick={() => call("decline")}>
             {busy === "decline" ? "Declining..." : "Decline"}
           </Button>
         )}

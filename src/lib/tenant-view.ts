@@ -85,7 +85,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     db.from("photos").select("id, room").eq("tenancy_id", tenancyId).eq("phase", "move_in").order("created_at"),
     delivered ? db.from("deductions").select(DEDUCTION_COLUMNS).eq("tenancy_id", tenancyId).order("created_at") : Promise.resolve({ data: [] }),
     // Whether any deduction is drafted, for a state whose deadline turns on a claim (Florida); never shown.
-    db.from("deductions").select("id", { count: "exact", head: true }).eq("tenancy_id", tenancyId),
+    db.from("deductions").select("id", { count: "exact" }).eq("tenancy_id", tenancyId).limit(1),
   ]);
 
   const stored = (payments ?? []).find((p) => p.kind === "deposit_invoice") as DepositInvoiceRow | undefined;

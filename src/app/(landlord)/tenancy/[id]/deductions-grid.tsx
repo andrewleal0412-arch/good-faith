@@ -7,6 +7,7 @@ import type {
   CellEditingStartedEvent, CellEditRequestEvent, CellFocusedEvent, CellKeyDownEvent, ColDef, ColSpanParams, GetRowIdParams, GridApi, ICellEditorParams, IErrorValidationParams, ITooltipParams,
   RowClassParams, RowHeightParams, ValueFormatterParams, ValueGetterParams,
 } from "ag-grid-community";
+import { ColumnApiModule, HighlightChangesModule, NumberEditorModule, PinnedRowModule, RenderApiModule, RowApiModule } from "ag-grid-community";
 import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { Drawer } from "@/components/drawer";
@@ -39,6 +40,11 @@ export type GridDeduction = StoredDeduction & {
 
 /** A line of the totals under the grid: label, amount and how it reads. `strong` is the bottom line. */
 export type TotalLine = { key: string; label: string; amount: number | null; sign?: "minus" | "plus"; strong?: boolean; tip?: { title: string; text: string } };
+
+/** What this grid draws with, beyond what every grid shares (gridModules): the number editors, the pinned totals, an
+ *  amount's flash when the code works it out again, the columns read for the editors' keyboard paths, the rows by
+ *  index, and the cells drawn again after an edit. */
+const MODULES = gridModules(NumberEditorModule, PinnedRowModule, HighlightChangesModule, ColumnApiModule, RowApiModule, RenderApiModule);
 
 type Kind = "room" | "deduction" | "wear" | "total";
 type Row = {
@@ -466,7 +472,7 @@ export function DeductionsGrid(p: {
   return (
     <div ref={card} className="gf-grid gf-deductions" onBlur={onBlur}>
       <WhileShown>
-      <AgGridProvider modules={gridModules}>
+      <AgGridProvider modules={MODULES}>
         <AgGridReact<Row>
           theme={gridTheme}
           rowData={rows}

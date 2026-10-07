@@ -7,6 +7,7 @@ import { copyLimits } from "./limits";
 import { ACCESS_MESSAGES, gate, type Session } from "./session";
 import { currentSession } from "./session-server";
 import { keyDemoTenantLinks } from "./tenant-links";
+import { thumbPath } from "./thumb-path";
 
 // Workspaces: the owner's data, and one private copy of the demo landlord per visitor who enters the access code
 // (supabase/migrations/..._workspaces.sql). Properties and tenancies carry a workspace; everything else hangs off a
@@ -159,6 +160,14 @@ export async function signedUrlsFor(ws: Workspace, bucket: "leases" | "photos" |
   const out = new Map<string, string | null>(unique.map((p) => [p, null]));
   if (allowed.length) for (const [p, url] of await signedUrls(bucket, allowed)) out.set(p, url);
   return out;
+}
+
+/** Thumbnail addresses (src/app/api/thumbs) for the photos this workspace may see, by path; any other path maps to null.
+ *  No signing request: the thumbnail route checks the session's workspace against the same rule (maySign). */
+export async function thumbsFor(ws: Workspace, paths: string[]): Promise<Map<string, string | null>> {
+  const unique = [...new Set(paths.filter(Boolean))];
+  const ok = await Promise.all(unique.map((p) => maySign(ws, p)));
+  return new Map(unique.map((p, i) => [p, ok[i] ? thumbPath(p) : null]));
 }
 
 /** Whether a route may remove a stored file of this tenancy: only one this workspace uploaded for it, or, for the

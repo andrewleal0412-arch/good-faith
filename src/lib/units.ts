@@ -11,7 +11,7 @@ import { outsideReturnedAt, outsideReturns } from "./reconcile";
 import { disputeReturns } from "./refund-rail";
 import { packFor } from "./states/server";
 import { tenantMoveOutSentOn, type TenantMoveOut } from "./tenant";
-import { currentWorkspace, DEMO_ACCOUNT, signedUrlsFor } from "./workspace";
+import { currentWorkspace, DEMO_ACCOUNT, thumbsFor } from "./workspace";
 
 // Every tenancy as the landlord's home base sees it, from the database alone: no PayPal round trip per row, so the
 // deposit's status is as last stored (the tenancy page refreshes it from PayPal whenever it is opened).
@@ -230,8 +230,9 @@ export async function accountName(owners: string[]): Promise<string | null> {
   return process.env.GOOD_FAITH_ACCOUNT?.trim() || owners[0] || null;
 }
 
-/** One move-in photo per tenancy for its thumbnail (the living room when there is one), as short-lived signed URLs.
- *  Only tenancies in the session's workspace: the photos come from workspaceTenancies, so this costs only the signing. */
+/** One move-in photo per tenancy for its thumbnail (the living room when there is one), as its small version's address
+ *  (src/lib/thumbs.ts). Only tenancies in the session's workspace: the photos come from workspaceTenancies, so this costs
+ *  no request at all. */
 export async function loadThumbnails(ids: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const ws = await currentWorkspace();
@@ -248,7 +249,7 @@ export async function loadThumbnails(ids: string[]): Promise<Map<string, string>
   }
   const paths = ids.map((id) => pick.get(id)?.path).filter((x): x is string => !!x);
   if (!paths.length) return out;
-  const byPath = await signedUrlsFor(ws, "photos", paths);
+  const byPath = await thumbsFor(ws, paths);
   for (const id of ids) {
     const path = pick.get(id)?.path;
     const url = path ? byPath.get(path) : null;

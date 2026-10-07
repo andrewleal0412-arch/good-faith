@@ -17,7 +17,7 @@ import { db } from "@/lib/db";
 import { DEMO_DEPOSIT_DATE, depositBlock } from "@/lib/demo-pool";
 import { settle, usd, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
-import { refreshDepositInvoice, type DepositInvoiceRow } from "@/lib/deposit";
+import { recordsKey, refreshDepositInvoice, type DepositInvoiceRow } from "@/lib/deposit";
 import type { Invoice } from "@/lib/paypal";
 import { disputeBanner, loadPayPalDispute } from "@/lib/chargeback-store";
 import { deductionsLock, factsFrom, loadLandlordDispute, sentDispute, type DisputeRow } from "@/lib/disputes";
@@ -40,7 +40,7 @@ import { deliveryLine, describeDelivery, type DeliveryRecord } from "@/lib/state
 import { describeTenantMoveOut, type TenantMoveOut } from "@/lib/tenant";
 import { tenantLinkView } from "@/lib/tenant-links";
 import { summarizeTenancy } from "@/lib/units";
-import { currentWorkspace, isTemplate, isUuid, signedUrlsFor, type Workspace } from "@/lib/workspace";
+import { currentWorkspace, isTemplate, isUuid, signedUrlsFor, thumbsFor, type Workspace } from "@/lib/workspace";
 import { MoneyTimeline } from "./money";
 import { PayPalDisputeBanner, PayPalDisputeCard, PayPalDisputeCheck } from "./paypal-dispute";
 import { OutsideRefundsBanner, OutsideRefundsCard } from "./outside-refunds";
@@ -150,23 +150,32 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // paid (once it is, the header, Overview and Move-out show only that it was paid, which a refund does not change),
   // and when the page opens on Payments, whose rows name the refund state PayPal reports. Opened on another tab, the
   // Payments tab asks PayPal itself, after the rest of the page (PaymentsTab). The refreshed row takes the stored
-  // one's place in the list the summary reads. And the photos' signed links, in one request: the header's thumbnail,
-  // the move-in photos on Overview, the move-out photos and every finding's pair on Move-out.
+  // one's place in the list the summary reads. And the photos: signed links to the full photos, in one request, for
+  // every finding's pair on Move-out and the tenants' dispute photos (each opens on its own); the small versions
+  // (src/lib/thumbs.ts, no request) for the header's thumbnail, the move-in photos on Overview, the move-out photos by
+  // room and the dispute photos' tiles.
   const storedInvoice = payments.find((p) => p.kind === "deposit_invoice");
   const refresh = !!storedInvoice && (tab === "payments" || !wasPaid(storedInvoice.status));
+  // A paid deposit's invoice as PayPal gave it in the last minute stands in for a new read while the records are as
+  // they were then (refreshDepositInvoice, `reuse`); one not yet paid is always read live.
+  const reuse = storedInvoice && wasPaid(storedInvoice.status) ? { workspaceId: t.ws.id, records: recordsKey(payments, outsideNotes) } : undefined;
   const toSign = [
-    ...(thumbRow ? [thumbRow.storage_path] : []),
-    ...moveInRows.map((x) => x.storage_path),
-    ...photoRows.filter((x) => x.phase === "move_out_before").map((x) => x.storage_path),
     ...stored.flatMap((f) => [f.moveInPath, f.moveOutPath]),
     ...quietPairs.flatMap(({ i, o }) => [i.storage_path, o.storage_path]),
     ...(dispute?.evidence ?? []).map((e) => e.path),
   ];
+  const toThumb = [
+    ...(thumbRow ? [thumbRow.storage_path] : []),
+    ...moveInRows.map((x) => x.storage_path),
+    ...photoRows.filter((x) => x.phase === "move_out_before").map((x) => x.storage_path),
+    ...(dispute?.evidence ?? []).map((e) => e.path),
+  ];
   // PayPal's invoice as just read, when it was: the Payments tab checks its refunds against the records.
   const got: { live: Invoice | null } = { live: null };
-  const [invoice, urlOf] = await Promise.all([
-    refresh ? refreshDepositInvoice(storedInvoice, { store: !template, onLive: (inv) => { got.live = inv; } }) : Promise.resolve(storedInvoice ?? null),
+  const [invoice, urlOf, thumbOf] = await Promise.all([
+    refresh ? refreshDepositInvoice(storedInvoice, { store: !template, reuse, onLive: (inv) => { got.live = inv; } }) : Promise.resolve(storedInvoice ?? null),
     signedUrlsFor(t.ws, "photos", toSign),
+    thumbsFor(t.ws, toThumb),
   ]);
   const invoiceStatus: string | null = invoice?.status ?? null;
   const paymentRows = payments.map((p) => (invoice && p.id === invoice.id ? invoice : p));
@@ -180,7 +189,9 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     : outsideNotes;
 
   const url = (path: string | null | undefined) => (path ? urlOf.get(path) ?? null : null);
-  const photoViews = photoRows.map((p) => ({ id: p.id, phase: p.phase, room: p.room, url: url(p.storage_path) }));
+  const small = (path: string | null | undefined) => (path ? thumbOf.get(path) ?? null : null);
+  // The photos as the grids and room thumbnails show them: their small versions.
+  const photoViews = photoRows.map((p) => ({ id: p.id, phase: p.phase, room: p.room, url: small(p.storage_path) }));
   // The day each photo was taken, by storage path, for the comparison cards.
   const dateOf = (path: string) => {
     const p = photoRows.find((x) => x.storage_path === path);
@@ -239,7 +250,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const addr = splitAddress(prop.address, prop.city);
   const tenantMoveOut = (t.tenant_move_out ?? null) as TenantMoveOut | null;
   const moveIn = photoViews.filter((x) => x.phase === "move_in");
-  const thumb = thumbRow ? url(thumbRow.storage_path) : null;
+  const thumb = thumbRow ? small(thumbRow.storage_path) : null;
   const inspected = !!t.move_out_inspected_at;
   const held = paid && invoice ? Number(invoice.amount) : null;
   // PayPal reversed the deposit payment (a chargeback, its webhook said so): paid once, no longer held.
@@ -497,7 +508,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           sub={due ? (t.statement_delivered_at ? `Delivered ${shortDate(dayOf(t.statement_delivered_at as string))}` : whenText(daysBetween(today, due))) : t.planned_move_out ? `Move-out planned ${shortDate(t.planned_move_out as string)}` : "No move-out yet"} />
       </FactStrip>
 
-      {dispute && <DisputeCard v={dispute} photoUrl={(p) => url(p)} tenantsLabel={tenantsLabel} zone={zone} />}
+      {dispute && <DisputeCard v={dispute} photoUrl={(p) => url(p)} thumbUrl={(p) => small(p)} tenantsLabel={tenantsLabel} zone={zone} />}
       {dispute && negotiation && (
         <Negotiation tenancyId={id} v={negotiation} quiet={quiet} zone={zone}
           tenantsLabel={tenantsLabel} landlordLabel={prop.owner_name ?? "The landlord"} />
@@ -668,7 +679,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       <TabPanel tab="overview">{overview}</TabPanel>
       <TabPanel tab="move-out">{moveOut}</TabPanel>
       <TabPanel tab="payments">
-        <PaymentsTab id={id} ws={t.ws} stored={storedInvoice ?? null} invoice={invoice} refreshed={refresh} payments={payments} deductionRows={deductionRows}
+        <PaymentsTab id={id} ws={t.ws} stored={storedInvoice ?? null} invoice={invoice} refreshed={refresh} reuse={reuse} payments={payments} deductionRows={deductionRows}
           tenancy={t} template={template} typeTip={pack.ledger.typeTip} zone={zone} quiet={!!primaryOnPayments} notes={notes} />
       </TabPanel>
       <TabPanel tab="documents">
@@ -685,14 +696,15 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
  *  money as the ledger lists it, with PayPal's latest word on the deposit invoice, and Check PayPal. Opened on another
  *  tab, the page didn't wait for PayPal: this tab asks it here, streamed in after the rest of the page. */
 async function PaymentsTab(p: {
-  id: string; ws: Workspace; stored: PaymentRecord | null; invoice: PaymentRecord | null; refreshed: boolean; payments: PaymentRecord[]; deductionRows: Row[];
+  id: string; ws: Workspace; stored: PaymentRecord | null; invoice: PaymentRecord | null; refreshed: boolean; reuse?: { workspaceId: string; records: string };
+  payments: PaymentRecord[]; deductionRows: Row[];
   tenancy: Record<string, unknown>; template: boolean; typeTip: StatePack["ledger"]["typeTip"]; zone: string; quiet: boolean; notes: OutsideRefundRow[];
 }) {
   // PayPal's invoice, read here when the page didn't read it (the live check): a refund of the deposit payment it lists
   // that the records don't hold is noted for the landlord's decision (reconcile.ts), as its webhook notes it. When the
   // page read it, the page noted them already, and `notes` is what it found.
   const got: { live: Invoice | null } = { live: null };
-  const invoice = p.refreshed || !p.stored ? p.invoice : await refreshDepositInvoice(p.stored, { store: !p.template, onLive: (inv) => { got.live = inv; } });
+  const invoice = p.refreshed || !p.stored ? p.invoice : await refreshDepositInvoice(p.stored, { store: !p.template, reuse: p.reuse, onLive: (inv) => { got.live = inv; } });
   const live = got.live;
   const records = p.payments as unknown as RecordRow[];
   const capture = ((p.stored?.raw as { transactions?: { payment_id?: string }[] } | null)?.transactions?.[0]?.payment_id) ?? null;

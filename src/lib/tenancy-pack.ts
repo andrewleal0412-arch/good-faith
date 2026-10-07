@@ -16,7 +16,7 @@ export async function tenancyPack(tenancyId: string): Promise<StatePack> {
 export async function tenancyDue(tenancyId: string, moveOutDate: string): Promise<{ pack: StatePack; due: string | null }> {
   const [{ data: t }, { count }] = await Promise.all([
     db.from("tenancies").select("end_date, planned_move_out, notices, properties(state)").eq("id", tenancyId).maybeSingle(),
-    db.from("deductions").select("id", { count: "exact", head: true }).eq("tenancy_id", tenancyId),
+    db.from("deductions").select("id", { count: "exact" }).eq("tenancy_id", tenancyId).limit(1),
   ]);
   const pack = packFor((t?.properties as { state?: string | null } | null)?.state);
   const notices = (t?.notices ?? {}) as Notices;

@@ -168,14 +168,14 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
         {/* No tip here: the rule for these photos, (g)(1), is the "Photos of the unit" right below. */}
         <Section title="Move-in photos" meta={v.photos.length ? `${v.photos.length}` : undefined}>
           {v.photos.length ? (
-            // One grid, in room order, each tile opening the same photo at full size through the token route.
+            // One grid, in room order: each tile its photo's small version, opening the photo itself through the token route.
             <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5">
               {rooms.flatMap((r) => v.photos.filter((p) => p.room === r)).map((p) => (
                 <li key={p.id} className="min-w-0">
                   <a href={`/api/t/${token}/photos/${p.id}`} target="_blank" rel="noreferrer" aria-label={`${p.room}, move-in photo`}
                     className="block rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand-100">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img decoding="async" src={`/api/t/${token}/photos/${p.id}`} alt="" loading="lazy" className="aspect-square w-full rounded-md border border-line bg-surface object-cover" />
+                    <img decoding="async" src={`/api/t/${token}/photos/${p.id}?size=thumb`} alt="" loading="lazy" className="aspect-square w-full rounded-md border border-line bg-surface object-cover" />
                   </a>
                   <p className="mt-1 truncate text-xs text-ink-3" title={p.room}>{p.room}</p>
                 </li>

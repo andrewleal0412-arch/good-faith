@@ -26,7 +26,9 @@ const DISPUTE_STATUS: Record<DisputeStatus, { label: string; tone: "green" | "am
   withdrawn: { label: "Withdrawn", tone: "gray" },
 };
 
-export function DisputeCard({ v, photoUrl, tenantsLabel, zone = PACIFIC }: { v: LandlordDisputeView; photoUrl: (path: string) => string | null; tenantsLabel: string; zone?: string }) {
+export function DisputeCard({ v, photoUrl, thumbUrl, tenantsLabel, zone = PACIFIC }: {
+  v: LandlordDisputeView; photoUrl: (path: string) => string | null; thumbUrl?: (path: string) => string | null; tenantsLabel: string; zone?: string;
+}) {
   const st = DISPUTE_STATUS[v.status];
   const disputed = v.lines.filter((l) => l.disputed);
   const who = v.openedBy ?? tenantsLabel;
@@ -95,13 +97,14 @@ export function DisputeCard({ v, photoUrl, tenantsLabel, zone = PACIFIC }: { v: 
                 {photos.length > 0 && (
                   <ul className="mt-2 flex flex-wrap gap-2">
                     {photos.map((e) => {
+                      // The tile shows the photo's small version; the link opens the photo itself.
                       const u = photoUrl(e.path);
                       return (
                         <li key={e.id}>
                           {u ? (
                             <a href={u} target="_blank" rel="noreferrer" aria-label={`The tenants' photo ${e.name}`}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img loading="lazy" decoding="async" src={u} alt="" className="size-14 rounded-md border border-line bg-surface object-cover" />
+                              <img loading="lazy" decoding="async" src={thumbUrl?.(e.path) ?? u} alt="" className="size-14 rounded-md border border-line bg-surface object-cover" />
                             </a>
                           ) : <span className="text-xs text-ink-3">{e.name}</span>}
                         </li>

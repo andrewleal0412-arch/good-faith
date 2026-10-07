@@ -352,7 +352,7 @@ function Photos({ token, line, saved, picked, room, busy, onPick, onRemove }: {
           {saved.map((e) => (
             <li key={e.id} className="relative">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img loading="lazy" decoding="async" src={`/api/t/${token}/dispute/evidence/${e.id}`} alt={`Your photo for line ${line.n}`} className="size-16 rounded-md border border-line bg-surface object-cover" />
+              <img loading="lazy" decoding="async" src={`/api/t/${token}/dispute/evidence/${e.id}?size=thumb`} alt={`Your photo for line ${line.n}`} className="size-16 rounded-md border border-line bg-surface object-cover" />
               <button type="button" disabled={busy} onClick={() => onRemove(e.id)} aria-label={`Remove ${e.name}`}
                 className="absolute -right-1.5 -top-1.5 inline-flex size-6 items-center justify-center rounded-full border border-line bg-canvas text-ink-2 shadow-sm transition-colors hover:bg-surface">
                 <Icon name="x" className="size-3" />
@@ -764,7 +764,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
                       <li key={e.id}>
                         <a href={`/api/t/${token}/dispute/evidence/${e.id}`} target="_blank" rel="noreferrer" aria-label={`Your photo ${e.name}`}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img loading="lazy" decoding="async" src={`/api/t/${token}/dispute/evidence/${e.id}`} alt="" className="size-14 rounded-md border border-line bg-surface object-cover" />
+                          <img loading="lazy" decoding="async" src={`/api/t/${token}/dispute/evidence/${e.id}?size=thumb`} alt="" className="size-14 rounded-md border border-line bg-surface object-cover" />
                         </a>
                       </li>
                     ))}

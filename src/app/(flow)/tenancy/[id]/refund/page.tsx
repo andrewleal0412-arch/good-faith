@@ -1,7 +1,7 @@
 import Link from "@/components/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, Suspense, type ReactNode } from "react";
 import { ButtonLink } from "@/components/button";
 import { Icon, PayPalMark, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
@@ -12,7 +12,8 @@ import { usd } from "@/lib/deductions";
 import { db } from "@/lib/db";
 import { POOL_EMPTY } from "@/lib/demo-pool";
 import { describeDelivery, type DeliveryRecord } from "@/lib/statement";
-import { loadRefundView, maskEmail, type Check, type RefundView, type RunView } from "@/lib/refund-view";
+import { maskEmail, refundStart, type Check, type RefundReview, type RefundView, type RunView } from "@/lib/refund-view";
+import { Bone, Skeleton } from "@/components/skeletons";
 import { refundRecordWords } from "@/lib/states/server";
 import { tenancyPack } from "@/lib/tenancy-pack";
 import { CopyId } from "@/components/copy-id";
@@ -35,12 +36,20 @@ export async function generateMetadata({ params }: PageProps<"/tenancy/[id]/refu
 // 560px column. Before the money moves: the amount, To / From / Amount / Method / Arrival, the rules' checks
 // and the agent's steps under Details, and one Send refund button that answers the agent's approval request. After:
 // the receipt, with the PayPal id to copy and the statement as the next step. No sidebar, no other primary.
+//
+// The review draws what the database holds first (who, from which deposit, a prepared refund's amount, the button,
+// held off), and what PayPal's live answer decides (the amount and method, the blockers, the checks, the agent's steps,
+// whether the button may be pressed) streams in behind its own skeletons a moment later: the button stays off until
+// that answer is in, as it did when the page waited for it. The receipt reads nothing from PayPal and comes whole.
 
 export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/refund">) {
   const { id } = await params;
   const ws = await pageTenancy(id);
-  const [v, pack] = await Promise.all([loadRefundView(id, { demo: ws.kind === "demo" }), tenancyPack(id)]);
-  if (!v) notFound();
+  const [start, pack] = await Promise.all([refundStart(id, { demo: ws.kind === "demo" }), tenancyPack(id)]);
+  if (!start) notFound();
+  const v = start.view;
+  const live = start.review ? start.review() : null;
+  live?.catch(() => {});
   const statute = pack.statute.inline;
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
@@ -55,7 +64,8 @@ export default async function RefundPage({ params }: PageProps<"/tenancy/[id]/re
       </header>
       <main className="flex flex-1 justify-center px-4 pb-20 pt-6 sm:px-8 sm:pt-16">
         <div className="gf-page w-[560px] max-w-full">
-          {v.sent ? <Sent v={v} statute={statute} zone={pack.timeZone.id} /> : <Review v={v} statute={statute} record={refundRecordWords(pack).name.toLowerCase()} zone={pack.timeZone.id} />}
+          {v.sent || !live ? <Sent v={v} statute={statute} zone={pack.timeZone.id} />
+            : <Review v={v} awaiting={start.awaiting} ran={start.ran} live={live} statute={statute} record={refundRecordWords(pack).name.toLowerCase()} zone={pack.timeZone.id} />}
         </div>
       </main>
     </div>
@@ -72,20 +82,25 @@ function Lead({ to, v }: { to: string; v: RefundView }) {
   );
 }
 
-function Rows({ rows }: { rows: [ReactNode, ReactNode, ReactNode?][] }) {
+function Rows({ rows, children }: { rows: [ReactNode, ReactNode, ReactNode?][]; children?: ReactNode }) {
   return (
     <dl className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-5 sm:grid-cols-[140px_minmax(0,1fr)]">
-      {rows.map(([k, val, sub], i) => (
-        <Fragment key={i}>
-          <dt className="text-ink-3">{k}</dt>
-          <dd className="min-w-0 text-ink">
-            {val}
-            {sub && <span className="mt-px block text-sm text-ink-3">{sub}</span>}
-          </dd>
-        </Fragment>
-      ))}
+      <RowList rows={rows} />
+      {children}
     </dl>
   );
+}
+
+function RowList({ rows }: { rows: [ReactNode, ReactNode, ReactNode?][] }) {
+  return rows.map(([k, val, sub], i) => (
+    <Fragment key={i}>
+      <dt className="text-ink-3">{k}</dt>
+      <dd className="min-w-0 text-ink">
+        {val}
+        {sub && <span className="mt-px block text-sm text-ink-3">{sub}</span>}
+      </dd>
+    </Fragment>
+  ));
 }
 
 const Divider = () => <div className="my-7 h-px bg-line" />;
@@ -112,36 +127,89 @@ function partyRows(v: RefundView): [ReactNode, ReactNode, ReactNode?][] {
 
 /* ---------- Review ---------- */
 
-function Review({ v, statute, record, zone }: { v: RefundView; statute: string; record: string; zone: string }) {
-  const r = v.review!;
+type Awaiting = { tool: string; amount: number } | null;
+type Live = Promise<RefundReview>;
+
+/** The words that change with the rail: a refund against the payment, or a Payout. */
+function wordsOf(r: RefundReview) {
   const run = r.run;
   const awaiting = !!r.pending && run?.status === "awaiting_approval";
   const payout = awaiting ? r.pending!.tool === "send_payout" : r.rail === "payout";
-  const nothing = r.rail === "nothing_to_refund";
-  const blocked = r.rail === "blocked";
-  const running = run?.status === "running";
-  const word = payout ? "payout" : "refund";
+  return { run, awaiting, payout, nothing: r.rail === "nothing_to_refund", blocked: r.rail === "blocked", running: run?.status === "running", word: payout ? "payout" : "refund" };
+}
 
+/** The review: the parts the database holds at once, and each part PayPal's live answer decides behind its own
+ *  skeleton (`live`, read once for all of them). `awaiting`: a prepared refund waiting for approval, as stored, whose
+ *  heading and amount need no wait. */
+function Review({ v, awaiting, ran, live, statute, record, zone }: { v: RefundView; awaiting: Awaiting; ran: boolean; live: Live; statute: string; record: string; zone: string }) {
+  const word = awaiting?.tool === "send_payout" ? "payout" : "refund";
+  return (
+    <>
+      <Suspense fallback={<TopWaiting v={v} awaiting={awaiting} />}>
+        <LiveTop v={v} live={live} />
+      </Suspense>
+
+      <Divider />
+      <Rows rows={partyRows(v)}>
+        <Suspense fallback={<RowsWaiting />}>
+          <LiveAmountRows v={v} live={live} />
+        </Suspense>
+      </Rows>
+      <Divider />
+
+      <details open className="group">
+        <Summary />
+        <div className="mt-3">
+          <GroupHead title="Checks" right="Just now" />
+          <Suspense fallback={<ChecksWaiting />}>
+            <LiveChecks live={live} statute={statute} record={record} zone={zone} />
+          </Suspense>
+        </div>
+      </details>
+
+      {/* The button, held off until PayPal's answer is in (the routes behind it check everything again anyway). With no
+          run id, Decline is held off too (actions.tsx). */}
+      <Suspense fallback={<RefundActions tenancyId={v.tenancyId} back={v.back} mode={awaiting ? "send" : "prepare"} label={awaiting ? `Send ${word}` : ran ? "Prepare again" : `Prepare ${word}`}
+        disabled auth="Checking the deposit with PayPal..." />}>
+        <LiveActions v={v} live={live} />
+      </Suspense>
+    </>
+  );
+}
+
+/** The heading, the amount and the note while PayPal answers: a prepared refund's own (as stored), otherwise bones. */
+function TopWaiting({ v, awaiting }: { v: RefundView; awaiting: Awaiting }) {
+  if (awaiting) {
+    const payout = awaiting.tool === "send_payout";
+    return (
+      <>
+        <h1 className="text-xl font-medium">Review {payout ? "payout" : "refund"}</h1>
+        <Lead to={`${payout ? "Payout" : "Refund"} to`} v={v} />
+        <Money value={awaiting.amount} className="mt-3 block text-2xl font-medium" />
+        <p className="mt-2 text-ink-3">This {payout ? "payout" : "refund"} will be sent today through PayPal.</p>
+      </>
+    );
+  }
+  // Each bone a line's height, as the heading, the two lines naming who and which deposit, the amount and the note stand.
+  return (
+    <Skeleton label="the refund" className="flex flex-col">
+      <Bone w={200} h={28} />
+      <div className="mt-3 flex h-12 flex-col justify-center gap-2.5"><Bone w="88%" h={14} /><Bone w="30%" h={14} /></div>
+      <Bone w={180} h={32} className="mt-3" />
+      <div className="mt-2 flex h-6 items-center"><Bone w="62%" h={14} /></div>
+    </Skeleton>
+  );
+}
+
+async function LiveTop({ v, live }: { v: RefundView; live: Live }) {
+  const r = await live;
+  const { awaiting, payout, nothing, blocked, word } = wordsOf(r);
   const note = awaiting ? `This ${word} will be sent today through PayPal.`
     : r.demoBlock && !r.blockers.length ? `This demo copy can't send the ${word}.`
     : blocked ? "Nothing can be sent until the checks below pass."
       : nothing ? (r.outside ? "The refund made in PayPal, recorded as this deposit's refund, covers what is owed, so no more money goes back."
         : r.viaDispute ? "PayPal already returned what is owed through the tenants' PayPal dispute, so no more money goes back." : "The deductions use the whole deposit, so no money goes back.")
         : "Prepared by the agent and sent only when you approve it.";
-
-  const method: [ReactNode, ReactNode, ReactNode?][] = blocked || nothing ? [] : [
-    ["Method", withTip(payout ? "PayPal Payout" : "PayPal refund to the original payment", <InfoTip title="How the money goes back">{r.why}</InfoTip>),
-      payout ? `The PayPal account the ${v.tenants.length === 1 ? "tenant" : "tenants"} designated`
-        : `The ${v.tenants.length === 1 ? "tenant's" : "tenants'"} original PayPal payment`],
-    // A refund lands in the PayPal account that paid; anything paid another way is left without a promise.
-    ...(payout || r.method === "PAYPAL" ? [["Arrival", "Today"] as [ReactNode, ReactNode]] : []),
-    // The whole deposit goes back: the note PayPal shows the tenants says so, in code's words.
-    ...(r.noteToPayer ? [["Note", <span key="n" className="text-ink-2">{r.noteToPayer}</span>] as [ReactNode, ReactNode]] : []),
-  ];
-
-  const mode = awaiting ? "send" as const : "prepare" as const;
-  const failedCheck = awaiting ? r.pending!.check : null;
-
   return (
     <>
       <h1 className="text-xl font-medium">Review {word}</h1>
@@ -158,44 +226,100 @@ function Review({ v, statute, record, zone }: { v: RefundView; statute: string; 
         </div>
       )}
       {r.warnings.map((w, i) => <Notice key={i} tone="amber" className="mt-3">{w}</Notice>)}
+    </>
+  );
+}
 
-      <Divider />
-      <Rows rows={[
-        ...partyRows(v),
-        ["Amount", usd(r.amount), (r.forfeited ? `The whole ${usd(r.depositHeld)} deposit: the ${usd(r.deductions)} in deductions is forfeited`
-          : `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`)
-          + (r.viaDispute ? `, less ${usd(r.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute${r.viaDispute.notKept > 0 ? ` (${usd(r.viaDispute.notKept)} of the deductions not kept)` : ""}` : "")
-          + (r.outside ? `, less ${usd(r.outside.amount)} refunded in PayPal${r.outside.notKept > 0 ? ` (${usd(r.outside.notKept)} of the deductions not kept)` : ""}` : "")],
-        ...method,
-      ]} />
-      <Divider />
+/** Amount and how the money goes back, under To and From. */
+async function LiveAmountRows({ v, live }: { v: RefundView; live: Live }) {
+  const r = await live;
+  const { payout, nothing, blocked } = wordsOf(r);
+  const method: [ReactNode, ReactNode, ReactNode?][] = blocked || nothing ? [] : [
+    ["Method", withTip(payout ? "PayPal Payout" : "PayPal refund to the original payment", <InfoTip title="How the money goes back">{r.why}</InfoTip>),
+      payout ? `The PayPal account the ${v.tenants.length === 1 ? "tenant" : "tenants"} designated`
+        : `The ${v.tenants.length === 1 ? "tenant's" : "tenants'"} original PayPal payment`],
+    // A refund lands in the PayPal account that paid; anything paid another way is left without a promise.
+    ...(payout || r.method === "PAYPAL" ? [["Arrival", "Today"] as [ReactNode, ReactNode]] : []),
+    // The whole deposit goes back: the note PayPal shows the tenants says so, in code's words.
+    ...(r.noteToPayer ? [["Note", <span key="n" className="text-ink-2">{r.noteToPayer}</span>] as [ReactNode, ReactNode]] : []),
+  ];
+  return (
+    <RowList rows={[
+      ["Amount", usd(r.amount), (r.forfeited ? `The whole ${usd(r.depositHeld)} deposit: the ${usd(r.deductions)} in deductions is forfeited`
+        : `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`)
+        + (r.viaDispute ? `, less ${usd(r.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute${r.viaDispute.notKept > 0 ? ` (${usd(r.viaDispute.notKept)} of the deductions not kept)` : ""}` : "")
+        + (r.outside ? `, less ${usd(r.outside.amount)} refunded in PayPal${r.outside.notKept > 0 ? ` (${usd(r.outside.notKept)} of the deductions not kept)` : ""}` : "")],
+      ...method,
+    ]} />
+  );
+}
 
-      <details open className="group">
-        <Summary />
-        <div className="mt-3">
-          <GroupHead title="Checks" right="Just now" />
-          <ul>
-            {r.checks.map((c) => <CheckRow key={c.key} c={c} />)}
-            {awaiting && (
-              <CheckRow c={{
-                key: "guard", label: "Final check before sending", value: failedCheck ? "Blocked" : "Matches the file",
-                state: failedCheck ? "fail" : "ok",
-                tip: { title: "The last check", body: `The prepared ${word}'s amount, payment and account, checked against the deposit, the deductions and the ${record}. When you send it, Good Faith checks once more, as they are at that moment, before PayPal is called.` },
-              }} />
-            )}
-          </ul>
-          {failedCheck && <Notice className="mt-2">{failedCheck}</Notice>}
-          {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} statute={statute} zone={zone} trace />}
+function RowsWaiting() {
+  return (
+    <>
+      {[0, 1, 2].map((i) => (
+        <Fragment key={i}>
+          <dt><Skeleton label="the amount" className="flex h-6 items-center"><Bone w={70} h={14} /></Skeleton></dt>
+          <dd className="min-w-0">
+            <Skeleton label="the amount" className="flex flex-col">
+              <div className="flex h-6 items-center"><Bone w={[110, 230, 60][i]} h={14} className="max-w-full" /></div>
+              {i < 2 && <div className="mt-px flex h-5 items-center"><Bone w={i ? 190 : 260} h={12} className="max-w-full" /></div>}
+            </Skeleton>
+          </dd>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+async function LiveChecks({ live, statute, record, zone }: { live: Live; statute: string; record: string; zone: string }) {
+  const r = await live;
+  const { run, awaiting, word } = wordsOf(r);
+  const failedCheck = awaiting ? r.pending!.check : null;
+  return (
+    <>
+      <ul>
+        {r.checks.map((c) => <CheckRow key={c.key} c={c} />)}
+        {awaiting && (
+          <CheckRow c={{
+            key: "guard", label: "Final check before sending", value: failedCheck ? "Blocked" : "Matches the file",
+            state: failedCheck ? "fail" : "ok",
+            tip: { title: "The last check", body: `The prepared ${word}'s amount, payment and account, checked against the deposit, the deductions and the ${record}. When you send it, Good Faith checks once more, as they are at that moment, before PayPal is called.` },
+          }} />
+        )}
+      </ul>
+      {failedCheck && <Notice className="mt-2">{failedCheck}</Notice>}
+      {run && <AgentRun run={run} amount={r.amount} deposit={r.depositHeld} word={word} statute={statute} zone={zone} trace />}
+    </>
+  );
+}
+
+function ChecksWaiting() {
+  return (
+    <Skeleton label="the checks" className="flex flex-col">
+      {Array.from({ length: 7 }, (_, i) => (
+        <div key={i} className="flex h-[34px] items-center gap-2.5">
+          <Bone w={18} h={18} className="rounded-full" /><Bone w={`${46 - (i % 3) * 8}%`} h={13} /><Bone w={110} h={13} className="ml-auto max-sm:hidden" />
         </div>
-      </details>
+      ))}
+    </Skeleton>
+  );
+}
 
+/** The run's own notes and the button, once PayPal's answer is in. */
+async function LiveActions({ v, live }: { v: RefundView; live: Live }) {
+  const r = await live;
+  const { run, awaiting, payout, nothing, blocked, running, word } = wordsOf(r);
+  const failedCheck = awaiting ? r.pending!.check : null;
+  return (
+    <>
       {run?.status === "failed" && <Notice className="mt-6">The last run stopped: {run.error ?? "no reason was recorded"}.</Notice>}
       {running && <Notice tone="gray" className="mt-6">The agent is working on this {word}. Refresh in a moment.</Notice>}
 
       <RefundActions
         tenancyId={v.tenancyId}
         back={v.back}
-        mode={mode}
+        mode={awaiting ? "send" : "prepare"}
         runId={awaiting ? run!.id : undefined}
         label={awaiting ? `Send ${word}` : nothing ? "Run the close-out" : run ? "Prepare again" : `Prepare ${word}`}
         disabled={awaiting ? !!failedCheck : blocked || running}

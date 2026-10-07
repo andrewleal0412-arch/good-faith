@@ -25,7 +25,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const [d, latest] = await Promise.all([liveDispute(link.tenancyId), latestDispute(link.tenancyId)]);
   // The negotiation over a sent dispute (live or closed), for the page showing it while the agents go back and forth.
   const sent = latest && latest.status !== "draft" ? (latest as NegotiationRow) : null;
-  const { count } = sent ? await db.from("negotiation_turns").select("id", { count: "exact", head: true }).eq("dispute_id", sent.id) : { count: 0 };
+  const { count } = sent ? await db.from("negotiation_turns").select("id", { count: "exact" }).eq("dispute_id", sent.id).limit(1) : { count: 0 };
   return Response.json(
     {
       status: d?.status ?? null, advocateStatus: d?.advocate_status ?? null,

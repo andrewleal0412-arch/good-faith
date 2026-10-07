@@ -31,18 +31,21 @@ export function DeliveryPanel(p: {
   existing: DeliveryRecord | null;
   recordedOn?: string | null; // the day the record was made, when later than the delivery date it names
   forwarding: { address: string; name: string | null; date: string } | null; // what the tenants gave through their link
+  waiting?: boolean; // PayPal's live answer for the statement is not in yet: the button waits for it
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const d = p.existing;
 
   useEffect(() => {
-    // A link to #delivery (the "Record delivery" next step) opens the form, on arrival or later, while nothing is recorded.
+    // A link to #delivery (the "Record delivery" next step) opens the form, on arrival or later, while nothing is
+    // recorded; once the statement's PayPal answer is in (the panel drawn while it waits never opens it).
+    if (p.waiting) return;
     const check = () => { if (window.location.hash === "#delivery" && !p.existing) setOpen(true); };
     const t = setTimeout(check, 0);
     window.addEventListener("hashchange", check);
     return () => { clearTimeout(t); window.removeEventListener("hashchange", check); };
-  }, [p.existing]);
+  }, [p.existing, p.waiting]);
 
   const where = !d ? null : d.method === "mail"
     ? (d.address_kind === "unit" ? "The vacated unit" : d.address ?? "Not recorded")
@@ -62,9 +65,9 @@ export function DeliveryPanel(p: {
         ) : (
           <p className="text-sm text-ink-3">{p.due ? `Due ${shortDate(p.due)}, with the refund` : "Due with the refund"}</p>
         )}
-        <Button className="mt-4 w-full" onClick={() => setOpen(true)}>{d ? "Change" : "Record delivery"}</Button>
+        <Button className="mt-4 w-full" onClick={() => setOpen(true)} disabled={p.waiting} title={p.waiting ? "Checking the deposit with PayPal" : undefined}>{d ? "Change" : "Record delivery"}</Button>
       </div>
-      {open && <DeliveryDrawer {...p} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); router.refresh(); }} />}
+      {open && !p.waiting && <DeliveryDrawer {...p} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); router.refresh(); }} />}
     </Card>
   );
 }

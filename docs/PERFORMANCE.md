@@ -10,6 +10,7 @@ Andrew, 2026-10-05: "the site is slow, it takes forever to go from tab to tab; i
 - **A full load paints in 50 to 100 ms for the sidebar pages and 200 to 360 ms for a property** (the shell and the page's skeleton stream first), instead of 470 to 1,570 ms.
 - Nothing is cached between requests or between workspaces, and a change shows at once (`scripts/cache-check.mjs`).
 - **Move to Starter before judging.** The free plan sleeps after 15 minutes (a judge's first page waited 6 to 11 s on 2026-10-05), and its CPU is a fifth of Starter's. The estimates are at the end.
+- **Part 2 (2026-10-07):** the statement and the refund review show their own content in 0.4 to 0.5 s instead of after PayPal's answer (about 1 s), photo grids load 6 to 10 kB thumbnails instead of the photos (the statement 1.75 MB to 77 kB), every AG Grid page loads 57 kB less JavaScript, a property opened again within a minute doesn't wait on PayPal, and Insights draws its grid 140 ms sooner on a click. See Speed, part 2.
 
 ## How it was measured
 
@@ -87,9 +88,9 @@ The clicks a judge makes most besides the sidebar and the tabs. Each shows its s
 | A property to its statement | 1,083 ms (1,026 to 1,251) | 7 to 1,078 ms | 1.5 to 1.7 s | about 1.0 s |
 | Move-out to Review refund | 1,091 ms (1,082 to 1,418) | 5 to 1,383 ms | 1.7 to 2.0 s | 1.1 to 1.3 s |
 
-The statement and the refund review are the slow ones on any plan: before they show anything they read the close-out's facts live from PayPal (`closeOutFacts`, the deposit invoice and its payment, so the amounts on them are PayPal's), about 0.7 to 0.9 s of waiting on PayPal's sandbox here. Starter shortens only their server work (66 to 84 ms of CPU locally, so about 0.7 to 0.8 s on the free plan and 0.15 on Starter). Streaming those two pages with the PayPal part behind its own skeleton is left for after judging: it touches the pages that show money.
+The statement and the refund review are the slow ones on any plan: before they show anything they read the close-out's facts live from PayPal (`closeOutFacts`, the deposit invoice and its payment, so the amounts on them are PayPal's), about 0.7 to 0.9 s of waiting on PayPal's sandbox here. Starter shortens only their server work (66 to 84 ms of CPU locally, so about 0.7 to 0.8 s on the free plan and 0.15 on Starter). Since part 2 they draw their own content first and stream PayPal's part behind its own skeletons (Speed, part 2).
 
-**Insights** is the heaviest page in the browser: a full load has about 860 ms of blocking time at 4x, with one task of 390 to 440 ms while its four charts and the grid are built together (on the first sidebar visit, 794 ms of long tasks in all). That is the browser's work, the same on any plan, and about a quarter as long without the slowdown. The charts already load only on Insights; deferring their build until the grid has drawn is left for after judging, with the AG Grid modules below.
+**Insights** is the heaviest page in the browser: a full load has about 860 ms of blocking time at 4x, with one task of 390 to 440 ms while its four charts and the grid are built together (on the first sidebar visit, 794 ms of long tasks in all). That is the browser's work, the same on any plan, and about a quarter as long without the slowdown. The charts already load only on Insights; since part 2 they are built after the grid has drawn (Speed, part 2).
 
 The estimates use the same calibration as the table at the end: ten times the local server CPU on the free plan and twice on Starter, Supabase about four times closer from Render's Oregon region (25 ms a round trip, against 100 ms here), PayPal's wait the same, and the browser's share as measured.
 
@@ -199,6 +200,51 @@ Sidebar figures are six rounds per build, tabs nine clicks each (three units, th
 
 **JavaScript:** no motion library was added (CSS, and the Web Animations API in `src/components/motion.tsx`). Every page loads 2 to 4 kB less gzipped JavaScript than before (Properties 159.1 to 155.0 kB, Payments 518.8 to 514.8 kB; the build split the shared code differently), except the refund review, which gains 10.5 kB (157.6 to 168.1 kB) for the step timeline and the success moment it now carries.
 
+## Speed, part 2 (2026-10-07)
+
+Round 6's deferred list, measured the same way: local production builds of `a471119` (before) and of the round (after), the same afternoon, the same throwaway demo copy (the three template units, no pool deposit) and a locally signed demo session, Chrome through Playwright at 4x CPU, the click's own timestamp. The common clicks were measured with both builds served at once and run in turn (four runs of three rounds before, two after), the rest one run per build. No app-level Claude call and no PayPal write; the pages read PayPal's invoice as they do.
+
+| Finding | Change | Where |
+|---|---|---|
+| The statement and the refund review showed nothing until PayPal answered (0.9 to 1.4 s at 4x), because every figure on them waits on `closeOutFacts`. | They draw what their own rows hold first: the statement its header, the parties and dates, each deduction with its photos and documents, Documents, interest and Delivery (`statementFrame`, the same code `buildStatement` uses for those parts); the refund review its parties, the amount of a refund waiting for approval, and the button. What PayPal's answer decides (the deposit, the totals, the refund, a settlement's figures, the checklist; the review's amount and method, blockers, checks and the agent's steps) streams in behind its own skeletons, each the height of what replaces it, from one read for all of them. PayPal's read starts with the statement's rows, not after them. Record delivery, Prepare refund and Send refund stay disabled until that answer is in, as they were when the page waited for it, and the routes behind them check everything again anyway. Decline, beside Send refund, is held off too until the answer brings the prepared run's id. The refund review reads its rows in one round instead of two. | `statement/page.tsx`, `src/lib/statement.ts`, `refund/page.tsx`, `src/lib/refund-view.ts`, `delivery-form.tsx` |
+| Photo grids and thumbnails loaded the photos themselves (150 to 230 kB each). | A thumbnail route serves 480 px WebP versions (6 to 10 kB) to the property's header, the move-in grid, the move-out photos by room, the dispute tiles, Properties, Move-outs, the statement's photos and the tenants' pages; the move-out comparison and every photo that opens on its own keep the full photo. The route checks the session's workspace with the same rule as a signed link (`maySign`); the tenants' routes take `?size=thumb` under their token. The browser keeps a thumbnail 30 days (a stored photo's path is never reused). The 23 template photos every demo copy shows were made ahead (`scripts/template-thumbs.mjs`, read only on storage) and ship in `data/template-thumbs`, so the hosted demo spends no CPU on them, even right after the free plan wakes; any other photo is made on first request, or from the upload's bytes just after it, and kept in memory (32 MB at most). Nothing is written to storage. | `src/lib/thumbs.ts`, `src/app/api/thumbs/[...path]/route.ts`, `src/lib/workspace.ts` (`thumbsFor`), `scripts/thumbs-check.mjs` |
+| Every grid registered `AllCommunityModule`. | Each grid registers only what it uses on top of the shared client-side row model, tooltips and cell and row classes (`gridModules` in `src/components/grid.tsx`). Every feature was exercised on the build (sorting, the quick filter, views, chips, row checkboxes, column moves and resizes, tooltips, row details, CSV exports, Insights' groups and filter, beat 3b's edits with the refused 12 and the accepted 9) with no AG Grid error, and in development with AG Grid's validation on for a run (it names a missing module; it isn't left on, since it also draws a box over the grid for every deprecation). | `grid.tsx`, the three grids |
+| Every property view read PayPal's invoice (about 0.25 to 0.4 s of the page's stream, and a sandbox GET). | A paid deposit's invoice read in the last minute stands in for a new read, per workspace, while the tenancy's payment records and its notes of refunds made in PayPal are unchanged (a digest of them is in the key, so any write, webhook report or decision reads again at once). The statement, the refund review, the close-out, a settlement and every route that moves money read PayPal themselves, so no money button ever acts on the reused read; a deposit not yet paid is always read live. | `src/lib/deposit.ts`, the property page |
+| Insights built its four charts in the same task as the grid on a click. | The charts are built once the grid has drawn its rows and that frame is painted (or after 1.5 s), their code fetched meanwhile, their places held at their sizes. | `insights.tsx`, `insights-grid.tsx` |
+| Counting rows with supabase-js's `head: true` sends a HEAD, which Supabase answers with `Connection: close`: each one cost the keep-alive pool a connection, and the next read paid a new TLS handshake (eight HEAD counts in a row opened seven connections, eight GET counts one). The refund review makes two, so the page opened after it waited about 250 ms longer on its first reads (500 against 230 ms locally, in both builds). | The page-path counts (the refund review, its state pack, the tenants' page, the tenants' dispute polling) ask with a GET (`count` with `limit(1)`): the same count, and the connection stays open. The close-out's refund key and the photo upload still count with a HEAD (not on a page's path; left as they are). | `refund-view.ts`, `tenancy-pack.ts`, `tenant-view.ts`, `api/t/[token]/dispute/route.ts`, `src/lib/http.ts` |
+
+**Common clicks, 1440 px, 4x CPU** (medians, range in brackets; "first content" is the first frame with the page's own content, "whole" the first with no skeleton left):
+
+| Click | Before (first content = whole) | After, first content | After, whole |
+|---|---:|---:|---:|
+| A property to its statement | 1,056 ms (892 to 1,108) | 394 ms (380 to 412, 793 the first time) | 882 ms (791 to 1,066) |
+| Move-out to Review refund | 1,052 ms (934 to 1,396) | 459 ms (450 to 476) | 964 ms (899 to 1,170) |
+| A Properties row to its property | 259 ms (239 to 363) | 260 ms (245 to 264; 606 the first, cold) | the same |
+| Back to Properties (the arrow) | 184 ms (176 to 204) | 182 ms (176 to 191) | the same |
+
+The whole statement is about 170 ms sooner (PayPal's read starts with its rows), the whole refund review about 90 ms sooner (its rows in one round), and each shows its own content about 0.6 s earlier. Feedback stays 15 to 25 ms. Layout shift while the skeletons fill: 0.005 on the statement, 0.012 on the refund review at 1440 and 0.059 at 390 (the copy's demo notice, which only a copy with no deposit of its own shows; a copy with its own shows none), 0 before.
+
+**Photos a page downloads** (1440 px, scrolled to its end, the move-out unit):
+
+| Page | Before | After |
+|---|---:|---:|
+| Properties | 439 kB (3 photos) | 19 kB |
+| Move-outs | 293 kB | 13 kB |
+| A property, Overview | 582 kB | 26 kB |
+| A property, Overview then Move-out | 1,164 kB | 1,190 kB (the comparison keeps the full photos; the room thumbnails add 19 kB) |
+| The statement | 1,746 kB (9 photos) | 77 kB |
+| The tenants' page | 552 kB (4, re-encoded at 1,600 px on every request) | 32 kB |
+
+**The thumbnail route's cost** (the server's own CPU, local): a template photo's thumbnail the first time in a process 4 ms (5 ms to its last byte, read from `data/template-thumbs`), from memory 2 ms; a photo made from the bucket (an upload) 25 to 65 ms the first time (the download 7 ms, sharp about 20, and its wait on storage 0.3 to 0.4 s), about ten times that on the free plan, once per photo per server start.
+
+**JavaScript** (gzipped as sent): Payments 514.9 to 457.8 kB, Insights 917.8 to 860.8 kB, an inspected property 548.6 to 491.6 kB (the grid's chunk, which loads after the page); the other pages are unchanged. Blocking time on a full load fell with it: an inspected property's Move-out tab 186 to 96 ms at 1440 (the move-out unit), the Payments page 154 to 116 ms (219 to 160 at 390).
+
+**Insights at 4x** (three rounds each): on a click from the sidebar the grid's first row is drawn at 440 ms instead of 579 (the long tasks before it 231 ms instead of 428) and the charts at 677 ms instead of 653; sidebar content 232 ms instead of 395 at 1440 and 266 instead of 423 at 390. On a full load the charts' code arrives after the grid has drawn anyway, so the grid (642 against 692 ms) and the charts (1,328 against 1,384 ms) move by no more than the run-to-run spread, and blocking time is 663 ms against 694 (682 against 788 at 390).
+
+**A property viewed again within a minute** (local, unthrottled, to the last byte): 595 to 650 ms instead of 800 to 1,050 with PayPal's read, and 100 to 131 ms of server CPU instead of 120 to 170. The page's own content arrives at the same time either way: the read was already streamed last (round 6).
+
+Everything else measured within the run-to-run spread: the sidebar (feedback 11 to 23 ms, content as before), a property's tabs (13 to 30 ms; Move-out 68 to 76 ms, 85 to 92 before), full loads (first paint and content within the spread of the server's answer). The hosted demo isn't measured: this round isn't deployed.
+
 ## On Render: the free plan and Starter
 
 Render's free plan gives the service a tenth of a CPU, Starter ($7 a month) half of one. The server's share of a page scales with that; the network share doesn't. Calibrated on the hosted demo before (its warm first bytes, 0.5 to 1.4 s, match about ten times the local CPU plus the database waits, within about 20 percent), the estimates:
@@ -229,12 +275,14 @@ Nothing is kept between requests that one workspace could read from another, and
 
 ## Trade-offs, and what is left
 
-- **Every property view reads PayPal's invoice.** The Payments tab streams in with PayPal's latest word on every view, not only when Payments is open: one sandbox GET per view, never in the way of the page.
-- **AG Grid's modules.** The grids register every Community module (`AllCommunityModule`). Registering only those used would make the grid chunk smaller, but each grid feature would need checking again; left for after judging.
-- **Thumbnails are the full photos.** The 64 px thumbnails and the move-in grid show the 2,000 px uploads (under 1 MB each, lazy now). Supabase's image resizing needs its Pro plan; `next/image` would resize them on the small server, which is worse.
+- **A property view reads PayPal's invoice at most once a minute per workspace** while the records are unchanged (Speed, part 2). A refund made in the PayPal dashboard with no webhook report can therefore show on the property up to a minute later; the refund review and every money route read PayPal themselves, so nothing is sent on the older read.
+- **The move-out comparison keeps the full photos.** Its frames run to the column's width and the slider to 900 px, where a 480 px version would blur the boxes' detail. The statement's photos are the 480 px versions on screen and on paper from the browser; the PDF packet still re-encodes the originals at 1,600 px.
+- **A photo that isn't a template's is made into a thumbnail on the server** the first time it is shown after a start (25 to 65 ms of CPU locally, about ten times that on the free plan). Uploads warm theirs from the bytes in hand. Supabase's image resizing needs its Pro plan.
+- **After a template photo changes,** run `node scripts/template-thumbs.mjs` (and `node scripts/thumbs-check.mjs --db` shows whether it is needed). A photo the index doesn't list is made on first request, so a stale index costs CPU, never a wrong picture.
 - **A notice's 404** costs its page one read before streaming (the same read the page makes anyway, cached).
 - **Back leaves a property.** Its tabs change the address without adding to the browser's history, so Back goes to the page before the property, not to the previous tab (and Forward comes back to the tab it was on). Tabs that each added an entry are what left a property on its skeleton after a change (above).
 - **Move-out builds its grid on every visit** (75 to 95 ms at 4x on an inspected unit): AG Grid destroys its grid while the tab is hidden. Keeping it alive would mean keeping the tab out of `Activity`, which is what makes the other tabs instant.
-- **The statement and the refund review read PayPal before they render** (about a second on any plan); see Common clicks.
-- **Insights' charts** are built in one 390 to 440 ms task at 4x on a full load; see Common clicks.
+- **The statement and the refund review still wait on PayPal for their figures** (about a second on any plan); their own content comes first since part 2.
+- **Two streamed parts can still move the page a little.** On a demo copy with no sandbox deposit of its own (the day's pool used up, or the Texas unit), the refund review's notice saying so arrives with PayPal's answer and moves what is below it down: a layout shift of 0.012 at 1440 and 0.059 at 390, under the 0.1 counted as good. Holding its place would mean reading the pool before the first paint (two to four more database reads, on the judges' path too) or guessing. On the statement, a claim's standing (New York after day 14, a Florida claim the tenants objected to in time) arrives above the deductions with PayPal's answer, since the close-out's facts work it out with the rest (New York's turns on the deposit's live status too); reserving a line for every New York statement would move the common case, a statement before day 14, instead. The demo has no New York or Florida unit, so only the owner's own tenancies show it.
+- **Insights' charts** are still built in one 270 to 390 ms task at 4x, now after the grid has drawn.
 - **The hosted demo after** isn't measured yet: Render deploys `main`, and this round isn't pushed. After the deploy, step 11 of the ten-minute check in `docs/DEPLOY.md` covers it.

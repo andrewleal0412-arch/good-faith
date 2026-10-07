@@ -196,16 +196,34 @@ async function runView(run: Record<string, unknown> | null | undefined): Promise
 }
 
 export async function loadRefundView(id: string, opts: { demo?: boolean } = {}): Promise<RefundView | null> {
-  const { data: t } = await db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("id", id).maybeSingle();
-  if (!t) return null;
-  const pack = packFor((t.properties as { state?: string | null } | null)?.state);
-  const [{ data: payments }, { data: runs }, { data: approvals }, { count: deductionCount }] = await Promise.all([
+  const start = await refundStart(id, opts);
+  if (!start) return null;
+  return start.view.sent ? start.view : { ...start.view, review: await start.review!() };
+}
+
+/** The review's parts that wait for PayPal's live answer: the amount, the method, the checks, the agent's run and the
+ *  button's state. */
+export type RefundReview = NonNullable<RefundView["review"]>;
+
+/** The refund page in two steps, so it can draw what the database holds before PayPal answers: `view` is the page with
+ *  the receipt when the refund went (no PayPal read at all), or with `review` still null; `review()` then reads the
+ *  close-out's facts live from PayPal and makes the review. `awaiting` is the prepared refund or Payout waiting for
+ *  the landlord's approval, as the database holds it (its tool and amount), or null; `ran`, whether the close-out has
+ *  run before. */
+export async function refundStart(id: string, opts: { demo?: boolean } = {}): Promise<{
+  view: RefundView; awaiting: { tool: string; amount: number } | null; ran: boolean; review: (() => Promise<RefundReview>) | null;
+} | null> {
+  // One round of reads: the tenancy and everything the page takes from under it.
+  const [{ data: t }, { data: payments }, { data: runs }, { data: approvals }, { count: deductionCount }] = await Promise.all([
+    db.from("tenancies").select("*, properties(address, city, owner_name, state)").eq("id", id).maybeSingle(),
     db.from("payments").select("*").eq("tenancy_id", id).order("created_at"),
     db.from("agent_runs").select("*").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(10),
     db.from("audit_log").select("created_at, detail").eq("tenancy_id", id).eq("action", "refund_approved").order("created_at", { ascending: false }).limit(1),
     // Whether anything is claimed: Florida's deadline turns on it (15 days with no claim, 30 after a claim notice).
-    db.from("deductions").select("id", { count: "exact", head: true }).eq("tenancy_id", id),
+    db.from("deductions").select("id", { count: "exact" }).eq("tenancy_id", id).limit(1),
   ]);
+  if (!t) return null;
+  const pack = packFor((t.properties as { state?: string | null } | null)?.state);
   const prop = t.properties as { address: string; city: string | null; owner_name: string | null } | null;
   const terms = t.lease_terms as { landlordName?: string | null; propertyAddress?: string | null } | null;
   const agreement = t.refund_agreement as { paypal_email: string } | null;
@@ -236,7 +254,7 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
     const runId = (approved?.detail as { run_id?: string } | null)?.run_id;
     const run = (runs ?? []).find((r) => r.id === runId) ?? runs?.[0];
     const status = String(returned.status ?? "");
-    return {
+    return { awaiting: null, ran: true, review: null, view: {
       ...base,
       sent: {
         kind: returned.kind, amount: Number(returned.amount), paypalId: returned.paypal_id, at: returned.created_at,
@@ -248,17 +266,28 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
         ...(reportedAt(returned.raw) ? { fromPayPal: reportedAt(returned.raw)! } : {}),
       },
       review: null,
-    };
+    } };
   }
 
-  // Before then, the rules engine's facts, live from PayPal, and the latest run with any refund it is waiting on.
-  const f = await closeOutFacts(id);
+  // Before then, the latest run with any refund it is waiting on, as stored; the rules engine's facts come live from
+  // PayPal in review().
   const run = runs?.[0];
-  let pending: NonNullable<RefundView["review"]>["pending"] = null;
-  if (run?.status === "awaiting_approval" && run.pending) {
-    const pd = run.pending as Pending;
-    const refund = pd.toolName === "create_refund";
-    const amount = refund ? (pd.input.amount as { value?: string })?.value ?? "" : String(pd.input.amount ?? "");
+  const pd = run?.status === "awaiting_approval" && run.pending ? run.pending as Pending : null;
+  const refundTool = pd?.toolName === "create_refund";
+  const pendingAmount = pd ? (refundTool ? (pd.input.amount as { value?: string })?.value ?? "" : String(pd.input.amount ?? "")) : "";
+  const awaiting = pd ? { tool: pd.toolName, amount: Number(pendingAmount) } : null;
+  const review = () => reviewOf(id, opts, pack, words, run, pd ? { pd, refund: refundTool, amount: pendingAmount } : null);
+  return { view: { ...base, sent: null, review: null }, awaiting, ran: !!run, review };
+}
+
+async function reviewOf(
+  id: string, opts: { demo?: boolean }, pack: StatePack, words: ReturnType<typeof deadlineWords>, run: Record<string, unknown> | undefined,
+  waiting: { pd: Pending; refund: boolean; amount: string } | null,
+): Promise<RefundReview> {
+  const f = await closeOutFacts(id);
+  let pending: RefundReview["pending"] = null;
+  if (waiting) {
+    const { pd, refund, amount } = waiting;
     pending = {
       tool: pd.toolName, amount: Number(amount),
       // The facts just read, so the page asks PayPal once; Send re-runs guardRefund from scratch.
@@ -270,20 +299,16 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
   const demoBlock = f.blockers.find((b) => DEMO_REFUND_BLOCKS.includes(b)) ?? null;
   if (demoBlock) console.warn(`demo copy tenancy ${id}: its refund page says it holds no sandbox deposit of its own`);
   return {
-    ...base,
-    sent: null,
-    review: {
-      // What goes back: the whole deposit once the deductions are forfeited (New York after day 14), else the rest; less
-      // what PayPal already returned through the tenants' PayPal dispute.
-      amount: pending?.amount ?? Math.max(0, Math.round(((f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund) - (f.viaDispute?.amount ?? 0) - (f.outside?.amount ?? 0)) * 100) / 100), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
-      ...(f.viaDispute ? { viaDispute: { amount: f.viaDispute.amount, disputeId: f.viaDispute.disputeId, notKept: f.viaDispute.notKept } } : {}),
-      ...(f.outside ? { outside: { amount: f.outside.amount, notKept: f.outside.notKept } } : {}),
-      ...(f.outsideOpen?.length ? { waiting: { count: f.outsideOpen.length, amount: Math.round(f.outsideOpen.reduce((t2, r) => t2 + r.amount, 0) * 100) / 100, href: tabHref(id, "payments", "outside-refunds") } } : {}),
-      balanceClaimed: f.totals.balanceClaimed, ...(f.standing && !f.standing.forfeits ? { standing: f.standing.label } : {}), ...(f.standing?.forfeits ? { forfeited: true } : {}),
-      rail: f.plan.rail, why: f.plan.why, ...(f.plan.noteToPayer ? { noteToPayer: f.plan.noteToPayer } : {}), method: f.deposit?.method ?? null,
-      blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),
-      checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
-      run: await runView(run), pending,
-    },
+    // What goes back: the whole deposit once the deductions are forfeited (New York after day 14), else the rest; less
+    // what PayPal already returned through the tenants' PayPal dispute.
+    amount: pending?.amount ?? Math.max(0, Math.round(((f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund) - (f.viaDispute?.amount ?? 0) - (f.outside?.amount ?? 0)) * 100) / 100), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
+    ...(f.viaDispute ? { viaDispute: { amount: f.viaDispute.amount, disputeId: f.viaDispute.disputeId, notKept: f.viaDispute.notKept } } : {}),
+    ...(f.outside ? { outside: { amount: f.outside.amount, notKept: f.outside.notKept } } : {}),
+    ...(f.outsideOpen?.length ? { waiting: { count: f.outsideOpen.length, amount: Math.round(f.outsideOpen.reduce((t2, r) => t2 + r.amount, 0) * 100) / 100, href: tabHref(id, "payments", "outside-refunds") } } : {}),
+    balanceClaimed: f.totals.balanceClaimed, ...(f.standing && !f.standing.forfeits ? { standing: f.standing.label } : {}), ...(f.standing?.forfeits ? { forfeited: true } : {}),
+    rail: f.plan.rail, why: f.plan.why, ...(f.plan.noteToPayer ? { noteToPayer: f.plan.noteToPayer } : {}), method: f.deposit?.method ?? null,
+    blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),
+    checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
+    run: await runView(run), pending,
   };
 }

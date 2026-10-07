@@ -1,15 +1,20 @@
 "use client";
 
-import { AllCommunityModule, themeQuartz } from "ag-grid-community";
+import { CellStyleModule, ClientSideRowModelModule, RowStyleModule, themeQuartz, TooltipModule, type Module } from "ag-grid-community";
 import type { CustomTooltipProps } from "ag-grid-react";
 
-// What every AG Grid in the app shares: the Community modules (no Enterprise feature and no license key anywhere),
-// the Quartz theme dressed in the design tokens, the dark tooltip and the CSV guard. The grids themselves are the
-// Payments ledger (ledger/ledger-grid.tsx), the Move-out tab's deductions (tenancy/[id]/deductions-grid.tsx) and
-// Insights (insights/insights-grid.tsx).
+// What every AG Grid in the app shares: the Community modules they all use (no Enterprise feature and no license key
+// anywhere), the Quartz theme dressed in the design tokens, the dark tooltip and the CSV guard. The grids themselves
+// are the Payments ledger (ledger/ledger-grid.tsx), the Move-out tab's deductions (tenancy/[id]/deductions-grid.tsx)
+// and Insights (insights/insights-grid.tsx).
 
-/** Every Community module, given to each grid through AgGridProvider so nothing registers on the server. */
-export const gridModules = [AllCommunityModule];
+/** The modules every grid uses, which each grid gives AgGridProvider with its own (so nothing registers on the server,
+ *  and a grid's chunk carries only what it draws with; AllCommunityModule carried every Community feature): the client
+ *  side row model (sorting, column moves and resizes, keyboard navigation and overlays come with the core), tooltips,
+ *  cell and row classes. AG Grid logs error #200 for an option or call whose module is missing. Its ValidationModule,
+ *  which names the module, stays out even in development: it draws a box over the grid for every deprecation, and the
+ *  demo is filmed from next dev. To check a grid's modules, add it here for a run and remove it again. */
+export const gridModules = (...own: Module[]): Module[] => [ClientSideRowModelModule, TooltipModule, CellStyleModule, RowStyleModule, ...own];
 
 /** The design tokens by value (globals.css): the theme mixes them into its hover, selection and focus tints, which it
  *  cannot do from a var() reference. The grid draws no border of its own; the card around it does. */

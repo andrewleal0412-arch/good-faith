@@ -13,9 +13,10 @@ import { Card, CardHead, FactStrip, Wordmark } from "./ui";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
-/** One gray bone: a line of text, a button, a photo. */
-export function Bone({ w, h = 12, className }: { w?: number | string; h?: number; className?: string }) {
-  return <span aria-hidden className={cx("gf-bone block shrink-0", className)} style={{ width: w ?? "100%", height: h }} />;
+/** One gray bone: a line of text, a button, a photo. `mark`: it is a skeleton of its own (data-skeleton), for a bone set
+ *  straight into a real component's layout (a fact's value) rather than inside a Skeleton. */
+export function Bone({ w, h = 12, className, mark }: { w?: number | string; h?: number; className?: string; mark?: boolean }) {
+  return <span aria-hidden data-skeleton={mark ? "" : undefined} className={cx("gf-bone block shrink-0", className)} style={{ width: w ?? "100%", height: h }} />;
 }
 
 /** The root of a skeleton. */

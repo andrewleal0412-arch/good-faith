@@ -1,6 +1,8 @@
+import { after } from "next/server";
 import { audit, db } from "@/lib/db";
 import { imageType, notAPhotoServer, photoTooLarge, readForm, TOO_LARGE, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
+import { warmThumbnail } from "@/lib/thumbs";
 import { PHOTOS_PER_REQUEST, UPLOAD_BUDGET } from "@/lib/uploads";
 import { routeTenancy, uploadPrefix } from "@/lib/workspace";
 
@@ -38,7 +40,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   }
 
   // Every file is checked before any is stored, so a refused one leaves nothing behind.
-  const checked: { file: File; bytes: Uint8Array; type: string }[] = [];
+  const checked: { file: File; bytes: Uint8Array<ArrayBuffer>; type: string }[] = [];
   for (const f of files) {
     const bytes = new Uint8Array(await f.arrayBuffer());
     const type = await imageType(bytes);
@@ -50,6 +52,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   if (run.refused) return run.refused;
 
   const rows = [];
+  const stored: { path: string; bytes: Uint8Array<ArrayBuffer>; type: string }[] = [];
   for (const { file, bytes, type } of checked) {
     const ext = type.slice("image/".length);
     // Under the workspace's own prefix, so a demo copy's uploads are its own to sign and the sweep's to remove.
@@ -57,9 +60,12 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     const up = await db.storage.from("photos").upload(path, bytes, { contentType: type });
     if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
     rows.push({ tenancy_id: id, phase, room, storage_path: path, caption: file.name });
+    stored.push({ path, bytes, type });
   }
   const { error } = await db.from("photos").insert(rows);
   if (error) return Response.json({ error: error.message }, { status: 500 });
+  // Their small versions for the grids (src/lib/thumbs.ts), from the bytes in hand, once this has answered.
+  after(() => { for (const s of stored) warmThumbnail(s.path, s.bytes, s.type); });
   // The browser sends a big selection in several requests; "total" is the whole selection, so the log can say 4 of 6.
   const total = Number(form.get("total"));
   await audit(id, "landlord", "photos_added", { phase, room, count: rows.length, ...(Number.isInteger(total) && total > rows.length ? { total } : {}) });

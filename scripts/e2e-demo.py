@@ -431,6 +431,32 @@ def walk(base, setup, shots, check, facts):
                  f"Verified the {D} deposit with PayPal", f"Prepared the {R} refund", "Waiting for your approval", "Final check before sending", "Matches the file")
         only_amounts("Refund prepared", t, [E["refund"], E["deposit"], E["deductions"]])
         shot(page, "refund-prepared")
+        # The prepared review opened again, as from Move-out: while PayPal's part streams in behind its skeletons, Send
+        # refund and Decline stay off (the waiting buttons have no run id); once it is in, both are on. Every DOM change
+        # on the way is recorded, so a frame with a skeleton and a live button can't slip between two looks.
+        page.add_init_script("""
+          if (location.pathname.endsWith('/refund')) {
+            window.__gfButtons = [];
+            const look = () => {
+              const bs = [...document.querySelectorAll('main button')];
+              const by = (w) => bs.find((b) => b.textContent.trim() === w);
+              const send = by('Send refund'), decline = by('Decline');
+              if (!send && !decline) return;
+              window.__gfButtons.push({ sk: !!document.querySelector('main [data-skeleton]'), send: !!send && !send.disabled, decline: !!decline && !decline.disabled });
+            };
+            new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true });
+          }
+        """)
+        go(page, f"/tenancy/{mo}/refund")
+        page.get_by_text("Matches the file").first.wait_for(timeout=30_000)
+        frames = page.evaluate("() => window.__gfButtons || []")
+        early = [x for x in frames if x["sk"] and (x["send"] or x["decline"])]
+        print(f"  the prepared review's buttons, looked at {len(frames)} times, {sum(1 for x in frames if x['sk'])} of them with a skeleton up", flush=True)
+        check("Refund prepared, opened again: Send refund and Decline stay off while the review waits for PayPal", not early,
+              f"{len(frames)} looks, {sum(1 for x in frames if x['sk'])} with a skeleton up, {len(early)} with a button on: {json.dumps(early[:3])}")
+        check("Refund prepared, opened again: Send refund and Decline are on once PayPal has answered",
+              page.get_by_role("button", name="Send refund").is_enabled() and page.get_by_role("button", name="Decline").is_enabled()
+              and page.locator("main [data-skeleton]").count() == 0)
         page.get_by_role("button", name="Send refund").click()
         page.get_by_text("Sent through PayPal").first.wait_for(timeout=90_000)
         f1 = facts()

@@ -6,7 +6,10 @@ import { Agent, fetch as undiciFetch } from "undici";
 // connections on the next click: on the hosted demo's small CPU that was most of a second, and on a laptop 340 ms
 // became 800 ms for one page's reads (docs/PERFORMANCE.md). This pool keeps them for a minute (or for as long as the
 // server's own Keep-Alive header allows, whichever is shorter). Only connections are shared: no request or answer is
-// kept, so nothing here crosses from one session to another.
+// kept, so nothing here crosses from one session to another. A page counts rows with a GET (select with a count and
+// limit(1)), not supabase-js's head: true: Supabase answers a HEAD with Connection: close, so each one cost the pool a
+// connection and the page's next read a new TLS handshake (eight HEAD counts in a row opened seven connections, eight
+// GET counts one; the refund review's two made the property page opened after it 250 ms slower, docs/PERFORMANCE.md).
 const pool = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 10 * 60_000, connections: 24 });
 
 /** Whether the global fetch is the one Next.js installs in its server (it marks it `__nextPatched`, for code outside

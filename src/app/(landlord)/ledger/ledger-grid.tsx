@@ -7,6 +7,7 @@ import type {
   CellClickedEvent, CellKeyDownEvent, ColDef, ColumnMovedEvent, ColumnResizedEvent, ColumnState, GridApi, GridReadyEvent, IRowNode, ITooltipParams,
   ProcessCellForExportParams, ProcessHeaderForExportParams, SortChangedEvent, ValueFormatterParams, ValueGetterParams,
 } from "ag-grid-community";
+import { ColumnApiModule, CsvExportModule, ExternalFilterModule, QuickFilterModule, RowApiModule, RowSelectionModule } from "ag-grid-community";
 import { atTextIn, dayLabel, longDate, PACIFIC, shortDate } from "@/lib/dates";
 import { zoneOf } from "@/lib/states";
 import { Button, ButtonLink } from "@/components/button";
@@ -30,6 +31,10 @@ import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
 // Enter; the arrow keys move between cells. Past a screenful the grid renders only the rows in view, so a few hundred
 // rows scroll as fast as ten. No license key and nothing from Enterprise; the modules go in through the provider so
 // nothing runs on the server.
+
+/** What this grid draws with, beyond what every grid shares (gridModules): the quick filter, the views' and the chips'
+ *  filter, the row checkboxes, the CSV, saved column layouts, and the shown and selected counts. */
+const MODULES = gridModules(QuickFilterModule, ExternalFilterModule, RowSelectionModule, CsvExportModule, ColumnApiModule, RowApiModule);
 
 /* ---------- Views and what each row is ---------- */
 
@@ -541,7 +546,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
       </div>
 
       <div ref={card} className="overflow-hidden rounded-lg border border-line bg-canvas shadow-sm">
-        <AgGridProvider modules={gridModules}>
+        <AgGridProvider modules={MODULES}>
           <div style={virtual ? { height: 40 + 12 * rowH + 2 } : undefined}>
             <AgGridReact<LedgerRow>
               containerStyle={virtual ? { height: "100%" } : undefined}
