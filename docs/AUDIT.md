@@ -129,7 +129,7 @@ A review of the audit found these; each was checked against the code first. The 
 
 ## Found, not changed
 
-- **Dependency advisories.** `npm audit --omit=dev` lists 10 (5 high), all inside `@paypal/agent-toolkit` 1.11.0's own dependencies: `@langchain/core`, `langsmith`, `jsondiffpatch`, the toolkit's nested `ai` 4.x, `mathjs` and `uuid`. npm's only fix for most of them is downgrading the toolkit to 1.3.5, a breaking change. `mathjs` alone has a non-breaking fix (`npm audit fix`). They were left alone this late. GitHub's Dependabot will list them once the repository is public.
+- **Dependency advisories.** `npm audit --omit=dev` lists 10 (5 high), all inside `@paypal/agent-toolkit` 1.11.0's own dependencies: `@langchain/core`, `langsmith`, `jsondiffpatch`, the toolkit's nested `ai` 4.x, `mathjs` and `uuid`. npm's only fix for most of them is downgrading the toolkit to 1.3.5, a breaking change. npm lists a non-breaking fix for `mathjs` alone (`npm audit fix`), but it changes nothing: checked on 2026-10-07, the toolkit asks for `mathjs` `^14.0.1` and the first fixed release is 15.2.0, so only an `overrides` entry or a new toolkit would move it. They were left alone this late. GitHub's Dependabot will list them once the repository is public.
 - **Links a script can't check.** These answer 403 to scripts (bot protection), so open them by hand once:
   - nysenate.gov, the New York pack's statute link and most of NY.md's sources;
   - justia, findlaw, hcr.ny.gov, nycourts.gov, legiscan, amlegal, codepublishing and the Florida Bar PDF.
