@@ -14,18 +14,25 @@ export function FormField({ label, hint, note, group, labelClass, children }: {
   children: ReactNode;
 }) {
   const id = useId();
+  const noteId = `${id}-note`;
   const head = labelClass ?? "mb-1.5 flex items-center gap-1.5 text-sm font-medium text-ink";
-  const foot = note ? <p className="mt-1 text-xs text-ink-3">{note}</p> : null;
+  const foot = note ? <p id={noteId} className="mt-1 text-xs text-ink-3">{note}</p> : null;
   if (group) {
     return (
-      <div role="group" aria-labelledby={id}>
+      <div role="group" aria-labelledby={id} aria-describedby={note ? noteId : undefined}>
         <div className={head}><span id={id}>{label}</span>{hint}</div>
         {children}
         {foot}
       </div>
     );
   }
-  const control = isValidElement(children) ? cloneElement(children as ReactElement<{ id?: string }>, { id }) : children;
+  // The control gets the label's id, and the note (if any) as its description, beside one it already has (an error).
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<{ id?: string; "aria-describedby"?: string }>, {
+      id,
+      "aria-describedby": [(children as ReactElement<{ "aria-describedby"?: string }>).props["aria-describedby"], note ? noteId : null].filter(Boolean).join(" ") || undefined,
+    })
+    : children;
   return (
     <div>
       <div className={head}><label htmlFor={id}>{label}</label>{hint}</div>

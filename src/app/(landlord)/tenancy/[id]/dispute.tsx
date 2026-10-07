@@ -33,7 +33,7 @@ export function DisputeCard({ v, photoUrl, thumbUrl, tenantsLabel, zone = PACIFI
   const disputed = v.lines.filter((l) => l.disputed);
   const who = v.openedBy ?? tenantsLabel;
   return (
-    <Card id="dispute" className="scroll-mt-24">
+    <Card id="dispute" className="scroll-mt-8">
       <CardHead title="Dispute"
         right={<><StatusChip tone={st.tone}>{st.label}</StatusChip>
           <InfoTip align="end" title="How this was checked">

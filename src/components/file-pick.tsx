@@ -1,6 +1,6 @@
 "use client";
 
-import { buttonClass } from "./button";
+import { buttonClass, pickerFocus } from "./button";
 import { Icon, type IconName } from "./icons";
 
 // A file picker in the system's own controls: the browser's input is visually hidden behind a secondary button, and
@@ -19,7 +19,7 @@ export function FilePick({ id, label, icon = "upload", accept, multiple, files, 
   const picked = files.length === 1 ? files[0].name : files.length > 1 ? `${files.length} files` : "";
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-      <label className={buttonClass("secondary", "md", "cursor-pointer focus-within:ring-3 focus-within:ring-brand-100")}>
+      <label className={buttonClass("secondary", "md", pickerFocus)}>
         <Icon name={icon} />{label}
         <input id={id} type="file" className="sr-only" accept={accept} multiple={multiple} aria-label={ariaLabel}
           onChange={(e) => onChange(Array.from(e.currentTarget.files ?? []))} />

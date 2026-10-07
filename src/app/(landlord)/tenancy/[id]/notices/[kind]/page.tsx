@@ -60,7 +60,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
 
   return (
     <div className="w-full print:max-w-none">
-      <nav className="flex items-center gap-3 print:hidden">
+      <div className="flex items-center gap-3 print:hidden">
         <Link href={`/tenancy/${id}?tab=move-out#notice`} aria-label="Back to the property"
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface">
           <Icon name="arrow-left" className="size-[15px]" />
@@ -70,7 +70,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
           <p className="truncate text-sm text-ink-3">{streetLine(t.address)}</p>
         </div>
         <PrintButton />
-      </nav>
+      </div>
 
       <div className="mt-4 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8 print:mt-0 print:block">
         <article className="rounded-lg border border-line bg-canvas p-6 shadow-sm sm:p-10 print:rounded-none print:border-0 print:p-0 print:shadow-none">
@@ -186,7 +186,7 @@ export default async function NoticePage({ params }: PageProps<"/tenancy/[id]/no
           </footer>
         </article>
 
-        <aside className="max-lg:order-first print:hidden">
+        <aside aria-label="Status" className="max-lg:order-first print:hidden">
           <Card className="lg:sticky lg:top-20">
             <CardHead title="Status" right={given ? <StatusChip tone="green">Given</StatusChip> : <StatusChip tone="amber">Draft</StatusChip>} />
             <div className="flex flex-col gap-3 px-5 py-4">
@@ -239,7 +239,7 @@ async function PackRecordPage({ id, t, pack, def, today }: { id: string; t: NonN
   const status = def.status?.(t.notices) ?? null; // e.g. whether a Florida objection came in time
   return (
     <div className="w-full print:max-w-none">
-      <nav className="flex items-center gap-3 print:hidden">
+      <div className="flex items-center gap-3 print:hidden">
         <Link href={`/tenancy/${id}${def.phase === "move_in" ? "#move-in" : "?tab=move-out#notice"}`} aria-label="Back to the property"
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface">
           <Icon name="arrow-left" className="size-[15px]" />
@@ -249,7 +249,7 @@ async function PackRecordPage({ id, t, pack, def, today }: { id: string; t: NonN
           <p className="truncate text-sm text-ink-3">{streetLine(t.address)}</p>
         </div>
         {blocks && <PrintButton />}
-      </nav>
+      </div>
 
       <div className="mt-4 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8 print:mt-0 print:block">
         {blocks ? (
@@ -300,7 +300,7 @@ async function PackRecordPage({ id, t, pack, def, today }: { id: string; t: NonN
           </Card>
         )}
 
-        <aside className="max-lg:order-first print:hidden">
+        <aside aria-label="Status" className="max-lg:order-first print:hidden">
           <Card className="lg:sticky lg:top-20">
             <CardHead title="Status" right={given ? <StatusChip tone="green">{def.verb}</StatusChip> : <StatusChip tone="amber">{blocks ? "Draft" : "Not recorded"}</StatusChip>} />
             <div className="flex flex-col gap-3 px-5 py-4">

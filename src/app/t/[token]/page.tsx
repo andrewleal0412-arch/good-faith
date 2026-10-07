@@ -173,7 +173,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
               {rooms.flatMap((r) => v.photos.filter((p) => p.room === r)).map((p) => (
                 <li key={p.id} className="min-w-0">
                   <a href={`/api/t/${token}/photos/${p.id}`} target="_blank" rel="noreferrer" aria-label={`${p.room}, move-in photo`}
-                    className="block rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand-100">
+                    className="block rounded-md">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img decoding="async" src={`/api/t/${token}/photos/${p.id}?size=thumb`} alt="" loading="lazy" className="aspect-square w-full rounded-md border border-line bg-surface object-cover" />
                   </a>
@@ -190,7 +190,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
               <Icon name="download" />Download itemized statement (PDF)
             </a>
             <p className="mt-2.5 flex items-center justify-center gap-1.5 text-sm text-ink-3">
-              <a href={pdf} target="_blank" rel="noreferrer" className="text-brand hover:underline">Open in browser</a>
+              <a href={pdf} target="_blank" rel="noreferrer" className="inline-flex min-h-6 items-center text-brand hover:underline">Open in browser</a>
               {/* Built fresh from the landlord's records on each request (no copy of the mailed PDF is kept), so the tip says so. */}
               <InfoTip align="end" title="About this PDF">
                 Built from your landlord&apos;s records as they stand, dated the day the statement went out, with the photo exhibits and copies of any invoices. The paper or email you received is the statement itself.
@@ -227,7 +227,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
               </li>
             ))}
             <li className="border-t border-line-2 pt-2.5">
-              <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand hover:underline">
+              <a href={COURTS_GUIDE} target="_blank" rel="noreferrer" className="inline-flex min-h-6 items-center gap-1 text-brand hover:underline">
                 {pack.courtsGuide.label} to security deposits<Icon name="arrow-up-right" className="size-3.5" />
               </a>
             </li>

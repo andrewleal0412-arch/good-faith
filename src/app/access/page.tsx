@@ -38,11 +38,11 @@ export default async function AccessPage({ searchParams }: PageProps<"/access">)
     <div className="flex min-h-screen flex-col bg-canvas">
       <main className="gf-page flex flex-1 justify-center px-4 pb-16 pt-16 sm:pt-28">
         <div className="w-[400px] max-w-full">
-          <Wordmark />
+          <h1><Wordmark /></h1>
           <p className="mt-1.5 text-balance text-base text-ink-3">Security deposits from move-in to refund in five states, with PayPal.</p>
           {g.mode === "unconfigured" ? (
             <Card className="mt-6">
-              <EmptyState heading tone="gray" icon="alert" title="This demo is not configured"
+              <EmptyState tone="gray" icon="alert" title="This demo is not configured"
                 sub="The host hasn't set an access code yet, so nothing here opens." />
             </Card>
           ) : (
@@ -50,9 +50,9 @@ export default async function AccessPage({ searchParams }: PageProps<"/access">)
               <form method="post" action="/api/access" className="flex flex-col gap-4">
                 <FormField label="Access code">
                   <input name="code" type="password" required autoFocus autoComplete="one-time-code" spellCheck={false}
-                    maxLength={200} className={inputClass} aria-invalid={error ? true : undefined} />
+                    maxLength={200} className={inputClass} aria-invalid={error ? true : undefined} aria-describedby={error ? "access-error" : undefined} />
                 </FormField>
-                {error && <Notice>{error}</Notice>}
+                {error && <Notice id="access-error">{error}</Notice>}
                 {next !== "/" && <input type="hidden" name="next" value={next} />}
                 <Button type="submit" variant="primary" size="lg" className="w-full">Enter demo</Button>
               </form>

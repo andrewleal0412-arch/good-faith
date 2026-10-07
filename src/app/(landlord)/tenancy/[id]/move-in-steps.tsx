@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, buttonClass } from "@/components/button";
+import { Button, buttonClass, pickerFocus } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
@@ -182,7 +182,7 @@ export function MoveInSteps(p: Props) {
             <select value={room} onChange={(e) => setRoom(e.target.value)} aria-label="Room" className={`${inlineInputClass} pr-8`}>
               {ROOMS.map((r) => <option key={r}>{r}</option>)}
             </select>
-            <label className={buttonClass("secondary", "md", "cursor-pointer focus-within:ring-3 focus-within:ring-brand-100")}>
+            <label className={buttonClass("secondary", "md", pickerFocus)}>
               <Icon name="camera" />{busy === "photos" ? "Uploading..." : "Add photos"}
               <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => addPhotos(e.currentTarget)} />
             </label>

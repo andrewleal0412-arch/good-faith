@@ -12,7 +12,7 @@ import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { Drawer } from "@/components/drawer";
 import { FormField } from "@/components/field";
-import { GridTip, gridModules, gridTheme } from "@/components/grid";
+import { GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
@@ -463,8 +463,13 @@ export function DeductionsGrid(p: {
     apiRef.current?.stopEditing(true);
   }, []);
 
-  // Enter on a row's item or amount opens its inputs in the drawer, for a keyboard or a screen reader.
+  // Enter on a row's item or amount opens its inputs in the drawer, for a keyboard or a screen reader; on its menu's cell,
+  // it opens the menu (Edit, Remove); on a total's line, its info tip.
   const onKey = useCallback((e: CellKeyDownEvent<Row>) => {
+    if (e.column.getColId() === "menu" || e.data?.kind === "total") {
+      pressCellControl(e);
+      return;
+    }
     const k = (e.event as KeyboardEvent | undefined)?.key;
     if (k === "Enter" && e.data?.kind === "deduction" && p.allowed && !INPUTS.some((x) => x.field === e.column.getColId())) setDrawer(e.data);
   }, [p.allowed]);
@@ -491,6 +496,7 @@ export function DeductionsGrid(p: {
           invalidEditValueMode="block"
           singleClickEdit
           stopEditingWhenCellsLoseFocus
+          {...gridTab}
           onCellKeyDown={onKey}
           onCellFocused={onCellFocused}
           onCellEditingStarted={onEditingStarted}

@@ -52,7 +52,7 @@ export function DeliveryPanel(p: {
     : d.method === "email" ? d.email ?? "Not recorded" : d.to ?? "Not recorded";
 
   return (
-    <Card id="delivery" className="scroll-mt-24">
+    <Card id="delivery" className="scroll-mt-8">
       <CardHead title="Delivery" right={d ? <StatusChip tone="green">Delivered</StatusChip> : <StatusChip tone="amber">Not recorded</StatusChip>} />
       <div className="px-5 py-4">
         {d ? (

@@ -374,7 +374,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
   // The notice and its dates: first on the tab before the comparison, last after it.
   const notice = (
-    <section id="notice" className="scroll-mt-24">
+    <section id="notice" className="scroll-mt-8">
       <NoticeSection
         tenancyId={id}
         state={pack.code}
@@ -409,7 +409,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_288px]">
       <div className="flex min-w-0 flex-col gap-6">
-        <Card id="move-in" className="scroll-mt-24">
+        <Card id="move-in" className="scroll-mt-8">
           <CardHead title="Move-in" meta={moveInMeta(pack, { agreement: !!agreement, paid, photos: moveIn.length > 0, notices: summary.notices })} />
           <MoveInSteps
             tenancyId={id}
@@ -518,7 +518,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           record moves to the foot of the tab. */}
       {!inspected && notice}
 
-      <section id="photos" className="scroll-mt-24">
+      <section id="photos" className="scroll-mt-8">
         <MoveOut
           tenancyId={id}
           state={pack.code}
@@ -535,7 +535,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       </section>
 
       {inspected && (
-        <section id="deductions" className="scroll-mt-24">
+        <section id="deductions" className="scroll-mt-8">
           <Settlement
             tenancyId={id}
             state={pack.code}
@@ -553,7 +553,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       )}
 
       {inspected && (
-        <section id="refund" className="scroll-mt-24">
+        <section id="refund" className="scroll-mt-8">
           <CloseOut
             tenancyId={id}
             tenants={summary.tenants}
@@ -628,7 +628,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         </Card>
       )}
 
-      <section id="tenant-link" className="scroll-mt-24">
+      <section id="tenant-link" className="scroll-mt-8">
         <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} demoHref={tenantPath} zone={zone} />
       </section>
     </div>

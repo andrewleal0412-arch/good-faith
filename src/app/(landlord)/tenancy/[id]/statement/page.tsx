@@ -677,9 +677,11 @@ function Checklist({ items, pack }: { items: ChecklistItem[]; pack: StatePack })
     const [cls, icon] = MARK[c.state];
     return (
       <li key={c.n} className="flex items-center gap-2.5 py-[7px] text-sm">
-        <span className={`flex size-[18px] shrink-0 items-center justify-center rounded-full ${cls}`}>
+        <span aria-hidden className={`flex size-[18px] shrink-0 items-center justify-center rounded-full ${cls}`}>
           {icon ? <Icon name={icon} className="size-3" /> : <span className="h-px w-2 bg-current" />}
         </span>
+        {/* The mark's meaning in words, for a screen reader. */}
+        <span className="sr-only">{c.state === "done" ? "Done:" : c.state === "missing" ? "Missing:" : "Not applicable:"}</span>
         <span className={`min-w-0 flex-1 ${c.state === "not_applicable" ? "text-ink-3" : "text-ink-2"}`}>
           <InfoTip title={`${c.n}. ${c.title}`} cite={cite(c.cite, pack)}
             trigger={<TipLabel>{pack.statement.short[c.n] ?? c.title}</TipLabel>}>

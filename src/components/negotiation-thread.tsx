@@ -92,7 +92,7 @@ function TurnRow({ t, p, names, ref }: { t: TurnView; p: Perspective; names: { l
         )}
         {(t.reasoning || moved.length > 0) && (
           <details className="group mt-1.5">
-            <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
+            <summary className="-my-1 inline-flex cursor-pointer list-none items-center gap-1 py-1 text-xs font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
               {t.reasoning ? "Reasoning and figures" : "Charge by charge"}
               <Icon name="chev-down" className="size-3 transition-transform group-open:rotate-180" />
             </summary>

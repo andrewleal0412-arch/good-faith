@@ -115,7 +115,7 @@ export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { ten
   const stateDue = v.open && v.stateDue && !(v.stateDue.delivered && p.owedBack <= 0.005) ? v.stateDue : null;
 
   return (
-    <Card id="paypal-dispute" className="scroll-mt-24">
+    <Card id="paypal-dispute" className="scroll-mt-8">
       <CardHead title="PayPal dispute" meta={<span className="max-sm:hidden">{v.id}</span>}
         right={<>
           <StatusChip tone={tone}>{v.status}</StatusChip>
@@ -352,7 +352,10 @@ export function PayPalDisputeCheck({ tenancyId }: { tenancyId: string }) {
         </div>
         <Button size="sm" disabled={busy} onClick={check}>{busy ? "Checking..." : "Check PayPal"}</Button>
       </div>
-      {msg && <p className={`mt-2 text-xs ${msg.tone === "red" ? "text-red" : "text-ink-3"}`}>{msg.text}</p>}
+      {/* What Check PayPal found, read out when it lands (an error at once). */}
+      <div aria-live="polite" className="empty:hidden">
+        {msg && <p role={msg.tone === "red" ? "alert" : undefined} className={`mt-2 text-xs ${msg.tone === "red" ? "text-red" : "text-ink-3"}`}>{msg.text}</p>}
+      </div>
     </Card>
   );
 }

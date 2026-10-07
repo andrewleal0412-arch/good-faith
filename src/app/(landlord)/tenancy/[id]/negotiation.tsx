@@ -154,7 +154,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
   const working = v.running || busy === "run" ? (v.turns[v.turns.length - 1]?.side === "landlord" ? "tenant" : "landlord") : null;
 
   return (
-    <Card id="negotiation" className="scroll-mt-24">
+    <Card id="negotiation" className="scroll-mt-8">
       <CardHead title="Negotiation" meta={v.turns.length > 1 ? <span className="max-sm:hidden">{exchangesUsed} of 3 exchanges</span> : undefined}
         right={<>{chip}
           <InfoTip align="end" title="Two agents, inside the law">

@@ -125,8 +125,9 @@
   input[type="radio"] {
     accent-color: var(--color-brand);
   }
-  /* One keyboard focus style for anything without its own ring (links, summaries, checkboxes): a 2px brand outline.
-     Buttons, inputs and tabs draw a brand-100 ring instead and opt out with outline-none. */
+  /* One keyboard focus style for every control: a 2px brand outline, 4.7:1 on white. Inputs opt out with outline-none
+     and turn their border brand instead; a control in a box that clips (a grid cell, a menu item, a record tab) draws
+     the outline inside itself with a negative offset. */
   :focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
@@ -136,6 +137,11 @@
   }
   ::selection {
     background: var(--color-brand-100);
+  }
+  /* The landlord's sticky top bar never hides what has keyboard focus (WCAG 2.4.11): the page scrolls a control Tab
+     reaches to at least 8px under the bar. A section a link scrolls to keeps its own margin on top of this. */
+  html:has(header[data-top-bar]) {
+    scroll-padding-top: 64px;
   }
 }
 
@@ -184,6 +190,13 @@
 .ag-cell-focus:not(.ag-cell-range-selected):not(.ag-cell-inline-editing):focus-within {
   outline: 2px solid var(--color-brand);
   outline-offset: -2px;
+}
+/* A header with keyboard focus (the arrow keys reach it, Enter sorts): the same outline, inside the header cell. AG Grid
+   draws its own focus without an outline, so this one wins over its rule. */
+.ag-header-cell:focus-visible,
+.ag-header-group-cell:focus-visible {
+  outline: 2px solid var(--color-brand) !important;
+  outline-offset: -2px !important;
 }
 /* A header a screen reader names but the eye doesn't need (the row menus' "Actions"). */
 .ag-header-cell.gf-header-sr .ag-header-cell-text {

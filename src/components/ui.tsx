@@ -229,7 +229,8 @@ export function Th({ children, align = "left", className, first, last }: { child
   return (
     <th className={cx("whitespace-nowrap border-b border-line px-2.5 py-2.5 text-xs font-medium text-ink-3",
       align === "right" ? "text-right" : "text-left", first && "pl-5", last && "pr-5", className)}>
-      {children}
+      {/* A column of row actions shows no header, but a screen reader still hears what the column is. */}
+      {children ?? <span className="sr-only">Actions</span>}
     </th>
   );
 }
@@ -268,22 +269,23 @@ export function EmptyState({ icon = "building", title, sub, action, tone = "bran
 /* ---------- Notices inside a view ---------- */
 
 /** An error or a heads-up line. Red is for errors only; a plain note is gray. */
-export function Notice({ tone = "red", children, className }: { tone?: "red" | "amber" | "gray"; children: ReactNode; className?: string }) {
+export function Notice({ tone = "red", children, className, id }: { tone?: "red" | "amber" | "gray"; children: ReactNode; className?: string; id?: string }) {
   const t = tone === "red" ? "bg-red-bg text-red" : tone === "amber" ? "bg-amber-bg text-amber" : "bg-surface text-ink-2";
-  return <p role={tone === "red" ? "alert" : undefined} className={cx("rounded-md px-3.5 py-2.5 text-sm", t, className)}>{children}</p>;
+  return <p id={id} role={tone === "red" ? "alert" : undefined} className={cx("rounded-md px-3.5 py-2.5 text-sm", t, className)}>{children}</p>;
 }
 
 /* ---------- Form fields ---------- */
 
 /** Inputs: 36px, radius 8, line border; focus is a brand border with a 3px brand-50 ring. */
-export const inlineInputClass = "h-9 rounded-md border border-line bg-canvas px-3 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50 disabled:bg-surface";
+export const inlineInputClass = "h-9 rounded-md border border-line bg-canvas px-3 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-3 focus:border-brand focus:ring-3 focus:ring-brand-50 focus-within:border-brand focus-within:ring-3 focus-within:ring-brand-50 disabled:bg-surface";
 export const inputClass = `${inlineInputClass} w-full`;
-export const textareaClass = "w-full rounded-md border border-line bg-canvas px-3 py-2 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-4 focus:border-brand focus:ring-3 focus:ring-brand-50";
+export const textareaClass = "w-full rounded-md border border-line bg-canvas px-3 py-2 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-3 focus:border-brand focus:ring-3 focus:ring-brand-50";
 
-/** Round thumbnail-free avatar with initials. */
+/** Round thumbnail-free avatar with initials. A picture of the account, not its name: a screen reader hears the name
+ *  beside it, or the button's own label. */
 export function Avatar({ initials, className }: { initials: string; className?: string }) {
   return (
-    <span className={cx("inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold tracking-[0.02em] text-brand-700", className)}>
+    <span aria-hidden className={cx("inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold tracking-[0.02em] text-brand-700", className)}>
       {initials}
     </span>
   );

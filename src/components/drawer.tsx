@@ -78,7 +78,8 @@ export function Drawer({ open, onClose, title, sub, children }: {
             <Icon name="x" />
           </button>
         </div>
-        <div ref={body} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{shown.children}</div>
+        {/* A field scrolled to by Tab stops clear of the footer held to the drawer's foot (WCAG 2.4.11). */}
+        <div ref={body} className="min-h-0 flex-1 scroll-pb-24 overflow-y-auto px-5 py-5">{shown.children}</div>
       </div>
     </div>
   );

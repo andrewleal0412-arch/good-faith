@@ -93,10 +93,10 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
       </div>
       {error && <Notice className="mt-3">{error}</Notice>}
       <div className="mt-4 flex gap-2">
-        <button type="button" onClick={send} disabled={busy || (!dateLocked && !date) || !address || !name} className={buttonClass(p.quiet ? "secondary" : "primary", "md")}>
+        <button type="button" onClick={send} disabled={busy || (!dateLocked && !date) || !address || !name} className={buttonClass(p.quiet ? "secondary" : "primary", "md", "max-sm:h-11 max-sm:flex-1")}>
           {busy ? "Sending..." : p.existing ? "Send the change" : "Send to your landlord"}
         </button>
-        {p.existing && <button type="button" onClick={() => setOpen(false)} className={buttonClass("secondary", "md")}>Cancel</button>}
+        {p.existing && <button type="button" onClick={() => setOpen(false)} className={buttonClass("secondary", "md", "max-sm:h-11 max-sm:flex-1")}>Cancel</button>}
       </div>
     </div>
   );

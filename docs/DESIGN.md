@@ -23,7 +23,7 @@ Zillow Rental Manager's structure with Mercury's calm: a white canvas, neutral g
 | --- | --- | --- |
 | `brand` | #5E6AD2 (hover #4F5BC4, active #4652B4) | Primary button, active nav, links, active tab, current step, focus outline |
 | `brand-50` / `brand-100` / `brand-700` | #EEF0FB / #DFE3F8 / #3C47A8 | Active nav fill, focus ring and avatar / text on brand tints |
-| `ink`, `ink-2`, `ink-3`, `ink-4` | #1B1D23, #464A58, #64697B, #9A9EAD | Text; `ink-3` is labels and meta (4.5:1 on every surface); `ink-4` is placeholders and icons only |
+| `ink`, `ink-2`, `ink-3`, `ink-4` | #1B1D23, #464A58, #64697B, #9A9EAD | Text; `ink-3` is labels, meta and placeholders (4.5:1 on every surface) and the icon of an icon-only control (the three dots, the info icon, Copy), which needs 3:1; `ink-4` (2.7:1) is for icons beside words only |
 | `line`, `line-2` | #E6E8EE, #EFF0F4 | Card borders; row dividers inside cards |
 | `surface`, `surface-2`, `surface-3` | #F7F8FA, #F1F2F6, #E8EAEF | Soft panels and hover; secondary buttons; their hover |
 | `green` / `green-bg` / `green-dot` | #1E7B45 / #E6F4EA / #2DA160 | Done, leased, paid, money in |
@@ -38,7 +38,7 @@ PayPal's two-tone monogram (`PayPalMark`) is the only other color, always beside
 
 **Spacing:** sidebar 232px, top bar 56px, content gutter 28px (16px on a phone), card padding 20px, table rows 44 to 48px, sections 24px apart.
 
-**Focus:** buttons, inputs and tabs draw a 3px `brand-100` ring; everything else gets a 2px `brand` outline (`:focus-visible` in `globals.css`). Both ease in (the fast duration).
+**Focus:** one indicator for every control: the 2px `brand` outline 2px outside it (`:focus-visible` in `globals.css`), 4.7:1 on white, easing in on the fast duration. Inputs turn their border `brand` with a 3px `brand-50` ring, and the brand border is the indicator. An AG Grid cell or header draws the outline inside itself, a record tab 3px inside itself (its row scrolls sideways and clips anything outside; a tab the keyboard reaches scrolls whole into the row, clear of its chevron), a menu item inside itself on a `surface` fill, a file picker's label around itself (its input is hidden), and a chart's bar or point gets AG Charts' own 2px `brand` line. A `brand-100` ring alone is 1.3:1 on white, under WCAG's 3:1, so nothing uses one as its only indicator.
 
 ## Motion
 
@@ -83,6 +83,19 @@ The tokens live in `src/app/globals.css` (every `transition-*` utility takes the
 4. **Steps:** a step completed in front of the viewer, or one this browser hasn't seen done, draws its check and fills the line to the next step once it is in view, one step after another: the close-out agent's steps under "Done by the agent" on the refund review (after Prepare refund, or when the review is opened from the property), the move-in steps, and the tenants' timeline and progress bar when the page refreshes after something the tenants did (`components/steps.tsx`, `t/[token]/progress.tsx`). At rest the line under a completed step is `green-dot` at 45%, the rest `line`.
 5. **Refund sent:** right after Send (the first time this browser sees a receipt in the ten minutes after the refund went), in about 600 ms: the green mark scales in from 88% and its check draws, the amount settles, the receipt's last step ("Sent through PayPal") completes along its timeline, and the rest of the receipt fades in from 200 to 480 ms. No confetti, no bounce (`Moment` in `motion.tsx`, the refund page).
 
+## Accessibility
+
+WCAG 2.2 AA, held by `scripts/a11y-check.py` on every landlord page and the tenants' pages at 1280 and 390 px ([docs/ACCESSIBILITY.md](ACCESSIBILITY.md) has what it checks and what it found).
+
+- **Keyboard.** Every control is in the Tab order with the focus outline, and Tab never leaves it hidden: under the shell's top bar the page scrolls a focused control 8px clear of it (`scroll-padding-top`), and a drawer's body keeps it clear of the footer held to its foot. "Skip to content" is the first stop on a landlord page, seen only while it has focus.
+- **Menus.** A list of actions (a row's More, Columns, the ledger's filters) is a WAI-ARIA menu: it opens with focus on its first item, the arrow keys, Home and End move, Escape closes it back on its button, Tab closes it and goes on to the next control, and a choice is a `menuitemradio` or `menuitemcheckbox` with `aria-checked` (the check icon shows the same). A grid row's menu, drawn on the body, closes back on its button on Tab too, and there the arrow keys are the grid's. A popover with free content (the bell, Help, the account card) is a small non-modal dialog: its links are in the Tab order, the arrow keys move between them too, and it closes when focus leaves it, focus going on where Tab sent it.
+- **Tips.** An info icon, a Why? or a dotted label opens its tip on hover, keyboard focus or a tap; the pointer can move onto the tip (a 150 ms grace covers the gap), Escape closes it whatever opened it without moving focus, and the trigger names it with `aria-describedby`. The trigger is named for what it explains: an info icon by its tip's title ("Deposits held, more information"), a Why? by "Why?" and the title.
+- **Targets.** WCAG 2.5.8: a target is 24 by 24 px, or a text link smaller than that with nothing else inside its 24px circle (a row's "View", a card's "Open in Payments"). The tenants' pages, used one-handed on a phone, take no such allowance: every target there is 24px, and a main action is 44px tall and full width. A small control (the info icon, Why?, a dotted label, a link-style button, a disclosure) takes the extra room from padding that negative margins give back, so the line it sits in doesn't move.
+- **Grids.** An AG Grid is one Tab stop: the arrow keys move between its headers and cells, Enter acts (a row's details, an input's editor, a charge's drawer), Tab leaves it; while an input is being edited, Tab moves to the next input. A control inside a cell is out of the Tab order, so Enter on its cell presses it (`pressCellControl`): a row's menu opens, a link opens its page, an info tip takes focus and opens; in Insights, Enter on any cell of a tenancy's row opens its property.
+- **Names.** Icon-only buttons are named; a button that shows words is named with those words in it ("Date range: All time"). An avatar is a picture (`aria-hidden`), and a mark that means something by color or shape (a checklist's done, missing or not applicable, a timeline's done step) says it in words for a screen reader.
+- **Errors.** A red `Notice` is an alert, read out as it appears; a field's note, and its error, are its description (`aria-describedby`). Where an error names one field (the access code, a figure in the deductions grid, the tenants' dispute reasons, name and amount asked back), that field is `aria-invalid`, and on the tenants' forms it takes focus; a server's error that names no field is the alert alone.
+- **Phones.** No page scrolls sideways at 390 px, and the tenants' pages and the landlord's main pages don't at 320 either (a desktop window zoomed to 400%); on the tenants' pages nothing is cut off and every amount and date is whole and at least 12px.
+
 ## Components
 
 | Component | File | Use |
@@ -96,8 +109,8 @@ The tokens live in `src/app/globals.css` (every `transition-*` utility takes the
 | `KV`, `ListRow`, `StepBox` | `components/ui.tsx` | Key-value rows; Mercury's list row (title, sub, right); Zillow's next-step box. |
 | `Table`, `Th`, `Td`, `trClass` | `components/ui.tsx` | Plain tables; on a phone each table has a list version instead of scrolling sideways. |
 | `Tabs`, `Segmented` | `components/tabs.tsx`, `ui.tsx` | Record tabs (scroll with a chevron on a phone); segmented filters with counts. |
-| `InfoTip`, `TipLabel` | `components/info-tip.tsx` | The one home of legal detail: a dark 300px tip from an info icon, "Why?" or a dotted label, fixed to the viewport. |
-| `Menu` | `components/menu.tsx` | Overflow and account menus. |
+| `InfoTip`, `TipLabel` | `components/info-tip.tsx` | The one home of legal detail: a dark 300px tip from an info icon, "Why?" or a dotted label, fixed to the viewport. Hover (with a grace to reach it), keyboard focus or a tap opens it, Escape closes it; each trigger is a 24px target, named by the tip's title. |
+| `Menu` | `components/menu.tsx` | Overflow and account menus: a WAI-ARIA menu for a list of actions, a non-modal dialog for free content (the bell, the account card); focus in on open and back to the button on Escape or a choice, on to the next control on Tab (Accessibility, above). `named={false}` names the button by the words it shows. |
 | `Drawer`, `drawerFooter` | `components/drawer.tsx` | Forms in a 480px side drawer (full screen on a phone), every one ending in the same footer under the form; focus kept inside and returned. |
 | `useConfirm`, `ConfirmDialog` | `components/confirm.tsx` | Yes-or-no questions in a 400px centered dialog (a bottom sheet on a phone), focus on Cancel. No browser `confirm()`. |
 | `FormField`, `FilePick`, `inputClass` | `components/field.tsx`, `file-pick.tsx`, `ui.tsx` | Labeled inputs (36px, brand focus ring), the file picker as a secondary button. |

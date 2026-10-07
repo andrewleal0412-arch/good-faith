@@ -13,7 +13,7 @@ import { zoneOf } from "@/lib/states";
 import { Button, ButtonLink } from "@/components/button";
 import { CopyId } from "@/components/copy-id";
 import { Drawer } from "@/components/drawer";
-import { browserStore, csvSafe, GridTip, gridModules, gridTheme } from "@/components/grid";
+import { browserStore, csvSafe, GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
 import { Icon, PayPalMark } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
@@ -465,6 +465,11 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
     setOpen(e.data);
   }, []);
   const onCellKeyDown = useCallback((e: CellKeyDownEvent<LedgerRow>) => {
+    // The row's menu, from its cell (the grid is one Tab stop).
+    if (e.column.getColId() === "menu") {
+      pressCellControl(e);
+      return;
+    }
     const k = (e.event as KeyboardEvent | undefined)?.key;
     if (k === "Enter" && e.data && e.column.getColId() !== "menu" && !(e.event?.target as HTMLElement | null)?.closest("button, a")) setOpen(e.data);
   }, []);
@@ -492,7 +497,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
             items={[
               { heading: `${V.label}: columns` },
               ...(narrow ? [] : OPTIONAL).map((o) => ({
-                label: o.label, icon: shownCols.includes(o.id) ? "check" as const : undefined, onSelect: () => toggleColumn(o.id),
+                label: o.label, icon: shownCols.includes(o.id) ? "check" as const : undefined, checked: shownCols.includes(o.id), onSelect: () => toggleColumn(o.id),
               })),
               { divider: true },
               { label: "Reset columns", icon: "restart", onSelect: resetColumns },
@@ -524,22 +529,22 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter rows"
             className={`${inlineInputClass} h-[30px] w-[220px] pl-8 text-sm max-sm:w-full`} />
         </label>
-        <Menu label="Date range" align="start" width={200} buttonClass={range.key === "all" ? off : onC}
+        <Menu label={`Date range: ${range.label}`} align="start" width={200} buttonClass={range.key === "all" ? off : onC}
           trigger={<><Icon name="calendar" />{range.label}<Icon name="chev-down" /></>}
-          items={RANGES.map((r) => ({ label: r.label, icon: r.key === range.key ? "check" as const : undefined, onSelect: () => setRange(r) }))} />
-        <Menu label="Property" align="start" width={280} buttonClass={unit ? onC : off}
+          items={RANGES.map((r) => ({ label: r.label, icon: r.key === range.key ? "check" as const : undefined, checked: r.key === range.key, radio: true, onSelect: () => setRange(r) }))} />
+        <Menu label={`Property: ${unit ? unit.street : "All properties"}`} align="start" width={280} buttonClass={unit ? onC : off}
           trigger={<><Icon name="building" /><span className="max-w-[180px] truncate">{unit ? unit.street : "Property"}</span><Icon name="chev-down" /></>}
           items={[
-            { label: "All properties", icon: !unit ? "check" : undefined, onSelect: () => setProperty(null) },
+            { label: "All properties", icon: !unit ? "check" : undefined, checked: !unit, radio: true, onSelect: () => setProperty(null) },
             { divider: true },
             ...units.map((u) => ({
               label: (streets.get(u.street) ?? 0) > 1 ? `${u.street} (${u.start ? `from ${shortDate(u.start)}` : u.tenants})` : u.street,
-              icon: u.id === property ? "check" as const : undefined, onSelect: () => setProperty(u.id),
+              icon: u.id === property ? "check" as const : undefined, checked: u.id === property, radio: true, onSelect: () => setProperty(u.id),
             })),
           ]} />
-        <Menu label="Amount" align="start" width={200} buttonClass={band.key === "any" ? off : onC}
+        <Menu label={band.key === "any" ? "Amount: Any amount" : `Amount: ${band.label}`} align="start" width={200} buttonClass={band.key === "any" ? off : onC}
           trigger={<>{band.key === "any" ? "Amount" : band.label}<Icon name="chev-down" /></>}
-          items={BANDS.map((b) => ({ label: b.label, icon: b.key === band.key ? "check" as const : undefined, onSelect: () => setBand(b) }))} />
+          items={BANDS.map((b) => ({ label: b.label, icon: b.key === band.key ? "check" as const : undefined, checked: b.key === band.key, radio: true, onSelect: () => setBand(b) }))} />
         {anyChip && (
           <Button variant="link" className="ml-1" onClick={() => { setProperty(null); setRange(RANGES[0]); setBand(BANDS[0]); setSearch(""); }}>Clear</Button>
         )}
@@ -580,6 +585,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
               onModelUpdated={(e) => recount(e.api)}
               onSelectionChanged={(e) => recount(e.api)}
               onCellClicked={onCellClicked}
+              {...gridTab}
               onCellKeyDown={onCellKeyDown}
               onColumnResized={(e: ColumnResizedEvent<LedgerRow>) => { if (e.finished && e.source === "uiColumnResized") remember(); }}
               onColumnMoved={(e: ColumnMovedEvent<LedgerRow>) => { if (e.finished && e.source === "uiColumnMoved") remember(); }}

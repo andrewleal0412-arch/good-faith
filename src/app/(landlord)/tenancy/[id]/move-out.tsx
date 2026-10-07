@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type Ref } from "react";
-import { Button, buttonClass } from "@/components/button";
+import { Button, buttonClass, pickerFocus } from "@/components/button";
 import { ConfirmDialog } from "@/components/confirm";
 import { Drawer, drawerFooter } from "@/components/drawer";
 import { Icon } from "@/components/icons";
@@ -204,7 +204,7 @@ export function MoveOut(p: {
           {!p.locked && (
             <div className="flex flex-wrap items-center gap-2 px-5 py-4">
               {roomPicker}
-              <label className={buttonClass("secondary", "md", "cursor-pointer")}>
+              <label className={buttonClass("secondary", "md", pickerFocus)}>
                 <Icon name="camera" />{busy === "photos" ? "Uploading..." : "Add photos"}
                 <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { const l = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ""; upload(l); }} />
               </label>

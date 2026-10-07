@@ -239,7 +239,7 @@ function Compare({ room, before, after, markers, mode, hot, onHot }: {
         <input type="range" min={0} max={100} step={1} value={pos} onChange={(e) => setPos(Number(e.target.value))}
           aria-label={`Compare ${room}: move-in on the left, move-out on the right`} aria-valuetext={`Divider at ${pos}%`}
           className="peer absolute inset-0 z-[5] m-0 size-full cursor-ew-resize appearance-none opacity-0" />
-        <span aria-hidden className="pointer-events-none absolute inset-0 z-[6] rounded-md peer-focus-visible:ring-3 peer-focus-visible:ring-brand-100 peer-focus-visible:ring-inset" />
+        <span aria-hidden data-focus-ring="" className="pointer-events-none absolute inset-0 z-[6] rounded-md peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-2 peer-focus-visible:outline-brand" />
       </div>
     );
   }

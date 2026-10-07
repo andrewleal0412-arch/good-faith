@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, buttonClass } from "@/components/button";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Button, buttonClass, pickerFocus } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
@@ -31,6 +31,24 @@ const MESSAGE_MAX = 1000;
  *  for a little longer than the server lets a run go before it may be started again. */
 const POLL_MS = 4000;
 const POLL_LIMIT = 90;
+
+/** A refused value marked on its field (WCAG 3.3.1): the red notice is an alert, read out as it appears; the field it
+ *  names is aria-invalid and described by it, and takes focus, so the reader lands where the fix goes. The mark lasts
+ *  while that error is the one shown (a server's error in its place unmarks it). `field` gives a control its mark:
+ *  spread it on the input, inside its FormField. */
+function useFieldError(error: string) {
+  const errorId = useId();
+  const [at, setAt] = useState<{ text: string; field: string } | null>(null);
+  useEffect(() => {
+    if (at) document.querySelector<HTMLElement>(`[data-field="${at.field}"]`)?.focus();
+  }, [at]);
+  const marked = at && at.text === error ? at.field : null;
+  return {
+    errorId,
+    mark: (text: string, f: string | null) => setAt(f ? { text, field: f } : null),
+    field: (f: string) => ({ "data-field": f, ...(marked === f ? { "aria-invalid": true, "aria-describedby": errorId } : {}) }),
+  };
+}
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** "Harbor View Rentals'", "Elena Marquez's". */
@@ -66,6 +84,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
   const [busy, setBusy] = useState<null | "save" | "send" | "remove">(null);
   const [error, setError] = useState(draft?.advocateError && !runningOnLoad ? "Your advocate couldn't finish last time. Try again." : "");
   const [confirm, dialog] = useConfirm();
+  const fe = useFieldError(error);
 
   // A run in progress when the page loaded, or one a second tap found working: ask the server until it ends, then
   // show its case (or the form, if it failed).
@@ -108,14 +127,16 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
     return <Sent token={token} landlord={landlord} view={view} negotiation={negotiation} zone={zone} onAgain={d.status === "withdrawn" ? () => { setError(""); setAgain(true); } : undefined} />;
   }
 
-  const problem = (): string => {
-    if (!picked.length) return "Pick at least one charge.";
+  /** What stops the form going, and the field it names, if one does. */
+  const problem = (): { text: string; field: string | null } | null => {
+    if (!picked.length) return { text: "Pick at least one charge.", field: null };
     const missing = view.lines.find((l) => picked.includes(l.id) && (reasons[l.id] ?? "").trim().length < 3);
-    if (missing) return `Say why you dispute line ${missing.n}.`;
-    if (!name) return "Pick your name.";
-    if (evidence.length + queued > MAX_PHOTOS) return `A dispute can carry ${MAX_PHOTOS} photos.`;
-    return "";
+    if (missing) return { text: `Say why you dispute line ${missing.n}.`, field: `reason-${missing.id}` };
+    if (!name) return { text: "Pick your name.", field: "name" };
+    if (evidence.length + queued > MAX_PHOTOS) return { text: `A dispute can carry ${MAX_PHOTOS} photos.`, field: null };
+    return null;
   };
+  const refuse = (p: { text: string; field: string | null }) => { fe.mark(p.text, p.field); setError(p.text); };
   const change = () => setEdited(true);
 
   /** The draft as it stands on the page, then any photos picked since, so the server always has what the page shows. */
@@ -138,7 +159,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
 
   async function askAdvocate() {
     const p = problem();
-    if (p) return setError(p);
+    if (p) return refuse(p);
     setError("");
     setWaiting(false);
     setMode("working");
@@ -164,7 +185,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
   async function send(withCase: boolean) {
     if (!withCase) {
       const p = problem();
-      if (p) return setError(p);
+      if (p) return refuse(p);
     }
     const sees = withCase
       ? `${landlord} sees your reasons, your photos and your advocate's case.${edited ? " Changes you haven't asked your advocate about aren't included." : ""}`
@@ -226,7 +247,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
         ) : edited ? (
           <Notice tone="amber" className="mt-4">You changed your dispute after your advocate wrote this. Ask again to include the change, or send the case as it was written.</Notice>
         ) : null}
-        {error && <Notice className="mt-4">{error}</Notice>}
+        {error && <Notice id={fe.errorId} className="mt-4">{error}</Notice>}
         <div className="mt-6 border-t border-line pt-6">
           {serverStale ? (
             <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy} onClick={askAdvocate}>Ask my advocate again</Button>
@@ -286,7 +307,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
                 {on && (
                   <div className="mt-3 flex flex-col gap-3 sm:pl-[30px]">
                     <FormField label="Why do you dispute it?" note={(reasons[l.id] ?? "").length > REASON_MAX - 150 ? `${(reasons[l.id] ?? "").length} of ${REASON_MAX}` : undefined}>
-                      <textarea className={textareaClass} rows={4} maxLength={REASON_MAX} value={reasons[l.id] ?? ""}
+                      <textarea className={textareaClass} rows={4} maxLength={REASON_MAX} value={reasons[l.id] ?? ""} {...fe.field(`reason-${l.id}`)}
                         placeholder="What's wrong with this charge, in your words"
                         onChange={(e) => { const v = e.target.value; setReasons((x) => ({ ...x, [l.id]: v })); change(); }} />
                     </FormField>
@@ -304,7 +325,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
       <section className="mt-6 flex flex-col gap-4">
         {view.tenants.length > 1 && (
           <FormField label="Your name">
-            <select className={inputClass} value={name} onChange={(e) => setName(e.target.value)}>
+            <select className={inputClass} value={name} onChange={(e) => setName(e.target.value)} {...fe.field("name")}>
               <option value="">Pick your name</option>
               {view.tenants.map((t) => <option key={t}>{t}</option>)}
             </select>
@@ -316,7 +337,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
         </FormField>
       </section>
 
-      {error && <Notice className="mt-4">{error}</Notice>}
+      {error && <Notice id={fe.errorId} className="mt-4">{error}</Notice>}
 
       <div className="mt-6 border-t border-line pt-6">
         <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy || !picked.length} onClick={askAdvocate}>
@@ -361,7 +382,7 @@ function Photos({ token, line, saved, picked, room, busy, onPick, onRemove }: {
           ))}
         </ul>
       )}
-      <label className={buttonClass("secondary", "sm", `cursor-pointer focus-within:ring-3 focus-within:ring-brand-100 ${room <= 0 ? "pointer-events-none opacity-50" : ""}`)}>
+      <label className={buttonClass("secondary", "sm", `${pickerFocus} ${room <= 0 ? "pointer-events-none opacity-50" : ""}`)}>
         <Icon name="camera" />{picked.length ? `${picked.length} photo${picked.length === 1 ? "" : "s"} to add` : "Add photos"}
         <input type="file" accept="image/*" multiple className="sr-only" disabled={room <= 0}
           onChange={(e) => onPick(Array.from(e.currentTarget.files ?? []).slice(0, Math.max(0, room)))} />
@@ -455,6 +476,8 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
   const [amount, setAmount] = useState("");
   const [message, setMessage] = useState("");
   const [confirm, dialog] = useConfirm();
+  const fe = useFieldError(error);
+  const refuse = (text: string, field: string) => { fe.mark(text, field); setError(text); };
   const seen = useRef({ turns: n?.turns.length ?? 0, status: n?.status ?? null });
 
   // While the two agents negotiate, the page asks every few seconds and shows each turn as it lands.
@@ -493,7 +516,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
   const names = { landlord, tenants: "The tenants" };
   const pickName = view.tenants.length > 1 && (
     <FormField label="Your name">
-      <select className={inputClass} value={name} onChange={(e) => setName(e.target.value)}>
+      <select className={inputClass} value={name} onChange={(e) => setName(e.target.value)} {...fe.field("name")}>
         <option value="">Pick your name</option>
         {view.tenants.map((t) => <option key={t}>{t}</option>)}
       </select>
@@ -510,7 +533,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
 
   async function acceptSettlement() {
     if (!s) return;
-    if (!name) return setError("Pick your name.");
+    if (!name) return refuse("Pick your name.", "name");
     const ok = await confirm({
       title: `Accept ${usd(s.amount)} back?`,
       body: inWhole
@@ -527,7 +550,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
 
   async function acceptOffer() {
     if (offered == null) return;
-    if (!name) return setError("Pick your name.");
+    if (!name) return refuse("Pick your name.", "name");
     const ok = await confirm({
       title: `Accept ${usd(offered)} back?`,
       body: inWhole
@@ -543,7 +566,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
   }
 
   async function withdraw() {
-    if (!name) return setError("Pick your name.");
+    if (!name) return refuse("Pick your name.", "name");
     const ok = await confirm({
       title: "Withdraw your dispute?",
       body: `The statement then stands as ${landlord} sent it, and ${landlord} sees that you withdrew it. You can dispute it again later from this page.`,
@@ -558,8 +581,8 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
 
   async function counter() {
     const amt = Number(amount.replace(/[$,\s]/g, ""));
-    if (amount.trim() === "" || !Number.isFinite(amt)) return setError("Enter how much you ask back.");
-    if (!name) return setError("Pick your name.");
+    if (amount.trim() === "" || !Number.isFinite(amt)) return refuse("Enter how much you ask back.", "amount");
+    if (!name) return refuse("Pick your name.", "name");
     setBusy("offer");
     const ok = await post("offer", { amount: amt, message: message.trim() || null, name });
     setBusy(null);
@@ -678,7 +701,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     <>
       <section aria-label="Where it stands" className="mt-6">{hero}</section>
 
-      {error && <Notice className="mt-4">{error}</Notice>}
+      {error && <Notice id={fe.errorId} className="mt-4">{error}</Notice>}
 
       {live && offered != null && !(n?.status === "agreed") && (
         <div className="mt-4 flex flex-col gap-3">
@@ -695,7 +718,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
           ) : (
             <div className="flex flex-col gap-3 rounded-lg border border-line px-4 py-3.5">
               <FormField label="You ask back" note={lo === hi ? `Both sides are at ${usd(lo)}.` : `Between ${usd(lo)} and ${usd(hi)}.`}>
-                <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} {...fe.field("amount")} />
               </FormField>
               <FormField label={`Message to ${landlord}`} note="Optional.">
                 <textarea className={textareaClass} rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} />
@@ -717,7 +740,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
       {live && n?.status === "agreed" && offerOpen && (
         <div className="mt-3 flex flex-col gap-3 rounded-lg border border-line px-4 py-3.5">
           <FormField label="You ask back" note={`Between ${usd(n.minBack)} and ${usd(n.maxBack)}. Any other figure withdraws from the ${usd(s?.amount ?? 0)} agreed.`}>
-            <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} {...fe.field("amount")} />
           </FormField>
           <FormField label={`Message to ${landlord}`} note="Optional.">
             <textarea className={textareaClass} rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} />

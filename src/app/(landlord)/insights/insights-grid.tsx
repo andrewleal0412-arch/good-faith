@@ -7,7 +7,7 @@ import type {
   ColDef, GetRowIdParams, GridApi, IRowNode, ITooltipParams, PostSortRowsParams, ProcessCellForExportParams, RowClassParams, ValueGetterParams,
 } from "ag-grid-community";
 import { CsvExportModule, ExternalFilterModule, PinnedRowModule, RenderApiModule } from "ag-grid-community";
-import { browserStore, csvSafe, GridTip, gridModules, gridTheme } from "@/components/grid";
+import { browserStore, csvSafe, GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
 import { Icon } from "@/components/icons";
 import { Money, StatusChip, inlineInputClass } from "@/components/ui";
 import { shortDate } from "@/lib/dates";
@@ -46,7 +46,7 @@ function NameCell(p: CustomCellRendererProps<Row>) {
       <div className="flex min-w-0 items-center gap-1.5" style={pad}>
         <button type="button" onClick={(e) => { e.stopPropagation(); ctx.toggle(r.id); }} aria-expanded={open}
           aria-label={`${open ? "Close" : "Open"} ${r.label}`}
-          className="-ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-xs text-ink-3 outline-none transition-colors hover:bg-surface-3 hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-100">
+          className="-ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-xs text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink">
           <Icon name={open ? "chev-down" : "chev-right"} className="size-3.5" />
         </button>
         <span className="truncate font-medium">{r.label}</span>
@@ -243,9 +243,15 @@ export const InsightsGrid = forwardRef<InsightsGridHandle, { tenancies: InsightR
               if ((e.data?.kind === "state" || e.data?.kind === "property") && !e.node.rowPinned && !(e.event?.target as HTMLElement | null)?.closest("button, a")) toggle(e.data.id);
             }}
             getRowHeight={(r) => (r.data?.kind === "tenancy" ? 52 : 44)}
+            {...gridTab}
             onCellKeyDown={(e) => {
+              if (e.node.rowPinned) return;
               const k = (e.event as KeyboardEvent | undefined)?.key;
-              if ((k === "Enter" || k === " ") && (e.data?.kind === "state" || e.data?.kind === "property") && !e.node.rowPinned) { e.event?.preventDefault(); toggle(e.data.id); }
+              // A group's row: Enter or Space on any of its cells opens or closes it.
+              if ((k === "Enter" || k === " ") && (e.data?.kind === "state" || e.data?.kind === "property")) { e.event?.preventDefault(); toggle(e.data.id); return; }
+              // A tenancy's row: Enter on any of its cells opens its property, through the link in its Property cell (the
+              // grid is one Tab stop, so the link isn't in the Tab order).
+              if (e.data?.kind === "tenancy") pressCellControl(e, true);
             }}
             domLayout="autoHeight"
             ensureDomOrder

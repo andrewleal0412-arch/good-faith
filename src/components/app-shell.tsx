@@ -113,7 +113,12 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)] print:block" onClickCapture={onClickCapture}>
-      <aside className="sticky top-0 hidden h-screen flex-col border-r border-line bg-canvas px-3 pb-3 pt-4 md:flex print:hidden">
+      {/* The first stop for Tab: straight to the page, past the sidebar and the top bar (WCAG 2.4.1). Seen only when it
+          has focus. */}
+      <a href="#main" className="sr-only rounded-md border border-line bg-canvas text-sm font-medium text-brand shadow-md focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:px-3 focus:py-2 print:hidden">
+        Skip to content
+      </a>
+      <aside aria-label="Sidebar" className="sticky top-0 hidden h-screen flex-col border-r border-line bg-canvas px-3 pb-3 pt-4 md:flex print:hidden">
         <Sidebar {...side} />
       </aside>
 
@@ -132,7 +137,7 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
       )}
 
       <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-line bg-canvas px-4 md:gap-3 md:px-7 print:hidden">
+        <header data-top-bar="" className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-line bg-canvas px-4 md:gap-3 md:px-7 print:hidden">
           <button ref={opener} type="button" aria-label="Open navigation" aria-expanded={drawer} onClick={() => setDrawer(true)}
             className="-ml-1.5 inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface md:hidden">
             <Icon name="menu" />
@@ -159,13 +164,13 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
             <Suspense fallback={<span aria-hidden className={`${iconButton} max-md:hidden`}><Icon name="help" /></span>}>
               <Help chrome={chrome} />
             </Suspense>
-            <Menu label="Account" width={260} buttonClass="inline-flex rounded-full outline-none focus-visible:ring-3 focus-visible:ring-brand-100"
+            <Menu label="Account" width={260} buttonClass="inline-flex rounded-full focus-visible:rounded-full"
               trigger={<AccountAvatar account={account} chrome={chrome} />}>
               {(close) => <AccountCard {...side} close={close} />}
             </Menu>
           </div>
         </header>
-        <main className="w-full max-w-content px-4 pb-12 pt-5 md:px-7 md:pt-7 print:max-w-none print:p-0">
+        <main id="main" tabIndex={-1} className="w-full max-w-content px-4 pb-12 pt-5 outline-none md:px-7 md:pt-7 print:max-w-none print:p-0">
           {/* The page stays mounted while the next one is opened, under its skeleton; a filter being applied dims it,
               after a moment, so a quick answer doesn't flicker. A page arriving rises into place (gf-page, globals.css):
               its parts are new, or were hidden under the skeleton, so their arrival plays; a re-render plays nothing. */}
@@ -318,7 +323,7 @@ function Sidebar({ onNavigate, ...p }: SideProps & { onNavigate?: () => void }) 
           <span className="size-[7px] shrink-0 rounded-full bg-green-dot" />
           PayPal connected
         </div>
-        <Menu label="Account" side="top" align="start" width={232}
+        <Menu label="Account" named={false} side="top" align="start" width={232}
           buttonClass="flex h-10 w-full items-center gap-2.5 rounded-md px-2 text-left transition-colors hover:bg-surface"
           trigger={<>
             <AccountAvatar account={p.account} chrome={p.chrome} />
@@ -353,12 +358,12 @@ function AccountCard(p: SideProps & { close: () => void }) {
       {p.signOut && (
         <form method="post" action="/api/access/sign-out" className="mt-1.5 border-t border-line-2 pt-1.5">
           {p.startOver && (
-            <button type="button" role="menuitem" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:start-over")); }}
+            <button type="button" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:start-over")); }}
               className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
               <Icon name="restart" className="size-[15px] text-ink-3" />Start over
             </button>
           )}
-          <button type="submit" role="menuitem"
+          <button type="submit"
             className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
             <Icon name="sign-out" className="size-[15px] text-ink-3" />Sign out
           </button>
@@ -418,13 +423,13 @@ function Search({ onSearch }: { onSearch: (to: string) => void }) {
             aria-label={onLedger ? "Search payments" : "Search properties and tenants"}
             onBlur={() => setMobile(false)}
             onKeyDown={(e) => { if (e.key === "Escape") { setMobile(false); e.currentTarget.blur(); } }}
-            className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-4" />
+            className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
           <kbd className="hidden rounded-xs border border-line bg-canvas px-[5px] font-sans text-xs text-ink-3 md:inline">&#8984;K</kbd>
         </label>
         {/* On a phone the search covers the top bar, so it carries its own way out (Escape works too). */}
         {mobile && (
           <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setMobile(false)}
-            className="ml-3 shrink-0 rounded-sm text-sm font-medium text-brand outline-none focus-visible:ring-3 focus-visible:ring-brand-100 md:hidden">
+            className="ml-3 inline-flex h-9 shrink-0 items-center rounded-sm text-sm font-medium text-brand md:hidden">
             Cancel
           </button>
         )}

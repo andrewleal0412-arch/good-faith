@@ -40,7 +40,7 @@ export function OutsideRefundsCard({ tenancyId, refunds, quiet, zone = PACIFIC }
   }
 
   return (
-    <Card id="outside-refunds" className="scroll-mt-24">
+    <Card id="outside-refunds" className="scroll-mt-8">
       <CardHead title={open.length > 1 ? "Refunds made in PayPal" : "Refund made in PayPal"} meta={open.length ? `${open.length} to review` : undefined}
         right={<InfoTip align="end" title="Not sent from here">{WHY}</InfoTip>} />
       <PresenceList>

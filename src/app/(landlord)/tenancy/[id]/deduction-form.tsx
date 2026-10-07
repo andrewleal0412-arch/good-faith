@@ -94,9 +94,11 @@ export function DeductionForm({ tenancyId, state, finding, onDone, onCancel }: {
         <Segmented value={performer} onChange={setPerformer} options={[["vendor", "A vendor"], ["own_labor", "You or your staff"]]} />
       </Field>
 
+      {/* The figures take no example as a placeholder: placeholders are ink-3 (4.5:1), and "3" or "50" there reads as a
+          value already typed while the footer asks for one. */}
       {performer === "vendor" ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Invoice total"><input className={input} inputMode="decimal" placeholder="1800" value={v.invoiceTotal} onChange={set("invoiceTotal")} /></Field>
+          <Field label="Invoice total"><input className={input} inputMode="decimal" value={v.invoiceTotal} onChange={set("invoiceTotal")} /></Field>
           <Field label="Vendor name"><input className={input} value={v.vendorName} onChange={set("vendorName")} /></Field>
           <Field label="Vendor address"><input className={input} value={v.vendorAddress} onChange={set("vendorAddress")} /></Field>
           <Field label="Vendor phone"><input className={input} inputMode="tel" value={v.vendorPhone} onChange={set("vendorPhone")} /></Field>
@@ -106,8 +108,8 @@ export function DeductionForm({ tenancyId, state, finding, onDone, onCancel }: {
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Hours"><input className={input} inputMode="decimal" placeholder="3" value={v.hours} onChange={set("hours")} /></Field>
-          <Field label="Hourly rate"><input className={input} inputMode="decimal" placeholder="50" value={v.hourlyRate} onChange={set("hourlyRate")} /></Field>
+          <Field label="Hours"><input className={input} inputMode="decimal" value={v.hours} onChange={set("hours")} /></Field>
+          <Field label="Hourly rate"><input className={input} inputMode="decimal" value={v.hourlyRate} onChange={set("hourlyRate")} /></Field>
           <div className="sm:col-span-2">
             <Field label="What you did">
               <textarea className={textareaClass} rows={2} placeholder="Degreased the range, oven door and control panel" value={v.laborDescription} onChange={set("laborDescription")} />
@@ -126,8 +128,8 @@ export function DeductionForm({ tenancyId, state, finding, onDone, onCancel }: {
       </Field>
       {proration === "useful_life" && (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Age when damaged (years)"><input className={input} inputMode="decimal" placeholder="6" value={v.itemAgeYears} onChange={set("itemAgeYears")} /></Field>
-          <Field label="Useful life (years)"><input className={input} inputMode="decimal" placeholder="10" value={v.usefulLifeYears} onChange={set("usefulLifeYears")} /></Field>
+          <Field label="Age when damaged (years)"><input className={input} inputMode="decimal" value={v.itemAgeYears} onChange={set("itemAgeYears")} /></Field>
+          <Field label="Useful life (years)"><input className={input} inputMode="decimal" value={v.usefulLifeYears} onChange={set("usefulLifeYears")} /></Field>
         </div>
       )}
       {proration === "paint_schedule" && (

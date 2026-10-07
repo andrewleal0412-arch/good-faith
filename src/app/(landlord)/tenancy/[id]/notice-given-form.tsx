@@ -76,7 +76,7 @@ export function NoticeGivenForm(p: { tenancyId: string; state: string; kind: Not
         <div className="inline-flex flex-wrap gap-0.5 rounded-md bg-surface-2 p-[3px]">
           {def.methods.map(([k, label]) => (
             <button key={k} type="button" onClick={() => setMethod(k)} aria-pressed={method === k}
-              className={`h-7 rounded-sm px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-brand-100 ${method === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
+              className={`h-7 rounded-sm px-2.5 text-sm ${method === k ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>
               {label}
             </button>
           ))}

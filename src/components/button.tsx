@@ -7,9 +7,10 @@ import type { ComponentProps } from "react";
 export type ButtonVariant = "primary" | "secondary" | "link";
 export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
-// Hover and press ease (the fast token, globals.css); a press sinks a button 2% so a click is felt at once; the focus
-// ring eases in with the colors.
-const BASE = "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-md font-medium transition-[color,background-color,box-shadow,scale,opacity] outline-none focus-visible:ring-3 focus-visible:ring-brand-100 disabled:cursor-default disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50";
+// Hover and press ease (the fast token, globals.css); a press sinks a button 2% so a click is felt at once. Keyboard
+// focus is the app's one indicator, the 2px brand outline 2px outside the button (:focus-visible in globals.css), which
+// eases in on its own.
+const BASE = "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-md font-medium transition-[color,background-color,box-shadow,scale,opacity] disabled:cursor-default disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50";
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary: "bg-brand text-white hover:bg-brand-hover active:bg-brand-active active:scale-[0.98] disabled:hover:bg-brand disabled:active:scale-100",
@@ -24,9 +25,17 @@ const SIZE: Record<ButtonSize, string> = {
   icon: "size-[34px] p-0 [&_svg]:size-4",
 };
 
+/** A file input's label drawn as a button: the input is visually hidden inside it, so the label shows the outline while
+ *  the input has keyboard focus. */
+export const pickerFocus = "cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand";
+
 /** The class string, for the odd element that is neither a button nor a link (a file input's label). */
 export function buttonClass(variant: ButtonVariant = "secondary", size: ButtonSize = "md", extra = ""): string {
-  const s = variant === "link" ? (size === "sm" ? "text-xs" : size === "lg" ? "text-base" : "text-sm") + " [&_svg]:size-3.5 gap-1" : SIZE[size];
+  // A link-style button is as tall as its words, so it takes 24px to touch (WCAG 2.5.8) from padding that negative
+  // margins give back: the line it sits in doesn't move.
+  const s = variant === "link"
+    ? (size === "sm" ? "text-xs -my-1 py-1" : size === "lg" ? "text-base -my-0.5 py-0.5" : "text-sm -my-[3px] py-[3px]") + " [&_svg]:size-3.5 gap-1"
+    : SIZE[size];
   return `${BASE} ${VARIANT[variant]} ${s} ${extra}`.trim();
 }
 

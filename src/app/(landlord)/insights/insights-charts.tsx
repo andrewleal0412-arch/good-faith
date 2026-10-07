@@ -32,6 +32,8 @@ function theme(font: string): AgChartTheme {
     baseTheme: "ag-default",
     palette: { fills: [BRAND, GRAY], strokes: [BRAND, GRAY] },
     params: {
+      // The keyboard's focus on a bar, a point or a legend item: a 2px brand line on a white one, 4.7:1 on the canvas.
+      accentColor: BRAND, focusShadow: `0 0 0 2px ${BRAND}`,
       fontFamily: font, fontSize: 12, textColor: INK, subtleTextColor: INK3, backgroundColor: "#ffffff",
       gridLineColor: LINE2, axisLineColor: LINE, chartPadding: 4,
       tooltipBackgroundColor: INK, tooltipTextColor: "#ffffff", tooltipSubtleTextColor: "rgba(255,255,255,0.72)", tooltipBorder: false, tooltipBorderRadius: 6,
@@ -159,7 +161,8 @@ function ChartCard({ title, meta, tip, summary, options }: { title: string; meta
       <CardHead title={title} meta={meta} right={<InfoTip align="end" title={title}>{tip}</InfoTip>} />
       <div className="px-3 pb-3 pt-2">
         <p className="sr-only">{summary} The table below lists every property&apos;s figures.</p>
-        {options ? <AgCharts options={options} modules={MODULES} /> : <div style={{ height: options === null ? 232 : 0 }} aria-hidden />}
+        {/* AG Charts names every chart "interactive chart"; the group says which one a screen reader has entered. */}
+        {options ? <div role="group" aria-label={title}><AgCharts options={options} modules={MODULES} /></div> : <div style={{ height: options === null ? 232 : 0 }} aria-hidden />}
       </div>
     </Card>
   );
