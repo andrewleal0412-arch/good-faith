@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { APIConnectionError, APIError, APITimeoutError, TypeSafeClient, type EntryType, type Fetch, type JsonValue, type Questions } from "@typesafe-ai/sdk";
 import type { CaseFile, CaseLine } from "./advocate";
 import { usd } from "./deductions";
+import { e2eStubs } from "./e2e-switch";
 import type { Classification } from "./findings";
 import { keepAliveFetch } from "./http";
 import type { LineRange } from "./lawful-range";
@@ -46,7 +47,9 @@ export type JevCall = (req: JevRequest, o: { timeoutMs: number; retries: number;
 
 /** The model the thresholds below were set against; TYPESAFE_DEFAULT_MODEL (the SDK's own variable) overrides it. */
 export const jevModel = () => process.env.TYPESAFE_DEFAULT_MODEL?.trim() || "jev-1.13.0";
-export const jevConfigured = () => !!process.env.TYPESAFE_API_KEY?.trim();
+/** Whether Jev is on: a key is set, and the judges'-path test's stubs are off (they make no model call of any kind,
+ *  src/lib/e2e-switch.ts). */
+export const jevConfigured = () => !!process.env.TYPESAFE_API_KEY?.trim() && !e2eStubs();
 
 /** A JevCall through the TypeSafe SDK, over the app's kept-alive connections (src/lib/http.ts): Node's own fetch drops
  *  an idle connection after 4 seconds, and a read after a pause in typing then paid about 450 ms for a new TLS

@@ -1,17 +1,15 @@
 import "server-only";
-import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, Output } from "ai";
 import sharp from "sharp";
 import { z } from "zod";
 import { cleanBox, type Box } from "./boxes";
+import { claude } from "./model";
 import type { StatePack } from "./states/types";
 
 // Move-out inspection: Claude compares a room's move-in photos with its move-out photos and lists every change,
 // classified the way the tenancy's state treats it (the pack's inspection guide), with a box around each change on the
 // photo. It doesn't set dollar amounts; costs, proration and the state's documentation rule are applied in code once
 // the landlord enters invoices (California: docs/LEGAL_RULES.md, sections A and C).
-
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
 // Fractions of the photo, not pixels: the page draws the box over the photo at any size. Range limits aren't sent to
 // the model (structured outputs drop them); cleanBox clamps and checks every value instead.
@@ -70,7 +68,7 @@ export async function inspectRoom(room: string, moveIn: InspectPhoto[], moveOut:
   const [inSizes, outSizes] = await Promise.all([Promise.all(moveIn.map(sizeOf)), Promise.all(moveOut.map(sizeOf))]);
   const size = (s: { width: number; height: number } | null) => (s ? `, ${s.width} x ${s.height} pixels` : "");
   const { output } = await generateText({
-    model: anthropic(MODEL),
+    model: claude("inspect"),
     output: Output.object({ schema: z.object({ findings: z.array(schemaFor(pack)) }) }),
     system:
       `${pack.ai.inspectorRole} You compare move-in and ` +

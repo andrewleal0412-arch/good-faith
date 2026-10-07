@@ -13,16 +13,14 @@
 // agent and its checks run the same against a stubbed model (scripts/lawful-range-check.mjs). Not legal advice: it
 // informs and drafts; the tenants decide whether to send it.
 
-import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, isStepCount, Output, tool, type LanguageModel, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Box } from "./boxes";
 import { usd } from "./deductions";
 import { appReason, checkReasons, defaultJev, demotedNote, INJECTION_NOTE, injectionFlagged, isAppReason, tenantsWords, type JevCall, type ReasonsCheck } from "./jev";
 import { checkProposal, type LineRange, type Ranges } from "./lawful-range";
+import { claude, modelName } from "./model";
 import type { StateCode, StatePack } from "./states/types";
-
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
 /** Shown with every case, on the tenants' page and the landlord's. */
 export const NOT_LEGAL_ADVICE = "Not legal advice. Your advocate reads the records and the state's rules and drafts your case; it can't tell you what a court would decide.";
@@ -399,7 +397,7 @@ export async function checkCaseReasons(c: AdvocateCase, file: CaseFile, pack: St
  *  key, its reasons against the record (checkCaseReasons). Throws when the model gave no case at all. `model` is for
  *  tests; the app uses Claude. `jev` is for tests too: without it, a stubbed model runs with no Jev check. */
 export async function runAdvocate(file: CaseFile, pack: StatePack, opts: { loadPhoto: LoadPhoto; model?: LanguageModel; maxSteps?: number; jev?: JevCall | null }): Promise<AdvocateCase> {
-  const model = opts.model ?? anthropic(MODEL);
+  const model = opts.model ?? claude("advocate");
   const result = await generateText({
     model,
     system: system(pack),
@@ -415,6 +413,6 @@ export async function runAdvocate(file: CaseFile, pack: StatePack, opts: { loadP
     raw = undefined; // no structured answer at all (the step limit ran out first)
   }
   if (!raw) throw new Error("The advocate didn't finish its case.");
-  const checked = validateCase(raw, file, pack, { model: opts.model ? "test" : MODEL, steps: result.steps.length });
+  const checked = validateCase(raw, file, pack, { model: opts.model ? "test" : modelName(), steps: result.steps.length });
   return checkCaseReasons(checked, file, pack, opts.jev === undefined ? (opts.model ? null : defaultJev()) : opts.jev);
 }

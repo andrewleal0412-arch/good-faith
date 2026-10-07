@@ -102,6 +102,8 @@ const KEPT = {
   "src/lib/dates.ts ZONES": "date formatters, one set per time zone name (a state pack's zone): no data, only Intl formatters",
   "src/lib/jev.ts shared": "the app's TypeSafe client (the key and the transport): it keeps no request or answer between calls",
   "src/lib/jev.ts EVERYDAY": "a fixed list of everyday English words the redactor reads as words in lower case, never changed",
+  "src/lib/e2e-paypal.ts fakeRefunds": "the judges'-path test's fake PayPal (only with GOOD_FAITH_E2E_STUBS=1, never on Render): refunds it made of the test's own fake captures, which no visitor's workspace holds",
+  "src/lib/e2e-paypal.ts fakeRefundKeys": "the same fake refunds by their PayPal-Request-Id, a key made from the test copy's own records",
 };
 const TOP = /^(?:export\s+)?(?:let\s+([A-Za-z_$][\w$]*)|var\s+([A-Za-z_$][\w$]*)|const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*new\s+(?:Map|Set|WeakMap|WeakSet)\b)/;
 const found = new Set();

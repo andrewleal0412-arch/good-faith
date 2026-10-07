@@ -1,5 +1,4 @@
 import "server-only";
-import { anthropic } from "@ai-sdk/anthropic";
 import { createMCPClient, type MCPTransport } from "@ai-sdk/mcp";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { PayPalAgentToolkit } from "@paypal/agent-toolkit/mcp";
@@ -7,7 +6,10 @@ import { generateText, isStepCount, tool, type ModelMessage, type ToolSet } from
 import { z } from "zod";
 import { closeOutFacts, guardWithFacts } from "./closeout";
 import { audit, db } from "./db";
+import { e2eStubs } from "./e2e-switch";
+import { fakeToolkit } from "./e2e-toolkit";
 import { returnFailed } from "./invoice-status";
+import { claude } from "./model";
 import { accessToken, PayPalRefused, SANDBOX, sendPayout } from "./paypal";
 import { statementChecklist } from "./statement";
 import { tenancyPack } from "./tenancy-pack";
@@ -19,8 +21,6 @@ import type { StatePack } from "./states/types";
 // for the landlord's approval, guardRefund re-checks it against the rules before PayPal is called, and the call
 // carries an idempotency key from our own records (closeOutRefundKey; a Payout's batch id), so a retry can't pay twice.
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
-
 /** The close-out agent's instructions under the tenancy's state pack: California's are the original prompt word for
  *  word; each pack names its own statute and checklist, and the citations come only from the facts' "rules". */
 export const systemPrompt = (pack: StatePack) => pack.ai.closeOutSystem;
@@ -31,14 +31,14 @@ export const systemPrompt = (pack: StatePack) => pack.ai.closeOutSystem;
  *  `requestId` every call carries PayPal-Request-Id, so the same request sent again returns the first refund instead
  *  of making a second (PayPal keeps refund keys for 45 days). */
 export async function connectPayPal(o: { requestId?: string; disputes?: boolean } = {}) {
-  const server = new PayPalAgentToolkit({
-    accessToken: await accessToken(),
-    configuration: {
-      // A PayPal dispute's defense (src/lib/chargeback-store.ts) also reads the dispute: list_disputes and get_dispute.
-      actions: { invoices: { get: true }, payments: { createRefund: true, getRefunds: true }, ...(o.disputes ? { disputes: { list: true, get: true } } : {}) },
-      context: { sandbox: SANDBOX, ...(o.requestId ? { request_id: o.requestId } : {}) },
-    },
-  });
+  const configuration = {
+    // A PayPal dispute's defense (src/lib/chargeback-store.ts) also reads the dispute: list_disputes and get_dispute.
+    actions: { invoices: { get: true }, payments: { createRefund: true, getRefunds: true }, ...(o.disputes ? { disputes: { list: true, get: true } } : {}) },
+    context: { sandbox: SANDBOX, ...(o.requestId ? { request_id: o.requestId } : {}) },
+  };
+  // The judges'-path test (src/lib/e2e-switch.ts, never on Render): the same toolkit server, answered by the fake
+  // PayPal in this process (src/lib/e2e-toolkit.ts), so no request reaches PayPal.
+  const server = e2eStubs() ? fakeToolkit(configuration, o.requestId) : new PayPalAgentToolkit({ accessToken: await accessToken(), configuration });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
   const client = await createMCPClient({ transport: clientSide as unknown as MCPTransport, protocolVersionDiscovery: false });
@@ -168,7 +168,7 @@ async function advance(runId: string, tenancyId: string, messages: ModelMessage[
   const pp = await connectPayPal();
   try {
     const result = await generateText({
-      model: anthropic(MODEL),
+      model: claude("close_out"),
       system: systemPrompt(pack),
       messages,
       tools: closeOutTools(tenancyId, await pp.client.tools(), pack),

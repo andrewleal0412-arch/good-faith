@@ -9,16 +9,14 @@
 // No database here: the file is built by the store and the photos come through `loadPhoto`, so the agent runs the
 // same against a stubbed model and a stubbed PayPal (scripts/chargeback-check.mjs). Not legal advice.
 
-import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, isStepCount, tool, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod";
 import type { CasePhoto, LoadPhoto } from "./advocate";
 import { ACTION_LABEL, readDispute, reasonWords, statusWords, type DefenseAction, type DefenseContext, type DisputeRead, type RawDefense } from "./chargeback";
 import { dateIn } from "./dates";
 import { usd } from "./deductions";
+import { claude, modelName } from "./model";
 import type { StatePack } from "./states/types";
-
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
 /** The most model steps one preparation takes. */
 export const DEFENSE_MAX_STEPS = 6;
@@ -223,7 +221,7 @@ export async function runDefenseAgent(file: DefenseFile, opts: { loadPhoto: Load
   };
   const messages: ModelMessage[] = [{ role: "user", content: prompt(file) }];
   const result = await generateText({
-    model: opts.model ?? anthropic(MODEL),
+    model: opts.model ?? claude("chargeback"),
     system: system(file.pack),
     messages,
     tools,
@@ -232,7 +230,7 @@ export async function runDefenseAgent(file: DefenseFile, opts: { loadPhoto: Load
   });
   const req = result.content.find((p) => p.type === "tool-approval-request");
   const all = [...messages, ...result.responseMessages];
-  const model = opts.model ? "test" : MODEL;
+  const model = opts.model ? "test" : modelName();
   if (!req) throw new Error("The defense agent didn't propose a response.");
   const action = actionOfTool(req.toolCall.toolName);
   const input = (req.toolCall.input ?? {}) as Record<string, unknown>;

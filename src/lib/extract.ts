@@ -1,14 +1,11 @@
-import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, Output } from "ai";
 import { z } from "zod";
+import { claude } from "./model";
 import type { LeaseTerms } from "./rules";
 
 // Claude reads the lease and returns facts only, with the exact wording it relied on, including the state the property
 // is in, which picks the rule pack (src/lib/states/). It does not judge what is lawful; the pack does that, so the
 // legal logic stays deterministic and citable.
-
-// Opus 5.5: telling wear and tear from damage is the core judgment, and the extra cost over Sonnet is a few dollars.
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
 const schema = z.object({
   propertyAddress: z.string().nullable(),
@@ -47,7 +44,7 @@ const schema = z.object({
 
 export async function extractLeaseTerms(pdf: Uint8Array, filename: string): Promise<LeaseTerms> {
   const { output } = await generateText({
-    model: anthropic(MODEL),
+    model: claude("lease"),
     output: Output.object({ schema }),
     system:
       "You extract facts from a United States residential lease for a security deposit tool. Report only what the " +

@@ -1,5 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { fakePayPal } from "./e2e-paypal";
+import { e2eStubs } from "./e2e-switch";
 import { keepAliveFetch } from "./http";
 
 // PayPal REST in the sandbox (PAYPAL_ENVIRONMENT=SANDBOX). Invoices collect the deposit; at move-out the agent returns
@@ -27,6 +29,8 @@ const TIMEOUT_MS = 20_000;
 
 /** OAuth access token (client credentials), cached until a minute before it expires. */
 export async function accessToken(): Promise<string> {
+  // The judges'-path test (src/lib/e2e-switch.ts, never on Render) talks to the fake PayPal, which needs no sign-in.
+  if (e2eStubs()) return "e2e-stub-token-not-valid-at-paypal";
   if (cached && Date.now() < cached.until) return cached.token;
   const r = await keepAliveFetch(`${BASE}/v1/oauth2/token`, {
     method: "POST",
@@ -49,6 +53,13 @@ export async function accessToken(): Promise<string> {
  *  2026-10-05: two creates with one key made two invoices), so the deposit invoice is made once by its invoice number
  *  instead (depositInvoiceNumber). `timeoutMs` stops waiting on a read that hangs. */
 export async function paypal<T = Record<string, unknown>>(method: string, path: string, body?: unknown, o: { requestId?: string; timeoutMs?: number } = {}): Promise<T> {
+  // The judges'-path test: the same request, answered by the fake PayPal in this process (src/lib/e2e-paypal.ts).
+  if (e2eStubs()) {
+    const a = await fakePayPal(method, path, body, { requestId: o.requestId });
+    const text = JSON.stringify(a.body ?? {});
+    if (a.status >= 300) throw new PayPalRefused(`PayPal ${method} ${path} -> ${a.status}: ${text.slice(0, 300)}`, a.status, text.slice(0, 4000));
+    return a.body as T;
+  }
   const r = await keepAliveFetch(`${BASE}${path}`, {
     method,
     headers: {
@@ -228,6 +239,7 @@ export function evidenceBody(input: unknown, files: EvidenceFile[], boundary = `
  *  PayPal's Disputes API doesn't promise to honor it: what keeps a resend from acting twice is that "Check with
  *  PayPal" reads the dispute first and sends only what it doesn't show (chargeback-store.ts). */
 export async function sendDisputeEvidence(id: string, o: { route: "provide-evidence" | "provide-supporting-info"; input: unknown; files: EvidenceFile[]; requestId: string }) {
+  if (e2eStubs()) throw new PayPalRefused("The e2e fake PayPal doesn't take dispute evidence.", 501);
   const { body, contentType } = evidenceBody(o.input, o.files);
   const r = await fetch(`${BASE}${disputePath(id, o.route)}`, {
     method: "POST",
@@ -252,6 +264,8 @@ export async function verifyWebhookSignature(rawBody: string, headers: Headers, 
   const [auth_algo, cert_url, transmission_id, transmission_sig, transmission_time] = WEBHOOK_HEADERS.map((h) => headers.get(h)?.trim() ?? "");
   const fields = { auth_algo, cert_url, transmission_id, transmission_sig, transmission_time, webhook_id: webhookId };
   if (Object.values(fields).some((v) => !v)) return "FAILURE";
+  // The judges'-path test's server never asks PayPal: no delivery is genuine there.
+  if (e2eStubs()) return "FAILURE";
   const body = `${JSON.stringify(fields).slice(0, -1)},"webhook_event":${rawBody}}`;
   const r = await fetch(`${BASE}/v1/notifications/verify-webhook-signature`, {
     method: "POST",
