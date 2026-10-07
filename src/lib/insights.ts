@@ -4,7 +4,7 @@
 // filters compute it again in the browser.
 
 import { addDays } from "./dates";
-import { ledgerTotals, type LedgerRow } from "./ledger";
+import { BACK_KINDS, ledgerTotals, type LedgerRow } from "./ledger";
 import type { StateCode } from "./states/types";
 
 /** One tenancy as Insights lists it: where it is, its status chip, and its next deadline. */
@@ -26,7 +26,7 @@ export type Money = { collected: number; returned: number; settled: number; kept
 
 const cents = (n: number) => Math.round(n * 100) / 100;
 const sum = (xs: LedgerRow[]) => cents(xs.reduce((t, r) => t + r.amount, 0));
-const back = (r: LedgerRow) => (r.kind === "refund" || r.kind === "payout" || r.kind === "dispute_refund") && (r.effect === "returned" || r.effect === "pending");
+const back = (r: LedgerRow) => BACK_KINDS.includes(r.kind) && (r.effect === "returned" || r.effect === "pending");
 const settled = (r: LedgerRow) => r.kind === "settlement" && (r.effect === "returned" || r.effect === "pending");
 
 /** A tenancy's money: collected, returned (refunds, payouts and PayPal's own refunds through a dispute), settled (a
@@ -109,7 +109,7 @@ export function periods(firstDate: string | null, today: string): { grain: Grain
 function countsFrom(rows: LedgerRow[], deliveredOn: ReadonlyMap<string, string | null>): (r: LedgerRow) => string {
   const firstBack = new Map<string, string>();
   for (const r of rows) {
-    if ((r.kind === "refund" || r.kind === "payout") && r.effect !== "failed" && (!firstBack.has(r.tenancyId) || r.date < firstBack.get(r.tenancyId)!)) firstBack.set(r.tenancyId, r.date);
+    if ((r.kind === "refund" || r.kind === "payout" || r.kind === "outside_refund") && r.effect !== "failed" && (!firstBack.has(r.tenancyId) || r.date < firstBack.get(r.tenancyId)!)) firstBack.set(r.tenancyId, r.date);
   }
   return (r) => {
     if (r.kind !== "deduction" || r.effect !== "claimed") return r.date;

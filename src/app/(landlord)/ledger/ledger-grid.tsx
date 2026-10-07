@@ -19,7 +19,7 @@ import { Menu, type MenuItem } from "@/components/menu";
 import { Tabs } from "@/components/tabs";
 import { RollMoney } from "@/components/roll-money";
 import { KV, Money, StatusChip, inlineInputClass } from "@/components/ui";
-import { ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
+import { BACK_KINDS, ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
 import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
 
 // Payments, as Mercury's and Stripe's transaction tables read: the page title with Views, Export and Request deposit,
@@ -36,7 +36,7 @@ import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
 type View = "all" | "deposits" | "refunds" | "settlements" | "deductions" | "requests" | "paypal";
 type ColId = "date" | "tenants" | "type" | "unit" | "method" | "detail" | "paypalId" | "source" | "tag" | "status" | "amount";
 
-const BACK: LedgerKind[] = ["refund", "payout", "dispute_refund"];
+const BACK: LedgerKind[] = BACK_KINDS;
 /** The views: which rows each shows and the columns it opens with (a wide card; narrower cards drop the extras). All
  *  is money that moved: deposits in, refunds, payouts and settlements out. PayPal events is every row PayPal holds a
  *  record of, with where each status came from. */
@@ -60,7 +60,7 @@ const OPTIONAL: { id: ColId; label: string }[] = [
 /** The word the table shows for each kind (the deposit received reads "Deposit"; an invoice is a request). */
 const TYPE: Record<LedgerKind, string> = {
   payment: "Deposit", refund: "Refund", payout: "Payout", deposit_invoice: "Deposit request", damage_invoice: "Balance request", deduction: "Deduction", settlement: "Settlement",
-  dispute_refund: "PayPal dispute",
+  dispute_refund: "PayPal dispute", outside_refund: "Refund",
 };
 
 type Range = { key: string; label: string; from?: string; to?: string };
@@ -89,16 +89,17 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Status in a word or two. A deposit is Held until a refund or payout went back, then Returned (the statement
  *  accounts for the rest; "Settled" would read as a dispute's settlement, which has rows of its own); an invoice is
  *  Paid or Unpaid; a deduction keeps its statement status. */
-function statusOf(r: LedgerRow, back: Map<string, "returned" | "pending">): string {
+function statusOf(r: LedgerRow, back: Map<string, Back>): string {
   switch (r.kind) {
     case "payment": {
       if (r.effect === "failed") return "Reversed";
       const b = back.get(r.tenancyId);
-      return b === "returned" ? "Returned" : b === "pending" ? "Refund pending" : "Held";
+      return b === "returned" ? "Returned" : b === "partly" ? "Partly returned" : b === "pending" ? "Refund pending" : "Held";
     }
     case "refund":
     case "payout":
     case "dispute_refund":
+    case "outside_refund":
     case "settlement": return r.example ? "Demo example" : r.effect === "returned" ? "Completed" : r.effect === "failed" ? "Failed" : "Pending";
     case "deposit_invoice":
     case "damage_invoice": return /^(paid|marked as paid)/.test(r.status) ? "Paid" : r.status === "sent, not paid" ? "Unpaid" : cap(r.status);
@@ -113,7 +114,10 @@ const sourceOf = (r: LedgerRow) => (r.kind === "deduction" ? "Your records" : r.
 /* ---------- Cells ---------- */
 
 type Layout = "narrow" | "medium" | "compact" | "wide";
-type Ctx = { back: Map<string, "returned" | "pending">; today: string; layout: Layout; onlyProperty: (id: string) => void; open: (r: LedgerRow) => void };
+/** How a tenancy's deposit stands once money went back: all of what is owed, part of it (a refund made in PayPal or
+ *  through a PayPal dispute before the rest), or still on its way. */
+type Back = "returned" | "partly" | "pending";
+type Ctx = { back: Map<string, Back>; today: string; layout: Layout; onlyProperty: (id: string) => void; open: (r: LedgerRow) => void };
 
 function PropertyCell(p: CustomCellRendererProps<LedgerRow, string>) {
   if (!p.data) return null;
@@ -147,7 +151,7 @@ function AmountCell(p: CustomCellRendererProps<LedgerRow, number>) {
 function RowMoney({ r, className = "" }: { r: LedgerRow; className?: string }) {
   return r.effect === "failed" ? <Money value={r.amount} className={`text-ink-3 line-through ${className}`} />
     : r.kind === "payment" ? <Money value={r.amount} className={`text-green ${className}`} />
-      : r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" || r.kind === "dispute_refund" ? <Money value={r.amount} sign="minus" className={className} />
+      : BACK.includes(r.kind) || r.kind === "settlement" ? <Money value={r.amount} sign="minus" className={className} />
         : <Money value={r.amount} className={`text-ink-2 ${className}`} />;
 }
 
@@ -183,7 +187,7 @@ function RowMenu(p: CustomCellRendererProps<LedgerRow>) {
     { label: "Details", icon: "info", onSelect: () => ctx.open(r) },
     { label: "Open property", href: `/tenancy/${r.tenancyId}?tab=payments`, icon: "arrow-up-right" },
     ...(r.kind === "refund" || r.kind === "payout" ? [{ label: "View receipt", href: `/tenancy/${r.tenancyId}/refund`, icon: "doc" as const }] : []),
-    ...(r.kind === "deduction" || r.kind === "refund" || r.kind === "payout" ? [{ label: "Itemized statement", href: `/tenancy/${r.tenancyId}/statement`, icon: "doc" as const }] : []),
+    ...(r.kind === "deduction" || r.kind === "refund" || r.kind === "payout" || r.kind === "outside_refund" ? [{ label: "Itemized statement", href: `/tenancy/${r.tenancyId}/statement`, icon: "doc" as const }] : []),
     // A settlement's receipt is the amended statement: the adjusted charges, who accepted and approved it, and the
     // PayPal id of the money it sent.
     ...(r.kind === "settlement" ? [
@@ -282,12 +286,15 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
     return c;
   }, [rows, passesChips]);
 
-  // A deposit reads Returned once its tenancy's refund or payout went back.
+  // A deposit reads Returned once its tenancy's refund or payout went back, and Partly returned while money went back
+  // and more is still owed (owedBack).
   const back = useMemo(() => {
-    const m = new Map<string, "returned" | "pending">();
+    const m = new Map<string, Back>();
+    const byT = new Map<string, LedgerRow[]>();
+    for (const r of rows) byT.set(r.tenancyId, [...(byT.get(r.tenancyId) ?? []), r]);
     for (const r of rows) {
       if (!BACK.includes(r.kind)) continue;
-      if (r.effect === "returned") m.set(r.tenancyId, "returned");
+      if (r.effect === "returned") m.set(r.tenancyId, owedBack(byT.get(r.tenancyId)!) > 0.005 ? "partly" : "returned");
       else if (r.effect === "pending" && !m.has(r.tenancyId)) m.set(r.tenancyId, "pending");
     }
     return m;
@@ -303,7 +310,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
     const due = units.filter((u) => u.due && byT.has(u.id))
       // Forfeited deductions (New York after day 14): the whole deposit is owed, or the rest of it once a refund went.
       .map((u) => ({ u, amount: owedBack(byT.get(u.id)!), forfeited: byT.get(u.id)!.some((r) => r.effect === "forfeited"),
-        rest: byT.get(u.id)!.some((r) => (r.kind === "refund" || r.kind === "payout") && r.effect !== "failed") })).filter((x) => x.amount > 0)
+        rest: byT.get(u.id)!.some((r) => (r.kind === "refund" || r.kind === "payout" || r.kind === "outside_refund") && r.effect !== "failed") })).filter((x) => x.amount > 0)
       .sort((a, b) => a.u.due!.localeCompare(b.u.due!));
     return { held: ledgerTotals(mine).held, holding, due };
   }, [rows, units, property]);
@@ -654,7 +661,7 @@ function Details({ r, d, status, at }: { r: LedgerRow; d: LedgerDetail | undefin
 
       <div className="mt-6 flex flex-wrap gap-2">
         <ButtonLink href={`/tenancy/${r.tenancyId}?tab=payments`}><Icon name="arrow-up-right" />Open property</ButtonLink>
-        {(r.kind === "deduction" || r.kind === "refund" || r.kind === "payout" || r.kind === "settlement") && (
+        {(r.kind === "deduction" || r.kind === "refund" || r.kind === "payout" || r.kind === "outside_refund" || r.kind === "settlement") && (
           <ButtonLink href={`/tenancy/${r.tenancyId}/statement`}><Icon name="doc" />Statement</ButtonLink>
         )}
       </div>

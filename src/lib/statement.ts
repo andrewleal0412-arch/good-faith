@@ -102,6 +102,11 @@ export type Statement = {
   // statement's refund (which is then what is left); notKept: the deductions it covered past the refund owed. Absent
   // when there is none.
   viaDispute?: { amount: number; disputeId: string | null; at: string | null; notKept: number };
+  // Refunds made in PayPal, not from here, that the landlord recorded as this deposit's refund (reconcile.ts). When they
+  // cover what is owed and nothing went from here, they are the statement's refund itself (`refund` is "sent" with
+  // them, asRefund); otherwise each is a line before the refund, which is then what went or is left on top of them.
+  // notKept: the deductions they cover past the refund owed. Absent when there is none.
+  outside?: { amount: number; refunds: { id: string; amount: number; at: string | null }[]; notKept: number; asRefund: boolean };
 };
 
 /** A settled dispute as the amended statement records it: who accepted and approved it and when, each charge the
@@ -213,16 +218,24 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
   // PayPal dispute is a prior return (s.viaDispute): the refund here is what went, or is still owed, on top of it.
   const ret = facts.alreadyReturned;
   const via = facts.viaDispute;
+  const outside = facts.outside;
   const agreement = facts.refundAgreement;
   const paypalEmail = agreement?.paypalEmail ?? null;
   let refund: Statement["refund"];
   const base = { paypalEmail, payees: tenants, agreement: agreement ? { signedBy: agreement.signedBy, signedAt: agreement.signedAt } : null };
-  const owedNow = Math.max(0, Math.round(((facts.standing?.forfeits ? totals.depositHeld : totals.refund) - (via?.amount ?? 0)) * 100) / 100);
+  const owedNow = Math.max(0, Math.round(((facts.standing?.forfeits ? totals.depositHeld : totals.refund) - (via?.amount ?? 0) - (outside?.amount ?? 0)) * 100) / 100);
+  // Refunds made in PayPal that cover what is owed, with nothing sent from here: they are this statement's refund.
+  const outsideIsRefund = !ret && !!outside && totals.depositHeld > 0 && owedNow <= 0;
   if (ret) {
     refund = {
       ...base, amount: ret.amount, state: "sent", paypalId: ret.paypalId, sentAt: ret.at,
       method: ret.kind === "payout" ? `PayPal Payout to ${paypalEmail ?? "the designated PayPal account"}` : "PayPal refund of the original deposit payment",
       note: "",
+    };
+  } else if (outsideIsRefund && outside) {
+    refund = {
+      ...base, amount: outside.amount, state: "sent", paypalId: outside.refunds.map((r) => r.id).join(", "), sentAt: outside.refunds[0]?.at ?? null,
+      method: `PayPal refund${outside.refunds.length === 1 ? "" : "s"} of the original deposit payment, made in PayPal`, note: "",
     };
   } else if (via && totals.depositHeld > 0 && owedNow <= 0) {
     refund = { ...base, amount: 0, state: "none", paypalId: null, sentAt: null,
@@ -266,6 +279,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
   if (recordedOn) s.deliveryRecordedOn = recordedOn;
   if (facts.standing) s.standing = facts.standing;
   if (via) s.viaDispute = { amount: via.amount, disputeId: via.disputeId, at: via.at || null, notKept: via.notKept };
+  if (outside) s.outside = { amount: outside.amount, refunds: outside.refunds, notKept: outside.notKept, asRefund: outsideIsRefund };
   // The amended statement: a settlement of the tenants' dispute that was paid (or needed no money). Only then; one
   // agreed and not yet approved changes nothing here.
   const { data: settled } = await db.from("settlements").select("amount, terms, tenant_name, tenant_accepted_at, landlord_approved_at, sent_at, rail, paypal_id, paypal_status, raw")
@@ -277,7 +291,7 @@ export async function buildStatement(tenancyId: string): Promise<Statement | nul
       .map((l) => ({ ...l, adjustment: Math.round((l.keep - l.amount) * 100) / 100 })).filter((l) => l.adjustment !== 0);
     const keptAfter = Math.round(deductions.reduce((t, d) => t + keepOf(d.id, d.amount), 0) * 100) / 100;
     // What it added to the money back: nothing when the statement's refund was already the whole deposit.
-    const refunded = (refund.state === "sent" ? refund.amount : 0) + (via?.amount ?? 0);
+    const refunded = (refund.state === "sent" ? refund.amount : 0) + (via?.amount ?? 0) + (outside && !outsideIsRefund ? outside.amount : 0);
     const amount = settledExtra({ agreed: Number(settled.amount), depositHeld: facts.deposit?.amount ?? Infinity, refunded });
     s.settlement = {
       amount, acceptedBy: (settled.tenant_name as string | null) ?? null, acceptedAt: (settled.tenant_accepted_at as string | null) ?? null,

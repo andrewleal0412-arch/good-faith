@@ -1,6 +1,7 @@
 import { atTextIn, dateIn, paypalPaidAt, shortDate, todayIn } from "./dates";
 import { usd } from "./deductions";
 import { paidElectronically, returnCompleted, returnFailed, wasPaid } from "./invoice-status";
+import { outsideReturnedAt } from "./reconcile";
 import { lawfulDeposit, type LeaseTerms } from "./rules";
 import { packFor } from "./states";
 import type { ClientPack } from "./states/types";
@@ -10,7 +11,11 @@ import type { ClientPack } from "./states/types";
 // the grid can filter on it and the CSV can go to an accountant or a small claims clerk as it is. Pure, so the grid
 // (in the browser) and the tenancy page (on the server) read the same rows. The database query is in ledger-load.ts.
 
-export type LedgerKind = "deposit_invoice" | "payment" | "deduction" | "refund" | "payout" | "damage_invoice" | "settlement" | "dispute_refund";
+export type LedgerKind = "deposit_invoice" | "payment" | "deduction" | "refund" | "payout" | "damage_invoice" | "settlement" | "dispute_refund" | "outside_refund";
+
+/** The rows that are money back to the tenants: the close-out's refund or Payout, PayPal's refund through their PayPal
+ *  dispute, and a refund made in PayPal that the landlord recorded as the deposit's refund (a settlement has its own). */
+export const BACK_KINDS: LedgerKind[] = ["refund", "payout", "dispute_refund", "outside_refund"];
 
 export const KIND_LABEL: Record<LedgerKind, string> = {
   deposit_invoice: "Deposit invoice",
@@ -21,6 +26,7 @@ export const KIND_LABEL: Record<LedgerKind, string> = {
   damage_invoice: "Balance invoice",
   settlement: "Settlement",
   dispute_refund: "PayPal dispute",
+  outside_refund: "Refund",
 };
 
 /** What a row does to the money held for the tenants, which is what the totals add up. The security stays the
@@ -82,6 +88,7 @@ export type LedgerPayment = {
     transactions?: { payment_id?: string; payment_date_time?: string; payment_date?: string; method?: string; transaction_status?: string; amount?: { value?: string } }[];
     demo_example?: boolean;
     status_from?: { source?: string; at?: string }; // a status PayPal's webhook sent
+    outside?: { recorded_at?: string }; // a refund made in PayPal, recorded here as the deposit's refund (reconcile.ts)
     reversal?: { at?: string | null }; // the deposit payment reversed by PayPal (a chargeback)
   } | null;
 };
@@ -253,6 +260,19 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
         status: effect === "returned" ? "completed" : words(p.status),
         ...pack.ledger.refundTag, ...mark,
       });
+    } else if (p.kind === "outside_refund") {
+      // A refund of the original payment that the landlord made in PayPal, not from here, and recorded as the
+      // deposit's refund: dated when PayPal made it, counted like the close-out's own.
+      const effect: LedgerEffect = returnCompleted(p.status) ? "returned" : returnFailed(p.status) ? "failed" : "pending";
+      const mark = reported(p.raw);
+      const recordedOn = p.raw?.outside?.recorded_at ? dayOf(p.raw.outside.recorded_at) : null;
+      row({
+        id: p.id, date, at: p.created_at, kind: "outside_refund", amount, signed: effect === "failed" ? 0 : -amount, effect, paypalId: p.paypal_id, method: "PayPal",
+        detail: withMark(`Refund of the original PayPal payment, made in PayPal${recordedOn ? ` and recorded here ${shortDate(recordedOn)}` : ""}` + timing(t.move_out_date, date, pack), mark),
+        summary: ["Made in PayPal", timingShort(t.move_out_date, date, pack)].filter(Boolean).join(", "),
+        status: effect === "returned" ? "completed" : words(p.status),
+        ...pack.ledger.refundTag, ...mark,
+      });
     } else if (p.kind === "damage_invoice") {
       row({
         id: p.id, date, at: p.created_at, kind: "damage_invoice", amount, signed: 0, effect: "none", paypalId: p.paypal_id, method: "PayPal",
@@ -268,16 +288,21 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
   // page, the statement and the refund math count them, and they are final once a refund or payout went out (the
   // routes refuse changes then). One added after the delivery was never on the statement furnished, so its status says so.
   const back = payments.find((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status));
-  const final = !!back;
+  // Final too once refunds made in PayPal and recorded here cover what the statement owes (the routes refuse changes
+  // then, deductionsLock).
+  const outsideBack = payments.filter((p) => p.kind === "outside_refund" && !returnFailed(p.status)).reduce((s2, p) => s2 + Number(p.amount), 0);
+  const viaBack = payments.filter((p) => p.kind === "dispute_refund" && !returnFailed(p.status)).reduce((s2, p) => s2 + Number(p.amount), 0);
+  const final = !!back || (outsideBack > 0.005 && cents(heldOf(payments) - deductions.reduce((s2, d) => s2 + Number(d.amount), 0) - viaBack - outsideBack) <= 0.005);
   const delivered = t.statement_delivered_at ? ms(t.statement_delivered_at) : null;
   // A deadline that forfeits the deductions (New York after day 14, read as the close-out's standing reads it): they
   // stay on file as claimed, but none of them is kept, so none counts as deducted and the whole deposit stays owed.
-  const inv = payments.find((p) => p.kind === "deposit_invoice");
-  const held = inv && wasPaid(inv.status) ? Number(inv.amount) : 0;
+  const held = heldOf(payments);
   const claimedTotal = cents(deductions.reduce((s, d) => s + Number(d.amount), 0));
+  // With no refund from the close-out, the day refunds made in PayPal and recorded here returned what is owed.
+  const outsideAt = !back ? outsideReturnedAt(payments, cents(held - claimedTotal)) : null;
   const forfeited = deductions.length > 0 && !!pack.deadline.forfeits?.({
     moveOutDate: t.move_out_date, today: opts.today ?? todayIn(zone), deliveredOn: t.statement_delivery?.date ?? null,
-    returnedOn: back ? dayOf(back.created_at) : null, refundOwed: held - claimedTotal > 0.005,
+    returnedOn: back ? dayOf(back.created_at) : outsideAt ? dayOf(outsideAt) : null, refundOwed: held - claimedTotal > 0.005,
   });
   for (const d of deductions) {
     const amount = Number(d.amount);
@@ -296,6 +321,12 @@ export function ledgerRows(t: LedgerTenancy, payments: LedgerPayment[], deductio
 
   // A stable sort, so a payment stored in the same instant as its invoice stays after it.
   return rows.sort((a, b) => ms(a.at) - ms(b.at));
+}
+
+/** The deposit collected, as the rows count it: the deposit invoice's amount once PayPal reads it paid. */
+function heldOf(payments: LedgerPayment[]): number {
+  const inv = payments.find((p) => p.kind === "deposit_invoice");
+  return inv && wasPaid(inv.status) ? Number(inv.amount) : 0;
 }
 
 export type LedgerTotals = {
@@ -347,18 +378,19 @@ export function settledOff(rows: LedgerRow[], claimedRows: LedgerRow[] = rows): 
 
 /** What a tenancy's rows say is still owed back to its tenants: the deposit collected less every deduction, drafts
  *  included (the refund the close-out would send) and forfeited ones not, less what PayPal returned through the
- *  tenants' PayPal dispute, while no refund or payout has gone out. Zero once one has, or when the deductions use the
+ *  tenants' PayPal dispute and any refund made in PayPal recorded as the deposit's, while no refund or payout has gone out. Zero once one has, or when the deductions use the
  *  whole deposit; except where the deadline forfeited the deductions after that refund went (New York: the refund on
  *  time, the statement after day 14), when the rest of the deposit is still owed: collected less every return. */
 export function owedBack(rows: LedgerRow[]): number {
   const collected = rows.filter((r) => r.effect === "collected").reduce((s, r) => s + r.amount, 0);
   if (rows.some((r) => (r.kind === "refund" || r.kind === "payout") && r.effect !== "failed")) {
     if (!rows.some((r) => r.kind === "deduction" && r.effect === "forfeited")) return 0;
-    const back = rows.filter((r) => (r.kind === "refund" || r.kind === "payout" || r.kind === "settlement" || r.kind === "dispute_refund") && (r.effect === "returned" || r.effect === "pending"))
+    const back = rows.filter((r) => (BACK_KINDS.includes(r.kind) || r.kind === "settlement") && (r.effect === "returned" || r.effect === "pending"))
       .reduce((s, r) => s + r.amount, 0);
     return Math.max(0, cents(collected - back));
   }
   const deducted = rows.filter((r) => r.kind === "deduction" && r.effect !== "forfeited").reduce((s, r) => s + r.amount, 0);
-  const viaDispute = rows.filter((r) => r.kind === "dispute_refund" && r.effect !== "failed").reduce((s, r) => s + r.amount, 0);
-  return Math.max(0, cents(collected - deducted - viaDispute));
+  // PayPal's refund through the tenants' PayPal dispute and a refund made in PayPal recorded here: prior returns.
+  const prior = rows.filter((r) => (r.kind === "dispute_refund" || r.kind === "outside_refund") && r.effect !== "failed").reduce((s, r) => s + r.amount, 0);
+  return Math.max(0, cents(collected - deducted - prior));
 }

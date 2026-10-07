@@ -75,15 +75,17 @@ async function moveOutTemplate() {
 }
 
 async function rows() {
-  const { data, error } = await db.from("demo_deposit_pool").select("invoice_id, amount, paid_at, claimed_by, claimed_at, disputed_at, created_at").order("paid_at");
+  const { data, error } = await db.from("demo_deposit_pool").select("invoice_id, amount, paid_at, claimed_by, claimed_at, disputed_at, refunded_outside_at, created_at").order("paid_at");
   if (error) fail(`Couldn't read the pool: ${error.message}`);
   const cutoff = Date.now() - FRESH_DAYS * 86_400_000;
   const all = data ?? [];
-  // A deposit the tenants disputed with PayPal (disputed_at) is used for good, claimed or not.
+  // A deposit the tenants disputed with PayPal (disputed_at), or one refunded in PayPal outside the app
+  // (refunded_outside_at), is used for good, claimed or not.
+  const used = (r) => r.disputed_at || r.refunded_outside_at;
   return {
     all,
-    ready: all.filter((r) => !r.claimed_by && !r.disputed_at && Date.parse(r.paid_at) > cutoff),
-    stale: all.filter((r) => !r.claimed_by && !r.disputed_at && Date.parse(r.paid_at) <= cutoff),
+    ready: all.filter((r) => !r.claimed_by && !used(r) && Date.parse(r.paid_at) > cutoff),
+    stale: all.filter((r) => !r.claimed_by && !used(r) && Date.parse(r.paid_at) <= cutoff),
     claimed: all.filter((r) => r.claimed_by),
   };
 }
@@ -101,6 +103,7 @@ async function status() {
   for (const r of p.all) {
     const state = r.claimed_by ? `claimed ${longDate(pacificDate(r.claimed_at))}${exists.has(r.claimed_by) ? "" : " by a copy that no longer exists (used)"}`
       : r.disputed_at ? "disputed with PayPal (used)"
+        : r.refunded_outside_at ? "refunded in PayPal outside the app (used)"
         : Date.parse(r.paid_at) > Date.now() - FRESH_DAYS * 86_400_000 ? "ready" : "too old";
     console.log(`  ${r.invoice_id}  ${usd(r.amount)}  paid ${longDate(pacificDate(r.paid_at))}  ${state}${r.disputed_at && r.claimed_by ? ", disputed with PayPal" : ""}`);
   }
@@ -158,17 +161,33 @@ async function fill(target) {
   const py = pythonBin(env);
   let p = await rows();
   console.log(`Filling the pool to ${target} ready deposits of ${usd(template.amount)} (${template.address}); ${p.ready.length} ready now.`);
+  // Each deposit's invoice is made once at PayPal by its number (sendSandboxDepositInvoice), from the pool's next slot:
+  // one more than the deposits the pool has ever held (the end-to-end test's fake ones aside, which it removes). A
+  // rerun after a crash, a lost answer or a payment never recorded finds that slot's invoice again, so it can't
+  // invoice twice; a slot whose invoice is in the pool already (rows removed by hand) moves on to the next.
+  let slot = p.all.filter((r) => !String(r.invoice_id).startsWith("INV2-E2E")).length + 1;
   while (p.ready.length < target) {
     const n = p.ready.length + 1;
     console.log(`\nDeposit ${n} of ${target}: sending the invoice`);
     let inv;
+    const pooled = new Set(p.all.map((r) => r.invoice_id));
     try {
-      inv = await sendSandboxDepositInvoice(paypal, { tenantEmail: payer, amount: template.amount, landlordName: template.landlordName, address: template.address, note: template.note });
+      for (let tries = 0; ; tries++) {
+        inv = await sendSandboxDepositInvoice(paypal, {
+          tenantEmail: payer, amount: template.amount, landlordName: template.landlordName, address: template.address, note: template.note,
+          key: `demo-pool:${template.id}:${slot}`,
+        });
+        if (!(inv.adopted && pooled.has(inv.id))) break;
+        if (tries >= 50) throw new Error("every slot tried already has its invoice in the pool");
+        slot++;
+      }
     } catch (e) {
       fail(`PayPal didn't create the invoice: ${e.message}\nStopped with ${p.ready.length} ready.`);
     }
-    console.log(`  invoice ${inv.id}; paying it as the sandbox tenant (about a minute)`);
-    if (!payAsSandboxTenant(py, env, inv.id)) {
+    if (inv.adopted) console.log(`  invoice ${inv.id} (${inv.invoiceNumber}) from an earlier run, ${String(inv.status).toLowerCase().replace(/_/g, " ")}: picked up, not made again`);
+    const paidAlready = PAID.includes(inv.status);
+    if (!paidAlready) console.log(`  invoice ${inv.id}; paying it as the sandbox tenant (about a minute)`);
+    if (!paidAlready && !payAsSandboxTenant(py, env, inv.id)) {
       fail(`The sandbox payment for ${inv.id} didn't go through (see the checkout's output above: a login page that changed, or a balance PayPal refused). Nothing was added for it, and filling stopped with ${p.ready.length} ready.\nPay it by hand as the sandbox tenant at ${inv.payLink}, then add it with: npm run demo:pool -- --adopt ${inv.id}`);
     }
     let r = { error: "PayPal hasn't recorded the payment yet" };
@@ -179,6 +198,7 @@ async function fill(target) {
     if (r.error) fail(`${r.error}. Filling stopped with ${p.ready.length} ready. When PayPal shows it paid, add it with: npm run demo:pool -- --adopt ${inv.id}`);
     await insert(r.row);
     console.log(`  paid ${longDate(pacificDate(r.row.paid_at))}; in the pool`);
+    slot++;
     p = await rows();
   }
   console.log("");

@@ -271,25 +271,39 @@ function standing(v: TenantView, pack: StatePack): { label: string; amount: numb
     // it was already the whole deposit and the settlement had nothing more to send.
     const r = v.returned, x = v.settlement;
     return {
-      label: "Refund amount", amount: Math.round((r.amount + x.amount) * 100) / 100, tone: "green", title: `Settled ${shortDate(dayOf(x.at))}`,
+      label: "Refund amount", amount: Math.round((r.amount + x.amount + (v.outside?.amount ?? 0)) * 100) / 100, tone: "green", title: `Settled ${shortDate(dayOf(x.at))}`,
       line: x.example
         ? `${usdText(r.amount)} with the statement by PayPal, and ${usdText(x.amount)} under the settlement you accepted. ${DEMO_EXAMPLE.tenant}`
         : x.amount > 0 ? `${usdText(r.amount)} with the statement and ${usdText(x.amount)} under the settlement you accepted, both by PayPal.`
           : `${usdText(r.amount)} with the statement by PayPal: the whole deposit, so the settlement you accepted had nothing more to send.`,
     };
   }
-  // What PayPal returned through the PayPal dispute they opened on the deposit payment.
+  // What PayPal returned through the PayPal dispute they opened on the deposit payment, and a refund their landlord made
+  // in PayPal and recorded as the deposit's refund (beside the statement's own; when it covers it, it is v.returned).
   const via = v.viaDispute;
+  const outside = v.outside;
   if (v.returned) {
     const r = v.returned, how = r.kind === "payout" ? "PayPal Payout" : "PayPal refund";
     if (returnFailed(r.status)) return { label: "Refund amount", amount: r.amount, tone: "red", title: `Refund ${words(r.status)}`, line: `PayPal reports the ${how} as ${words(r.status)}. Ask your landlord to send it again.` };
     const done = returnCompleted(r.status);
-    const short = forfeit && st ? Math.round((st.depositHeld - r.amount - (via?.amount ?? 0)) * 100) / 100 : 0;
+    const short = forfeit && st ? Math.round((st.depositHeld - r.amount - (via?.amount ?? 0) - (outside?.amount ?? 0)) * 100) / 100 : 0;
     return {
-      label: "Refund amount", amount: Math.round((r.amount + (via?.amount ?? 0)) * 100) / 100, tone: done && short <= 0 ? "green" : "amber", title: `Refund sent ${shortDate(dayOf(r.at))}`,
+      label: "Refund amount", amount: Math.round((r.amount + (via?.amount ?? 0) + (outside?.amount ?? 0)) * 100) / 100, tone: done && short <= 0 ? "green" : "amber", title: `Refund sent ${shortDate(dayOf(r.at))}`,
       line: short > 0 ? forfeitTip(`${usdText(short)} more is owed: none of the deposit may be kept after day 14.`)
         : via ? `${usdText(r.amount)} by ${how} and ${usdText(via.amount)} through your PayPal dispute.`
-          : `PayPal shows the ${how.replace("PayPal ", "")} as ${done ? "completed" : words(r.status)}.`,
+          : outside ? `${usdText(outside.amount)} by an earlier PayPal refund and ${usdText(r.amount)} by ${how}.`
+            : `PayPal shows the ${how.replace("PayPal ", "")} as ${done ? "completed" : words(r.status)}.`,
+    };
+  }
+  if (outside) {
+    const left = st ? Math.max(0, Math.round((st.refund - (via?.amount ?? 0) - outside.amount) * 100) / 100) : null;
+    return {
+      label: "Refunded", amount: Math.round((outside.amount + (via?.amount ?? 0)) * 100) / 100, tone: "amber",
+      title: `Refunded by PayPal${outside.at ? ` ${shortDate(dayOf(outside.at))}` : ""}`,
+      line: left != null ? (left > 0 ? `${usdText(left)} more is owed under the statement.` : "PayPal shows the refund as completed.")
+        : v.deposit && outside.amount + (via?.amount ?? 0) >= v.deposit.amount - 0.005
+          ? "Your landlord refunded the whole deposit through PayPal. The itemized statement comes next."
+          : "Your landlord refunded part of the deposit through PayPal. The itemized statement comes next.",
     };
   }
   if (via) {
@@ -366,7 +380,12 @@ function progress(v: TenantView): Step[] {
       ? { key: "refund", label: "Refund sent", title: "Refund sent", done: true, date: dayOf(v.returned.at) }
       : noRefund
         ? { key: "refund", label: "No refund", title: "No refund due", done: true, date: st!.delivery.date }
-        : { key: "refund", label: "Refund sent", title: "Refund", done: false, date: null },
+        // Part of it already went, by a refund their landlord made in PayPal: what is still to come once the statement
+        // says what is owed, or what went so far before it does.
+        : v.outside
+          ? { key: "refund", label: "Refund sent", done: false, date: v.outside.at ? dayOf(v.outside.at) : null,
+            title: st ? `${usdText(v.outside.amount)} refunded, ${usdText(Math.max(0, Math.round((st.refund - (v.viaDispute?.amount ?? 0) - v.outside.amount) * 100) / 100))} to come` : `${usdText(v.outside.amount)} refunded so far` }
+          : { key: "refund", label: "Refund sent", title: "Refund", done: false, date: null },
     { key: "statement", label: "Statement", title: sent ? `Itemized statement ${sent}` : "Itemized statement", done: !!st, date: st?.delivery.date ?? null,
       ...(st?.recordedOn ? { note: recordedWords(st.recordedOn, false) } : {}) },
   ];
@@ -430,17 +449,24 @@ function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
     if (forfeits) rows.push({ k: st.standing!.label, v: <Money value={st.total} sign="plus" /> });
     // What PayPal returned through their PayPal dispute comes off what is owed; the refund row is what went, or is left.
     const via = v.viaDispute;
+    const outside = v.outside;
+    const own = v.returned && !returnFailed(v.returned.status) ? v.returned.amount : 0;
+    // Past what the statement owed, the deductions the money back covered aren't kept.
+    const notKeptAfter = (back: number) => Math.round(Math.max(0, Math.min(st.depositHeld - st.refund, back - st.refund)) * 100) / 100;
     if (via) {
-      // Past what the statement owed, the deductions it covered aren't kept.
-      const back = via.amount + (v.returned && !returnFailed(v.returned.status) ? v.returned.amount : 0);
-      const notKept = Math.round(Math.max(0, Math.min(st.depositHeld - st.refund, back - st.refund)) * 100) / 100;
+      const notKept = notKeptAfter(via.amount + own);
       if (notKept > 0) rows.push({ k: "Not kept, after your PayPal dispute", v: <Money value={notKept} sign="plus" /> });
       rows.push({ k: "Through your PayPal dispute", v: <Money value={via.amount} sign="minus" /> });
     }
-    const left = Math.max(0, Math.round((st.refund - (via?.amount ?? 0)) * 100) / 100);
+    if (outside) {
+      const notKept = Math.round((notKeptAfter((via?.amount ?? 0) + outside.amount + own) - (via ? notKeptAfter(via.amount + own) : 0)) * 100) / 100;
+      if (notKept > 0) rows.push({ k: "Not kept, after the earlier refund", v: <Money value={notKept} sign="plus" /> });
+      rows.push({ k: `Refunded by PayPal${outside.at ? ` ${shortDate(dayOf(outside.at))}` : ""}`, v: <Money value={outside.amount} sign="minus" /> });
+    }
+    const left = Math.max(0, Math.round((st.refund - (via?.amount ?? 0) - (outside?.amount ?? 0)) * 100) / 100);
     if (st.balanceClaimed > 0) rows.push({ k: "Balance claimed", v: <Money value={st.balanceClaimed} />, total: true });
-    else rows.push({ k: v.returned ? "Refund" : forfeits ? "Owed back" : via ? "Left to refund" : "Refund due", v: <Money value={v.returned?.amount ?? left} />, total: !(v.returned && v.settlement) });
-    const short = forfeits && v.returned ? Math.round((st.depositHeld - v.returned.amount - (v.settlement?.amount ?? 0) - (via?.amount ?? 0)) * 100) / 100 : 0;
+    else rows.push({ k: v.returned ? "Refund" : forfeits ? "Owed back" : via || outside ? "Left to refund" : "Refund due", v: <Money value={v.returned?.amount ?? left} />, total: !(v.returned && v.settlement) });
+    const short = forfeits && v.returned ? Math.round((st.depositHeld - v.returned.amount - (v.settlement?.amount ?? 0) - (via?.amount ?? 0) - (outside?.amount ?? 0)) * 100) / 100 : 0;
     if (short > 0) rows.push({ k: "Still owed", v: <Money value={short} /> });
   }
 
@@ -453,7 +479,7 @@ function detailRows(v: TenantView, pack: StatePack): DetailRow[] {
       const x = v.settlement;
       rows.push({ k: "Settlement", v: <Money value={x.amount} /> });
       if (x.paypalId) rows.push({ k: `Settlement ${x.kind === "payout" ? "payout" : "refund"} ID`, v: <CopyId text={x.paypalId} label="Copy the settlement's PayPal ID" /> });
-      rows.push({ k: "Returned in all", v: <Money value={Math.round((v.returned.amount + x.amount) * 100) / 100} />, total: true });
+      rows.push({ k: "Returned in all", v: <Money value={Math.round((v.returned.amount + x.amount + (v.outside?.amount ?? 0)) * 100) / 100} />, total: true });
     }
     return rows;
   }

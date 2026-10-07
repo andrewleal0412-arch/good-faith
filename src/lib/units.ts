@@ -7,6 +7,7 @@ import { paidElectronically, returnFailed, wasPaid } from "./invoice-status";
 import { byUrgency, liveDispute, nextStep, type NextStep, type TenancySummary } from "./next-step";
 import { refundNoticeStatus, type ElectronicEvidence, type Notices, type RefundAgreementSummary } from "./notices";
 import type { LeaseTerms } from "./rules";
+import { outsideReturnedAt, outsideReturns } from "./reconcile";
 import { disputeReturns } from "./refund-rail";
 import { packFor } from "./states/server";
 import { tenantMoveOutSentOn, type TenantMoveOut } from "./tenant";
@@ -49,6 +50,8 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
   // Money PayPal sent back through the tenants' PayPal dispute: a prior return, which comes off what is left to return
   // (refundLeft), so the unit stays open while anything is still owed.
   const via = disputeReturns(payments);
+  // Refunds made in PayPal that the landlord recorded as the deposit's refund: a prior return the same way.
+  const outside = outsideReturns(payments);
   const terms = t.lease_terms;
   const pack = packFor(t.properties?.state);
   // A deadline that forfeits the deductions (New York after day 14, as the close-out's standing reads it, in the
@@ -57,9 +60,13 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
   const zone = pack.timeZone.id;
   const held = inv && wasPaid(inv.status) ? Number(inv.amount) : 0;
   const claimed = deductions.reduce((s, d) => s + Number(d.amount), 0);
+  // The day the rest of the deposit went: the close-out's refund or Payout, else the day refunds made in PayPal and
+  // recorded here (with the dispute's money) covered what the deductions leave owed.
+  const outsideAt = !returned ? outsideReturnedAt(payments, Math.round((held - claimed) * 100) / 100) : null;
+  const outsideOn = outsideAt ? dateIn(outsideAt, zone) : null;
   const forfeited = deductions.length > 0 && !!pack.deadline.forfeits?.({
     moveOutDate: t.move_out_date, today: todayIn(zone), deliveredOn: t.statement_delivery?.date ?? null,
-    returnedOn: returned?.created_at ? dateIn(returned.created_at, zone) : null, refundOwed: held - claimed > 0.005,
+    returnedOn: returned?.created_at ? dateIn(returned.created_at, zone) : outsideOn, refundOwed: held - claimed > 0.005,
   });
   // A dispute's settlement on top of the refund, counted where it matters to the unit's own state: once forfeited, the
   // whole deposit is owed, and a settlement can be what sends the rest of it (forfeitShort, next-step.ts).
@@ -104,6 +111,9 @@ export function summarizeTenancy(t: TenancyRow, payments: PaymentRow[], photos: 
     deductions: deductions.map((d) => ({ category: d.category, amount: Number(d.amount) })),
     returned: returned ? { amount: Number(returned.amount), kind: returned.kind } : null,
     ...(via ? { viaDispute: via.amount } : {}),
+    ...(outside ? { outside: outside.amount } : {}),
+    // That day, for a state whose deadline forfeits the deductions (New York's day 14 step reads it); absent elsewhere.
+    ...(pack.steps.forfeit && outsideOn ? { outsideReturnedOn: outsideOn } : {}),
     ...(forfeited ? { forfeited: true } : {}),
     ...(settledBack > 0 ? { settledBack } : {}),
     notices: t.notices ?? {},

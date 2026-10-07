@@ -82,13 +82,14 @@ export const NY_SERVER: ServerPart = {
     // and left nothing to refund is not late.
     extraBlockers: (f, ctx) => {
       if (!f.deductions.length || f.alreadyReturned || ctx.disputeLive) return [];
-      const d = nyLate({ due: f.tenancy.statementDue, today: ctx.today, deliveredOn: ctx.deliveredOn ?? null, returnedOn: null, refundOwed: f.totals.refund > 0 });
+      // No refund from the close-out: the day refunds made in PayPal and recorded here returned what is owed, if they did.
+      const d = nyLate({ due: f.tenancy.statementDue, today: ctx.today, deliveredOn: ctx.deliveredOn ?? null, returnedOn: ctx.returnedOn ?? null, refundOwed: f.totals.refund > 0 });
       if (!d?.late) return [];
       return [`Day 14 after the move-out (${longDate(d.due)}${runTo(d)}) passed before ${missedWords(d)}, so the landlord forfeits any right to keep any part of the deposit (${FORFEIT}). Nothing can be kept from it now: remove the deductions, and the whole deposit goes back.`];
     },
     extraWarnings: (f, ctx) => {
       const d = f.deductions.length && !f.alreadyReturned && ctx.disputeLive
-        ? nyLate({ due: f.tenancy.statementDue, today: ctx.today, deliveredOn: ctx.deliveredOn ?? null, returnedOn: null, refundOwed: f.totals.refund > 0 })
+        ? nyLate({ due: f.tenancy.statementDue, today: ctx.today, deliveredOn: ctx.deliveredOn ?? null, returnedOn: ctx.returnedOn ?? null, refundOwed: f.totals.refund > 0 })
         : null;
       return [
         ...(d?.late ? [`Day 14 after the move-out (${longDate(d.due)}${runTo(d)}) passed before ${missedWords(d)}, so the landlord forfeits any right to keep any part of the deposit (${FORFEIT}). The tenants disputed the statement, so its deductions stay on it while the dispute is open, but none of them may be kept: this refund returns the whole deposit, and the dispute's settlement then has no more money to send.`] : []),
@@ -164,7 +165,7 @@ export const NY_SERVER: ServerPart = {
       // recorded with its own date forfeits nothing.
       if (t.returned) {
         if (!t.forfeited || !t.statementDeliveredAt || t.deposit?.reversed) return null;
-        const back = t.returned.amount + (t.viaDispute ?? 0) + (t.settledBack ?? 0);
+        const back = t.returned.amount + (t.viaDispute ?? 0) + (t.outside ?? 0) + (t.settledBack ?? 0);
         const short = Math.round((deposit - back) * 100) / 100;
         if (short <= 0.005) return null;
         return {
@@ -174,14 +175,20 @@ export const NY_SERVER: ServerPart = {
       }
       const kept = t.deductions.reduce((s, x) => s + x.amount, 0);
       const delivered = t.statementDeliveredAt ? t.statementDeliveredOn ?? dateIn(t.statementDeliveredAt, NY.timeZone.id) : null;
-      const d = nyLate({ due: addDays(t.moveOutDate, 14), today, deliveredOn: delivered, returnedOn: null, refundOwed: deposit - kept > 0.005 });
+      // No refund from the close-out yet; refunds made in PayPal and recorded here may have returned what the
+      // deductions leave owed, and the day they did is the day the rest of the deposit went (the summary's).
+      const d = nyLate({ due: addDays(t.moveOutDate, 14), today, deliveredOn: delivered, returnedOn: t.outsideReturnedOn ?? null, refundOwed: deposit - kept > 0.005 });
       if (!d?.late) return null;
       const lead = `New York forfeits any right to keep any part of the deposit once day 14 passes before ${missedWords(d)}.`;
+      const before = Math.round(((t.outside ?? 0) + (t.viaDispute ?? 0)) * 100) / 100;
+      const rest = Math.max(0, Math.round((deposit - before) * 100) / 100);
+      // The whole deposit is back already (a refund made in PayPal, the dispute's money): nothing more to send.
+      if (rest <= 0.005) return null;
       return t.dispute ? {
-        ...h.undated("Day 14 has passed: refund in full", `${lead} The tenants' dispute holds the deductions, so the refund returns the whole deposit, ${usd(deposit)}, with them still on file.`, FORFEIT, "overdue"),
+        ...h.undated("Day 14 has passed: refund in full", `${lead} The tenants' dispute holds the deductions, so the refund returns the whole deposit, ${usd(deposit)}${before > 0 ? `, ${usd(rest)} of it still to send` : ""}, with them still on file.`, FORFEIT, "overdue"),
         action: { label: "Send refund", path: "refund", icon: "send" },
       } : {
-        ...h.undated("Day 14 has passed: refund in full", `${lead} Nothing can be kept: remove the deductions and refund all of it.`, FORFEIT, "overdue"),
+        ...h.undated("Day 14 has passed: refund in full", `${lead} Nothing can be kept: remove the deductions and refund ${before > 0 ? `the rest, ${usd(rest)}` : "all of it"}.`, FORFEIT, "overdue"),
         action: { label: "Remove deductions", path: "?tab=move-out", icon: "pen" },
       };
     },

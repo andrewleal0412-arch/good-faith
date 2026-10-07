@@ -8,7 +8,7 @@ export const LIVE_STATUSES: DisputeStatus[] = ["draft", "open", "negotiating", "
 /** Sent to the landlord and not yet closed: the statement's deductions stay as they are (deductionsLock). */
 export const SENT_LIVE_STATUSES: DisputeStatus[] = ["open", "negotiating", "agreed"];
 
-export type DeductionsLock = { code: "returned" | "settled" | "paypal_dispute" | "disputed"; message: string };
+export type DeductionsLock = { code: "returned" | "settled" | "paypal_dispute" | "paypal_refund" | "disputed"; message: string };
 
 /** Why the statement's deductions can't be added to, changed or removed any more, or null while they may. The three
  *  deduction routes (deductionsLocked in disputes.ts) and the Move-out tab read this one rule, so the page shows read
@@ -20,6 +20,8 @@ export type DeductionsLock = { code: "returned" | "settled" | "paypal_dispute" |
  *  - once PayPal's refund through the tenants' PayPal dispute covers the refund the statement owes (the Move-out tab
  *    then reads the deposit as returned); `refundOwed` is the statement's refund as it stands, null when no deposit was
  *    paid;
+ *  - once refunds made in PayPal that the landlord recorded as the deposit's refund cover it, with the dispute's (the
+ *    deposit then reads as returned the same way);
  *  - while a dispute the tenants sent is open. */
 export function deductionsLock(o: {
   payments: { kind: string; amount: number | string; status: string | null }[];
@@ -35,6 +37,10 @@ export function deductionsLock(o: {
   const via = o.payments.filter((p) => p.kind === "dispute_refund" && !returnFailed(p.status)).reduce((s, p) => s + Number(p.amount), 0);
   if (via > 0.005 && o.refundOwed != null && o.refundOwed - via <= 0.005) {
     return { code: "paypal_dispute", message: "PayPal returned the refund owed through the tenants' PayPal dispute, so the deductions are final." };
+  }
+  const outside = o.payments.filter((p) => p.kind === "outside_refund" && !returnFailed(p.status)).reduce((s, p) => s + Number(p.amount), 0);
+  if (outside > 0.005 && o.refundOwed != null && o.refundOwed - via - outside <= 0.005) {
+    return { code: "paypal_refund", message: "The refund made in PayPal, recorded as this deposit's refund, covers the refund owed, so the deductions are final." };
   }
   if (o.disputes.some((s) => SENT_LIVE_STATUSES.includes(s))) {
     return { code: "disputed", message: "The tenants disputed this statement, so its deductions stay as they are while the dispute is open." };

@@ -1,5 +1,6 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
+import { pacificDate } from "./dates";
 import { db } from "./db";
 import { e2eLog } from "./e2e-switch";
 
@@ -69,7 +70,13 @@ async function invoice(id: string): Promise<FakeAnswer> {
       primary_recipients: email ? [{ billing_info: { email_address: email } }] : [],
       amount: { currency_code: "USD", value: amount.toFixed(2) },
       payments: { paid_amount: { currency_code: "USD", value: amount.toFixed(2) }, transactions },
-      ...(refunded > 0 ? { refunds: { refund_amount: { currency_code: "USD", value: refunded.toFixed(2) } } } : {}),
+      // Each refund as PayPal's invoice lists it (read from the sandbox on 2026-10-07): its id as
+      // recipient_transaction_id, its day, its amount. The app checks these against its records (reconcile.ts).
+      ...(refunded > 0 ? { refunds: {
+        refund_amount: { currency_code: "USD", value: refunded.toFixed(2) },
+        transactions: [...fakeRefunds.values()].filter((r) => r.capture === capture)
+          .map((r) => ({ type: "PAYPAL", recipient_transaction_id: r.id, refund_date: pacificDate(r.at), amount: { currency_code: "USD", value: r.amount.toFixed(2) } })),
+      } } : {}),
     },
   };
 }

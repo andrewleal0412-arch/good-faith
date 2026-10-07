@@ -65,9 +65,13 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
   const forfeits = !!s.standing?.forfeits;
   const claim = forfeits ? null : s.balanceClaimed;
   const via = s.viaDispute;
-  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0) - (via?.amount ?? 0)) * 100) / 100) : 0;
-  // Money PayPal returned through the tenants' PayPal dispute, with the statement's refund if it went too.
-  const returnedInAll = via ? Math.round((via.amount + (sent ? s.refund.amount : 0)) * 100) / 100 : 0;
+  // Refunds made in PayPal and recorded here: the refund itself when they cover it (asRefund), else lines before it.
+  const outside = s.outside && !s.outside.asRefund ? s.outside : null;
+  const prior = (via?.amount ?? 0) + (outside?.amount ?? 0);
+  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0) - prior) * 100) / 100) : 0;
+  // Money PayPal returned through the tenants' PayPal dispute or refunded in PayPal, with the statement's refund if it
+  // went too.
+  const returnedInAll = prior ? Math.round((prior + (sent ? s.refund.amount : 0)) * 100) / 100 : 0;
   let n = 0;
   const next = () => ++n;
 
@@ -102,13 +106,15 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
         {s.settlement ? (
           <Fact big label="Returned in all" value={<Money value={s.settlement.returnedInAll} cents="small" phoneCents="full" />}
             sub={`Statement and settlement, ${shortDate(s.settlement.sentAt ? dayOf(s.settlement.sentAt) : s.today)}`} />
-        ) : via ? (
+        ) : prior ? (
           <Fact big label="Returned in all" value={<Money value={returnedInAll} cents="small" phoneCents="full" />}
-            sub={!sent && s.refund.amount > 0 ? `${usd(s.refund.amount)} still to refund` : sent ? "PayPal dispute and refund" : "Through the PayPal dispute"} />
+            sub={!sent && s.refund.amount > 0 ? `${usd(s.refund.amount)} still to refund`
+              : outside && !via ? (sent ? "Refunds in PayPal and from here" : "Refunded in PayPal")
+                : sent ? "PayPal dispute and refund" : "Through the PayPal dispute"} />
         ) : (
           <Fact big label={claim ? "Balance claimed" : sent ? "Refunded" : forfeits ? "Owed back" : "Refund due"}
             value={<Money value={claim ? claim.amount : s.refund.amount} cents="small" phoneCents="full" />}
-            sub={stillOwed ? `${usd(stillOwed)} still owed` : sent && s.refund.sentAt ? `By PayPal, ${shortDate(dayOf(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
+            sub={stillOwed ? `${usd(stillOwed)} still owed` : sent && s.refund.sentAt ? `${s.outside?.asRefund ? "In PayPal" : "By PayPal"}, ${shortDate(dayOf(s.refund.sentAt))}` : `To ${s.tenants.join(" and ") || "the tenants"}`} />
         )}
         <Fact label="Due by"
           info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
@@ -207,8 +213,10 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
               {forfeits && <><dt className="text-ink-3">{s.standing!.label}</dt><dd className="text-right"><Money value={s.totals.deductions} sign="plus" /></dd></>}
               {/* PayPal's refund through the tenants' PayPal dispute: past the refund owed, the deductions it covered aren't kept. */}
               {via && via.notKept > 0 && <><dt className="text-ink-3">Not kept, after the PayPal dispute</dt><dd className="text-right"><Money value={via.notKept} sign="plus" /></dd></>}
+              {s.outside && s.outside.notKept > 0 && <><dt className="text-ink-3">Not kept, after the refund in PayPal</dt><dd className="text-right"><Money value={s.outside.notKept} sign="plus" /></dd></>}
               {via && <><dt className="text-ink-3">Returned through the PayPal dispute</dt><dd className="text-right"><Money value={via.amount} sign="minus" /></dd></>}
-              <dt className="mt-1 border-t border-line pt-2 font-medium">{claim ? "Balance claimed" : sent ? "Refunded" : forfeits ? "Owed back" : via ? "Left to refund" : "Refund"}</dt>
+              {outside && <><dt className="text-ink-3">Refunded in PayPal</dt><dd className="text-right"><Money value={outside.amount} sign="minus" /></dd></>}
+              <dt className="mt-1 border-t border-line pt-2 font-medium">{claim ? "Balance claimed" : sent ? "Refunded" : forfeits ? "Owed back" : prior ? "Left to refund" : "Refund"}</dt>
               <dd className="mt-1 border-t border-line pt-2 text-right text-lg font-medium tabular-nums">{usd(claim ? claim.amount : s.refund.amount)}</dd>
               {stillOwed > 0 && <><dt className="text-ink-3">Still owed</dt><dd className="text-right tabular-nums">{usd(stillOwed)}</dd></>}
             </dl>
@@ -234,6 +242,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
           <Section n={next()} title="Refund" cite={sec.refund} tip={s.refund.note || undefined}>
             <Rows rows={[
               ...(via ? [["Through the PayPal dispute", `${usd(via.amount)}${via.disputeId ? `, dispute ${via.disputeId}` : ""}${via.at ? `, ${longDate(dayOf(via.at))}` : ""}`] as [ReactNode, ReactNode]] : []),
+              ...(outside ? outside.refunds.map((r) => ["Refunded in PayPal", <span key={r.id} className="break-all">{usd(r.amount)}, refund {r.id}{r.at ? `, ${longDate(dayOf(r.at))}` : ""}</span>] as [ReactNode, ReactNode]) : []),
               ["Amount", <span key="a" className="font-medium tabular-nums">{usd(s.refund.amount)}</span>],
               ["Method", s.refund.method],
               ...(s.refund.paypalId ? [["PayPal ID", <span key="id" className="break-all tabular-nums">{s.refund.paypalId}</span>] as [ReactNode, ReactNode]] : []),
@@ -243,6 +252,9 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
             ]} />
             {via && via.notKept > 0 && (
               <p className="mt-3 text-sm text-ink-2">PayPal returned more through the tenants&apos; PayPal dispute than this statement&apos;s refund, so {usd(via.notKept)} of the deductions above is not kept.</p>
+            )}
+            {s.outside && s.outside.notKept > 0 && (
+              <p className="mt-3 text-sm text-ink-2">More was refunded in PayPal than this statement&apos;s refund, so {usd(s.outside.notKept)} of the deductions above is not kept.</p>
             )}
             {s.refund.note && <p className="mt-3 hidden text-sm text-ink-2 print:block">{s.refund.note}</p>}
           </Section>

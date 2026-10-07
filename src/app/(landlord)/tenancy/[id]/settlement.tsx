@@ -52,6 +52,9 @@ export function Settlement(p: {
   forfeited?: { label: string; note: string } | null; // New York after day 14: the deductions come back off, the whole deposit is owed
   // What PayPal returned through the tenants' PayPal dispute, and the deductions it covered past the refund owed.
   viaDispute?: { amount: number; notKept: number } | null;
+  // Refunds made in PayPal that the landlord recorded as this deposit's refund, and the deductions they cover past the
+  // refund owed. When they cover what is owed they are `returned` (kind outside_refund) and read as the refund.
+  outside?: { amount: number; notKept: number } | null;
   edit: { allowed: boolean; reason: string | null; limits: Record<string, EditLimits> };
 }) {
   const pack = packFor(p.state);
@@ -61,11 +64,14 @@ export function Settlement(p: {
   // The close-out's own refund or Payout (a dispute's refund that covers what is owed stands in for it as `returned`).
   const own = p.returned && p.returned.kind !== "dispute_refund" ? p.returned : null;
   const via = p.viaDispute ?? null;
+  // A line of its own unless the refund made in PayPal is the refund itself.
+  const outside = p.outside && p.returned?.kind !== "outside_refund" ? p.outside : null;
+  const prior = (via?.amount ?? 0) + (outside?.amount ?? 0);
   const cents = (n: number) => Math.round(n * 100) / 100;
 
   // The lines under the grid, from the amounts as they stand while the inputs are edited (the grid passes them in).
   const totals = (live: { total: number; refund: number; balanceClaimed: number }): TotalLine[] => {
-    const stillOwed = own ? cents((p.depositHeld ?? 0) - own.amount - (via?.amount ?? 0)) : 0;
+    const stillOwed = own ? cents((p.depositHeld ?? 0) - own.amount - prior) : 0;
     const claim = live.balanceClaimed > 0 && !p.forfeited;
     return [
       { key: "held", label: "Deposit held", amount: p.depositHeld },
@@ -73,11 +79,13 @@ export function Settlement(p: {
       ...(p.forfeited ? [{ key: "forfeited", label: p.forfeited.label, amount: live.total, sign: "plus" as const, tip: { title: p.forfeited.label, text: p.forfeited.note } }] : []),
       // PayPal's refund through the tenants' PayPal dispute: past the refund owed, the deductions it covered aren't kept.
       ...(via && via.notKept > 0 ? [{ key: "not-kept", label: "Not kept, after the PayPal dispute", amount: via.notKept, sign: "plus" as const }] : []),
+      ...(p.outside && p.outside.notKept > 0 ? [{ key: "not-kept-outside", label: "Not kept, after the refund in PayPal", amount: p.outside.notKept, sign: "plus" as const }] : []),
       ...(via ? [{ key: "via", label: "Through the PayPal dispute", amount: via.amount, sign: "minus" as const }] : []),
+      ...(outside ? [{ key: "outside", label: "Refunded in PayPal", amount: outside.amount, sign: "minus" as const }] : []),
       {
         key: "final", strong: true,
-        label: claim ? "Balance claimed" : own ? "Refunded" : p.forfeited ? "Owed back" : via ? "Left to refund" : "Refund due",
-        amount: claim ? live.balanceClaimed : own ? own.amount : Math.max(0, cents((p.forfeited ? p.depositHeld ?? 0 : live.refund) - (via?.amount ?? 0))),
+        label: claim ? "Balance claimed" : own ? "Refunded" : p.forfeited ? "Owed back" : prior ? "Left to refund" : "Refund due",
+        amount: claim ? live.balanceClaimed : own ? own.amount : Math.max(0, cents((p.forfeited ? p.depositHeld ?? 0 : live.refund) - prior)),
         ...(claim ? { tip: { title: "Balance claimed", text: "The statement lists this as a claim, not a demand for payment. The agent never collects it on its own." } } : {}),
       },
       ...(p.forfeited && own && stillOwed > 0.005 ? [{ key: "still", label: "Still owed", amount: stillOwed }] : []),

@@ -92,6 +92,7 @@ const KEPT = {
   "src/lib/workspace.ts seen": "demo workspaces confirmed to exist, keyed by the id in the signed session cookie: its label and when it was last seen, nothing from inside it",
   "src/lib/workspace.ts templates": "the demo's template tenancies and their file folders: the same list for every workspace, and read-only",
   "src/lib/paypal-webhook-store.ts templates": "the template tenancy ids, the same for every workspace",
+  "src/lib/outside-refunds.ts templates": "the template tenancy ids, the same for every workspace, so a refund on one is never noted or recorded",
   "src/lib/db.ts recentLinks": "signed links to stored files, keyed by path; only signedUrlsFor (workspace.ts) asks for them, after dropping every path the session's workspace may not see (checked below)",
   "src/lib/paypal.ts cached": "the app's own PayPal OAuth token, not a workspace's data",
   "src/lib/chargeback-store.ts lastCheck": "when Check PayPal last ran per tenancy, a throttle: a time, no data",

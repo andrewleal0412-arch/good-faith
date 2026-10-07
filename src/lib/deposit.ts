@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "./db";
-import { getInvoice } from "./paypal";
+import { getInvoice, type Invoice } from "./paypal";
 
 // The deposit invoice as stored, refreshed from PayPal. Shared by the landlord's tenancy page and the tenant's page,
 // so "Paid" shows on both the moment the tenant pays.
@@ -15,11 +15,13 @@ export type DepositInvoiceRow = {
 
 /** The invoice with PayPal's current status, stored when it changed (unless `store` is false: a template tenancy, which
  *  nothing writes to). On a PayPal error the row comes back as stored. PayPal's transaction ids are kept with it: the
- *  move-out refund goes back against the original payment. */
-export async function refreshDepositInvoice<T extends DepositInvoiceRow>(invoice: T, opts: { store?: boolean } = {}): Promise<T> {
+ *  move-out refund goes back against the original payment. `onLive` gets PayPal's invoice as read, when it was (its
+ *  refunds are checked against the records: reconcile.ts). */
+export async function refreshDepositInvoice<T extends DepositInvoiceRow>(invoice: T, opts: { store?: boolean; onLive?: (live: Invoice) => void } = {}): Promise<T> {
   if (!invoice.paypal_id) return invoice;
   try {
     const live = await getInvoice(invoice.paypal_id);
+    opts.onLive?.(live);
     if (live.status === invoice.status) return invoice;
     // The status now comes from this read, not from a PayPal webhook, so the webhook's mark (status_from) goes.
     const kept: Record<string, unknown> = { ...(invoice.raw ?? {}) };

@@ -1,6 +1,7 @@
 // Shared by the demo scripts (demo-seed, demo-reset, demo-pool, demo-sweep): .env.local, the server-side Supabase
 // client, dates, the Python that runs Playwright, PayPal's sandbox REST API, and the template tenancies these scripts
 // never touch. .env.local is read the way scripts/pay_invoice.py reads it, and nothing from it is ever printed.
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -127,22 +128,37 @@ export function paypalSandbox(env) {
     token = { value: j.access_token, until: Date.now() + (j.expires_in - 60) * 1000 };
     return token.value;
   }
-  return async function call(method, path, body) {
+  // A write passes `requestId`, sent as PayPal-Request-Id, always from the script's own record, never random. A
+  // refusal carries PayPal's status and body (err.status, err.body), so a caller can tell a duplicate from a failure.
+  return async function call(method, path, body, o = {}) {
     const r = await fetch(`${base}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${await auth()}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${await auth()}`, "Content-Type": "application/json", ...(o.requestId ? { "PayPal-Request-Id": o.requestId } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(60_000),
     });
     const text = await r.text();
-    if (!r.ok) throw new Error(`PayPal ${method} ${path} -> ${r.status}: ${text.slice(0, 300)}`);
+    if (!r.ok) throw Object.assign(new Error(`PayPal ${method} ${path} -> ${r.status}: ${text.slice(0, 300)}`), { status: r.status, body: text.slice(0, 4000) });
     return text ? JSON.parse(text) : {};
   };
 }
 
-/** The deposit invoice the app sends (src/lib/paypal.ts sendDepositInvoice): created, then sent to the tenant. */
-export async function sendSandboxDepositInvoice(paypal, { tenantEmail, amount, landlordName, address, note }) {
-  const created = await paypal("POST", "/v2/invoicing/invoices", {
+/** An invoice number made from the script's own record and what the invoice says, as the app makes the deposit
+ *  invoice's (src/lib/paypal.ts depositInvoiceNumber): "GF-" and 20 hex digits of a hash, inside PayPal's 25
+ *  characters. PayPal refuses a second invoice with a number it already has (DUPLICATE_INVOICE_NUMBER). */
+export const invoiceNumberFor = (key, content) => `GF-${createHash("sha256").update(`${key}\n${JSON.stringify(content)}`).digest("hex").slice(0, 20)}`;
+
+const duplicateNumber = (e) => e?.status === 422 && String(e.body ?? "").includes("DUPLICATE_INVOICE_NUMBER");
+
+/** The deposit invoice the app sends (src/lib/paypal.ts sendDepositInvoice): created, then sent to the tenant, made
+ *  once at PayPal by its invoice number, as the app's own is. `key` names the record it is for (the pool's slot), so a
+ *  rerun after a lost answer, a crash between the create and the send, or a payment the pool never recorded finds the
+ *  first invoice by its number (`adopted`, with PayPal's status) instead of making a second one; it is sent only while
+ *  it is still a draft. Both calls carry a PayPal-Request-Id from the same record (PayPal's Invoicing API ignores the
+ *  header, tried on 2026-10-05, which is why the number is the guard). */
+export async function sendSandboxDepositInvoice(paypal, { tenantEmail, amount, landlordName, address, note, key }) {
+  if (!key) throw new Error("sendSandboxDepositInvoice needs the key of the record the invoice is for.");
+  const content = {
     detail: {
       currency_code: "USD",
       note,
@@ -152,11 +168,35 @@ export async function sendSandboxDepositInvoice(paypal, { tenantEmail, amount, l
     invoicer: { business_name: landlordName },
     primary_recipients: [{ billing_info: { email_address: tenantEmail } }],
     items: [{ name: `Security deposit: ${address}`, quantity: "1", unit_amount: { currency_code: "USD", value: Number(amount).toFixed(2) } }],
-  });
-  const id = created.id ?? created.href?.split("/").pop();
+  };
+  const invoiceNumber = invoiceNumberFor(key, content);
+  let id, status = "DRAFT", adopted = false;
+  try {
+    const created = await paypal("POST", "/v2/invoicing/invoices", { ...content, detail: { ...content.detail, invoice_number: invoiceNumber } }, { requestId: invoiceNumber });
+    id = created.id ?? created.href?.split("/").pop();
+  } catch (e) {
+    if (!duplicateNumber(e)) throw e;
+    // An earlier run made this invoice: the same one, found by its number.
+    const r = await paypal("POST", "/v2/invoicing/search-invoices?page=1&page_size=5", { invoice_number: invoiceNumber });
+    const hit = (r.items ?? []).find((i) => i.detail?.invoice_number === invoiceNumber && i.id);
+    if (!hit) throw new Error(`PayPal has invoice ${invoiceNumber} but didn't return it.`);
+    ({ id } = hit);
+    status = hit.status ?? "DRAFT";
+    adopted = true;
+  }
   if (!id) throw new Error("PayPal didn't return an invoice id.");
-  await paypal("POST", `/v2/invoicing/invoices/${id}/send`, { send_to_invoicer: false });
-  return { id, payLink: `https://www.sandbox.paypal.com/invoice/p/#${id}` };
+  if (status === "DRAFT") {
+    try {
+      await paypal("POST", `/v2/invoicing/invoices/${id}/send`, { send_to_invoicer: false }, { requestId: `gf-invoice-send-${id}` });
+      status = "SENT";
+    } catch (e) {
+      // Sent meanwhile (an earlier run's send whose answer was lost): no longer a draft, so it went.
+      const now = await paypal("GET", `/v2/invoicing/invoices/${id}`).catch(() => null);
+      if (!now || now.status === "DRAFT") throw e;
+      status = now.status;
+    }
+  }
+  return { id, payLink: `https://www.sandbox.paypal.com/invoice/p/#${id}`, invoiceNumber, status, ...(adopted ? { adopted: true } : {}) };
 }
 
 /** Pays a sandbox invoice as the sandbox tenant with scripts/pay_invoice.py (Playwright). True when it finished. */

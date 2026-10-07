@@ -7,6 +7,7 @@ import { refreshDepositInvoice, type DepositInvoiceRow } from "./deposit";
 import { isTemplate } from "./workspace";
 import { paidElectronically, returnFailed, wasPaid } from "./invoice-status";
 import type { Notices } from "./notices";
+import { outsideReturnedAt, outsideReturns } from "./reconcile";
 import { disputeReturns, settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { Standing, StateCode } from "./states/types";
@@ -51,6 +52,10 @@ export type TenantView = {
   // What PayPal returned to them through the PayPal dispute they opened on the deposit payment: before or beside the
   // statement's refund, which is then what is left. Absent when there is none.
   viaDispute?: { amount: number; at: string };
+  // A refund their landlord made in PayPal, not from here, and recorded as the deposit's refund: before or beside the
+  // statement's refund, which is then what is left. When it covers what the statement owes and nothing else went, it is
+  // `returned` itself instead, and this is absent. Absent when there is none.
+  outside?: { amount: number; at: string | null; ids: string[] };
   // The settlement of their dispute, once paid: the extra amount back on top of the statement's refund. Absent otherwise.
   settlement?: { amount: number; kind: "refund" | "payout" | null; status: string | null; paypalId: string | null; at: string; example: boolean };
 };
@@ -94,8 +99,10 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   } : null;
 
   const a = t.refund_agreement as { text?: string; paypal_email: string; signed_by: string[]; signed_at: string } | null;
-  const ret = (payments ?? []).find((p) => p.kind === "refund" || p.kind === "payout") ?? null;
+  const own = (payments ?? []).find((p) => p.kind === "refund" || p.kind === "payout") ?? null;
   const via = disputeReturns((payments ?? []) as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
+  const outside = outsideReturns((payments ?? []) as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
+  let ret: { kind: string; amount: number | string; status: string; paypal_id: string | null; created_at: string } | null = own;
 
   const notices = (t.notices ?? {}) as Notices;
   // Today where the property is: its state's deadlines are counted in its pack's zone.
@@ -118,10 +125,12 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     const depositHeld = deposit?.paid ? deposit.amount : 0;
     const s = settle(depositHeld, rows, pack);
     // The day the money went back, as the close-out and the statement count it: a refund PayPal refused or reversed
-    // returned nothing.
+    // returned nothing. With none from the close-out, the day refunds made in PayPal and recorded here returned what
+    // the deductions leave owed.
+    const outsideAt = !ret ? outsideReturnedAt(payments ?? [], s.refund) : null;
     const standing = pack.close.standing?.({
       today, notices, claimed: s.total, statementDue, deliveredOn: (t.statement_delivery as DeliveryRecord).date,
-      returnedOn: ret && !returnFailed(ret.status as string) ? dateIn(ret.created_at as string, pack.timeZone.id) : null, refundOwed: s.refund > 0,
+      returnedOn: ret && !returnFailed(ret.status as string) ? dateIn(ret.created_at as string, pack.timeZone.id) : outsideAt ? dateIn(outsideAt, pack.timeZone.id) : null, refundOwed: s.refund > 0,
     });
     // Forfeited deductions (New York after day 14) leave the whole deposit owed back, and no balance claimed over it.
     const forfeits = !!standing?.forfeits;
@@ -133,6 +142,13 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
       ...(recordedOn ? { recordedOn } : {}),
     };
   }
+  // A refund made in PayPal and recorded as the deposit's refund that covers what the statement owes, with nothing
+  // sent from here: to the tenants it is the refund (one PayPal refund of their payment, or the first of several).
+  const outsideCovers = !own && !!outside && !!statement && statement.refund - (via?.amount ?? 0) - outside.amount <= 0.005;
+  if (outsideCovers && outside) {
+    // PayPal's own status for them (a refund it still lists as pending reads as pending here too).
+    ret = { kind: "refund", amount: outside.amount, status: outside.status, paypal_id: outside.refunds.map((r) => r.id).join(", "), created_at: outside.refunds[0]?.at ?? new Date().toISOString() };
+  }
 
   // A settled dispute: what PayPal sent on top of the statement's refund.
   const { data: settled } = delivered
@@ -142,7 +158,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   return {
     ...(settled ? { settlement: {
       // What it added: nothing when the statement's refund was already the whole deposit (settlement.ts).
-      amount: settledExtra({ agreed: Number(settled.amount), depositHeld: deposit?.amount ?? Infinity, refunded: (ret && !returnFailed(ret.status as string) ? Number(ret.amount) : 0) + (via?.amount ?? 0) }), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
+      amount: settledExtra({ agreed: Number(settled.amount), depositHeld: deposit?.amount ?? Infinity, refunded: (ret && !returnFailed(ret.status as string) ? Number(ret.amount) : 0) + (via?.amount ?? 0) + (outside && !outsideCovers ? outside.amount : 0) }), kind: settled.rail === "payout" ? "payout" as const : settled.rail ? "refund" as const : null,
       status: (settled.paypal_status as string | null) ?? null, paypalId: (settled.paypal_id as string | null) ?? null, at: settled.sent_at as string,
       example: isDemoExample(settled.raw),
     } } : {}),
@@ -161,5 +177,6 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     statement,
     returned: ret ? { amount: Number(ret.amount), kind: ret.kind, status: ret.status, paypalId: ret.paypal_id, at: ret.created_at } : null,
     ...(via ? { viaDispute: { amount: via.amount, at: via.at } } : {}),
+    ...(outside && !outsideCovers ? { outside: { amount: outside.amount, at: outside.refunds[0]?.at ?? null, ids: outside.refunds.map((r) => r.id) } } : {}),
   };
 }

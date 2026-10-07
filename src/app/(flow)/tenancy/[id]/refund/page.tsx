@@ -125,7 +125,8 @@ function Review({ v, statute, record, zone }: { v: RefundView; statute: string; 
   const note = awaiting ? `This ${word} will be sent today through PayPal.`
     : r.demoBlock && !r.blockers.length ? `This demo copy can't send the ${word}.`
     : blocked ? "Nothing can be sent until the checks below pass."
-      : nothing ? (r.viaDispute ? "PayPal already returned what is owed through the tenants' PayPal dispute, so no more money goes back." : "The deductions use the whole deposit, so no money goes back.")
+      : nothing ? (r.outside ? "The refund made in PayPal, recorded as this deposit's refund, covers what is owed, so no more money goes back."
+        : r.viaDispute ? "PayPal already returned what is owed through the tenants' PayPal dispute, so no more money goes back." : "The deductions use the whole deposit, so no money goes back.")
         : "Prepared by the agent and sent only when you approve it.";
 
   const method: [ReactNode, ReactNode, ReactNode?][] = blocked || nothing ? [] : [
@@ -152,6 +153,8 @@ function Review({ v, statute, record, zone }: { v: RefundView; statute: string; 
       {r.blockers.length > 0 && (
         <div role="alert" className="mt-5 rounded-md bg-red-bg px-3.5 py-2.5 text-sm text-red">
           {r.blockers.map((b, i) => <p key={i} className={i ? "mt-1" : ""}>{b}</p>)}
+          {/* A refund made in PayPal waits for the landlord's decision, on the property's Payments tab. */}
+          {r.waiting && <p className="mt-2"><Link href={r.waiting.href} className="font-medium underline">Review the refund{r.waiting.count === 1 ? "" : "s"} made in PayPal</Link></p>}
         </div>
       )}
       {r.warnings.map((w, i) => <Notice key={i} tone="amber" className="mt-3">{w}</Notice>)}
@@ -161,7 +164,8 @@ function Review({ v, statute, record, zone }: { v: RefundView; statute: string; 
         ...partyRows(v),
         ["Amount", usd(r.amount), (r.forfeited ? `The whole ${usd(r.depositHeld)} deposit: the ${usd(r.deductions)} in deductions is forfeited`
           : `${usd(r.depositHeld)} deposit less ${usd(r.deductions)} ${r.standing ? r.standing.toLowerCase() : "in deductions"}`)
-          + (r.viaDispute ? `, less ${usd(r.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute${r.viaDispute.notKept > 0 ? ` (${usd(r.viaDispute.notKept)} of the deductions not kept)` : ""}` : "")],
+          + (r.viaDispute ? `, less ${usd(r.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute${r.viaDispute.notKept > 0 ? ` (${usd(r.viaDispute.notKept)} of the deductions not kept)` : ""}` : "")
+          + (r.outside ? `, less ${usd(r.outside.amount)} refunded in PayPal${r.outside.notKept > 0 ? ` (${usd(r.outside.notKept)} of the deductions not kept)` : ""}` : "")],
         ...method,
       ]} />
       <Divider />

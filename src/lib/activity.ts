@@ -94,9 +94,14 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "close_out_finished": return "Finished the close-out";
     // PayPal's own reports, from its webhook (src/lib/paypal-webhook.ts).
     case "deposit_paid": return `PayPal reported the ${d?.kind === "damage_invoice" ? "balance invoice" : "deposit"} paid: ${usd(d?.amount as number)}${d?.method ? ` by ${String(d.method).toLowerCase().replace(/_/g, " ")}` : ""}${d?.capture_id ? ` (payment ${d.capture_id})` : ""}`;
-    case "refund_status": return `PayPal reported the ${d?.kind === "settlement_refund" ? "settlement's refund" : d?.kind === "dispute_refund" ? "refund through the PayPal dispute" : "refund"} ${d?.refund_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
+    case "refund_status": return `PayPal reported the ${d?.kind === "settlement_refund" ? "settlement's refund" : d?.kind === "dispute_refund" ? "refund through the PayPal dispute" : d?.kind === "outside_refund" ? "refund made in PayPal" : "refund"} ${d?.refund_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
     case "payout_status": return `PayPal reported the ${d?.kind === "settlement_payout" ? "settlement's Payout" : "Payout"} ${d?.payout_batch_id} as ${statusWords(d?.status)}${d?.previous ? `, after ${statusWords(d.previous)}` : ""}`;
-    case "paypal_refund_unrecorded": return `PayPal reported a ${usd(d?.amount as number)} refund of the deposit payment${d?.refund_id ? ` (refund ${d.refund_id})` : ""} that wasn't sent from here, or whose answer never came back; the close-out waits until it is checked in PayPal`;
+    // A refund of the deposit payment PayPal showed that isn't on record here (its webhook, or the invoice when a page
+    // read PayPal: detail.source "paypal_check"); the landlord records it as the deposit's refund or marks it not this
+    // deposit (src/lib/outside-refunds.ts).
+    case "paypal_refund_unrecorded": return `PayPal ${d?.source === "paypal_check" ? "shows" : "reported"} a ${usd(d?.amount as number)} refund of the deposit payment${d?.refund_id ? ` (refund ${d.refund_id})` : ""}${d?.refunded_on ? ` made ${day(d.refunded_on)}` : ""} that wasn't sent from here, or whose answer never came back; the close-out waits until you record it as this deposit's refund or mark it not this deposit`;
+    case "outside_refund_recorded": return `Recorded the ${usd(d?.amount as number)} refund made in PayPal${d?.refund_id ? ` (refund ${d.refund_id})` : ""} as this deposit's refund; it counts toward what goes back`;
+    case "outside_refund_dismissed": return `Marked the ${usd(d?.amount as number)} refund made in PayPal${d?.refund_id ? ` (refund ${d.refund_id})` : ""} as not this deposit's; it doesn't count toward what goes back`;
     case "deposit_reversed": return `PayPal reversed the deposit payment${d?.capture_id ? ` ${d.capture_id}` : ""} (${usd(d?.amount as number)}), a chargeback or a bank reversal; nothing goes back through PayPal against it`;
     case "paypal_dispute": return `PayPal dispute ${d?.dispute_id} ${d?.event === "created" ? "opened" : d?.event === "resolved" ? "resolved" : "updated"} on the deposit payment${d?.reason ? `: ${String(d.reason).toLowerCase().replace(/_/g, " ")}` : ""}${d?.status ? `, ${String(d.status).toLowerCase().replace(/_/g, " ")}` : ""}${d?.outcome ? `, ${String(d.outcome).toLowerCase().replace(/_/g, " ")}` : ""}`;
     // A big selection arrives in several requests, each logged; "of N" is the whole selection.
@@ -246,7 +251,9 @@ export function activityTitle(action: string, d: Record<string, unknown> | null,
     case "deposit_invoice_unsaved": return "Deposit invoice not saved";
     case "refund_status": return `Refund ${statusWords(d?.status)} in PayPal`;
     case "payout_status": return `Payout ${statusWords(d?.status)} in PayPal`;
-    case "paypal_refund_unrecorded": return "Refund made outside Good Faith";
+    case "paypal_refund_unrecorded": return "Refund made in PayPal";
+    case "outside_refund_recorded": return `Refund of ${usd(d?.amount as number)} made in PayPal recorded`;
+    case "outside_refund_dismissed": return "Refund in PayPal marked not this deposit";
     case "deposit_reversed": return "Deposit payment reversed";
     case "paypal_dispute": return d?.event === "created" ? "PayPal dispute opened" : d?.event === "resolved" ? "PayPal dispute resolved" : "PayPal dispute updated";
     case "photos_added": return `${String(d?.phase).startsWith("move_out") ? "Move-out" : String(d?.phase) === "after_repair" ? "After-repair" : "Move-in"} photos added, ${String(d?.room ?? "").toLowerCase() || "one room"}`;

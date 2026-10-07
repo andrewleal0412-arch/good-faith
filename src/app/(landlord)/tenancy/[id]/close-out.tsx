@@ -19,6 +19,10 @@ export function CloseOut(p: {
   // What PayPal returned through the tenants' PayPal dispute (`due` is already less it), and the deductions it covered
   // past the refund owed.
   viaDispute?: { amount: number; id: string | null; notKept: number } | null;
+  // Refunds made in PayPal that the landlord recorded as this deposit's refund (`due` is already less them), and the
+  // ones still waiting for the landlord's decision, which hold the refund.
+  outside?: { amount: number; count: number } | null;
+  waiting?: { count: number; amount: number } | null;
   // A demo copy's tenants' page (one person plays both sides), shown once the refund went: whether the statement is
   // out, which the tenants need before they can dispute it, and whether they already did.
   tenantView?: { href: string; delivered: boolean; disputed: boolean } | null;
@@ -26,6 +30,9 @@ export function CloseOut(p: {
   const href = `/tenancy/${p.tenancyId}/refund`;
   const word = p.returned?.kind === "payout" ? "Payout" : "Refund";
   const viaDispute = p.returned?.kind === "dispute_refund";
+  // Refunds made in PayPal and recorded here cover what is owed: they stand for the refund.
+  const inPayPal = p.returned?.kind === "outside_refund";
+  const payments = `/tenancy/${p.tenancyId}?tab=payments`;
   const awaiting = p.run?.status === "awaiting_approval" && p.run.pendingAmount != null;
 
   let body: React.ReactNode;
@@ -34,13 +41,16 @@ export function CloseOut(p: {
       <>
         <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3.5" /></span>
         <div className="min-w-0 flex-[1_1_14rem]">
-          <p className="text-sm font-medium">{viaDispute ? <><Money value={p.returned.amount} /> returned through the PayPal dispute {shortDate(p.returned.on)}</> : <>{word} of <Money value={p.returned.amount} /> sent {shortDate(p.returned.on)}</>}</p>
-          {p.returned.id && <p className="break-all text-xs text-ink-3">PayPal {viaDispute ? "dispute" : p.returned.kind === "payout" ? "payout" : "refund"} {p.returned.id}{viaDispute && p.viaDispute?.notKept ? `. More than the refund owed, so ${usd(p.viaDispute.notKept)} of the deductions is not kept.` : ""}</p>}
+          <p className="text-sm font-medium">{viaDispute ? <><Money value={p.returned.amount} /> returned through the PayPal dispute {shortDate(p.returned.on)}</>
+            : inPayPal ? <><Money value={p.returned.amount} /> refunded in PayPal {shortDate(p.returned.on)}</>
+              : <>{word} of <Money value={p.returned.amount} /> sent {shortDate(p.returned.on)}</>}</p>
+          {p.returned.id && <p className="break-all text-xs text-ink-3">{inPayPal ? `Recorded as this deposit's refund, PayPal refund ${p.returned.id}${(p.outside?.count ?? 1) > 1 ? ` and ${(p.outside?.count ?? 1) - 1} more` : ""}` : `PayPal ${viaDispute ? "dispute" : p.returned.kind === "payout" ? "payout" : "refund"} ${p.returned.id}`}{viaDispute && p.viaDispute?.notKept ? `. More than the refund owed, so ${usd(p.viaDispute.notKept)} of the deductions is not kept.` : ""}</p>}
           {!viaDispute && p.viaDispute && <p className="text-xs text-ink-3">Also {usd(p.viaDispute.amount)} through the PayPal dispute</p>}
+          {!inPayPal && p.outside && <p className="text-xs text-ink-3">Also {usd(p.outside.amount)} refunded in PayPal</p>}
         </div>
         <div className="ml-auto flex items-center gap-3">
           <Link href={`/tenancy/${p.tenancyId}/statement`} className="text-sm font-medium text-brand hover:underline">Itemized statement</Link>
-          <ButtonLink href={viaDispute ? `/tenancy/${p.tenancyId}?tab=payments#paypal-dispute` : href}>{viaDispute ? "View dispute" : "View receipt"}</ButtonLink>
+          <ButtonLink href={viaDispute ? `/tenancy/${p.tenancyId}?tab=payments#paypal-dispute` : inPayPal ? payments : href}>{viaDispute ? "View dispute" : inPayPal ? "View payments" : "View receipt"}</ButtonLink>
         </div>
       </>
     );
@@ -49,8 +59,10 @@ export function CloseOut(p: {
       ? [<><Money value={p.run!.pendingAmount!} /> ready to send</>, `Prepared by the agent${p.run!.at ? ` ${shortDate(p.run!.at)}` : ""}. Nothing moves until you send it.`]
       : p.run?.status === "running" ? ["The agent is preparing the refund", "It reads the file and checks the deposit with PayPal."]
         : p.run?.status === "failed" ? ["The last close-out run stopped", p.run.error ?? "No reason was recorded."]
+          : p.waiting ? [<><Money value={p.waiting.amount} /> refunded in PayPal, not from here</>, "Record it as this deposit's refund, or mark it not this deposit, on Payments. The refund waits until then."]
           : [<><Money value={p.due} /> to {p.tenants.length ? p.tenants.join(" and ") : "the tenants"}</>,
-            p.viaDispute ? `What is left after ${usd(p.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute. Nothing moves until you approve it.` : "Nothing moves until you approve it."];
+            p.viaDispute && !p.outside ? `What is left after ${usd(p.viaDispute.amount)} PayPal returned through the tenants' PayPal dispute. Nothing moves until you approve it.`
+              : p.outside ? `What is left after ${usd(p.outside.amount + (p.viaDispute?.amount ?? 0))} already refunded. Nothing moves until you approve it.` : "Nothing moves until you approve it."];
     body = (
       <>
         <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand"><Icon name="send" className="size-3.5" /></span>
@@ -58,7 +70,8 @@ export function CloseOut(p: {
           <p className="text-sm font-medium">{line}</p>
           <p className="truncate text-xs text-ink-3" title={typeof sub === "string" ? sub : undefined}>{sub}</p>
         </div>
-        <ButtonLink href={href} className="ml-auto">Review refund</ButtonLink>
+        {p.waiting ? <ButtonLink href={`${payments}#outside-refunds`} className="ml-auto">Review in Payments</ButtonLink>
+          : <ButtonLink href={href} className="ml-auto">Review refund</ButtonLink>}
       </>
     );
   }

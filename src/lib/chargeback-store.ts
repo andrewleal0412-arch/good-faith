@@ -48,7 +48,9 @@ export const DEFENSE_STALE_SECONDS = 300;
 /** A send still 'sending' after this long died before its end was recorded: it reads as unconfirmed, and Check with
  *  PayPal takes it (approve_dispute_response and claim_dispute_defense count the same ten minutes). */
 export const SEND_STALE_SECONDS = 600;
-const BACK_KINDS = ["refund", "payout", "settlement_refund", "settlement_payout", "dispute_refund"];
+/** Money back to the tenants that counts as returned, a refund made in PayPal and recorded as the deposit's refund
+ *  among it (reconcile.ts). */
+const BACK_KINDS = ["refund", "payout", "settlement_refund", "settlement_payout", "dispute_refund", "outside_refund"];
 
 /** A response's status as the pages show it: a send stuck in 'sending' past SEND_STALE_SECONDS is unconfirmed. */
 const shownStatus = (r: Pick<ResponseRow, "status" | "updated_at">): ResponseRow["status"] =>
@@ -223,7 +225,7 @@ export async function caseBits(tenancyId: string): Promise<CaseBits | null> {
   // Money back that moved (a demo copy's recorded example moved none).
   const back = payments.filter((p) => BACK_KINDS.includes(p.kind) && !returnFailed(p.status) && !(p.raw && (p.raw as Obj).demo_example === true));
   const returned = cents(back.reduce((s, p) => s + Number(p.amount), 0));
-  const WHAT: Record<string, string> = { refund: "Refund to the original payment", payout: "PayPal Payout", settlement_refund: "Settlement refund", settlement_payout: "Settlement Payout", dispute_refund: "Refund through the PayPal dispute" };
+  const WHAT: Record<string, string> = { refund: "Refund to the original payment", payout: "PayPal Payout", settlement_refund: "Settlement refund", settlement_payout: "Settlement Payout", dispute_refund: "Refund through the PayPal dispute", outside_refund: "Refund made in PayPal" };
   const refunds = back.map((p) => ({ what: WHAT[p.kind] ?? p.kind, amount: Number(p.amount), paypalId: p.paypal_id, on: dateIn(p.created_at, facts.pack.timeZone.id) }));
   // A settlement both sides agreed and that hasn't gone yet gives back its amount on top; the history says how the
   // tenants' dispute of the statement went.
@@ -590,8 +592,9 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
 
   try {
     if (r.action === "provide_evidence") {
-      // Proof of every refund of this payment that went from here: the close-out's and a settlement's.
-      const refundIds = s.bits.payments.filter((p) => (p.kind === "refund" || p.kind === "settlement_refund") && !returnFailed(p.status) && p.paypal_id).map((p) => p.paypal_id!);
+      // Proof of every refund of this payment on record: the close-out's, a settlement's, and one made in PayPal that
+      // the landlord recorded as the deposit's refund.
+      const refundIds = s.bits.payments.filter((p) => (p.kind === "refund" || p.kind === "settlement_refund" || p.kind === "outside_refund") && !returnFailed(p.status) && p.paypal_id).map((p) => p.paypal_id!);
       const ev = await evidenceStep(refundIds);
       if (ev) {
         const refused = ev.status === 422 && !recheck;

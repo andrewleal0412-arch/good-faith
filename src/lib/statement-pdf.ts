@@ -397,11 +397,17 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   if (forfeits) w.row(s.standing!.label, `+${usd(s.totals.deductions)}`);
   // PayPal's refund through the tenants' PayPal dispute: past the refund owed, the deductions it covered aren't kept.
   const via = s.viaDispute;
+  // Refunds made in PayPal and recorded as this deposit's refund: the refund itself when they cover it (asRefund),
+  // else a line before it.
+  const outside = s.outside && !s.outside.asRefund ? s.outside : null;
+  const prior = (via?.amount ?? 0) + (outside?.amount ?? 0);
   if (via && via.notKept > 0) w.row("Not kept, after the PayPal dispute", `+${usd(via.notKept)}`);
+  if (s.outside && s.outside.notKept > 0) w.row("Not kept, after the refund in PayPal", `+${usd(s.outside.notKept)}`);
   if (via) w.row("Returned through the PayPal dispute", `-${usd(via.amount)}`);
+  if (outside) w.row("Refunded in PayPal", `-${usd(outside.amount)}`);
   if (s.balanceClaimed && !forfeits) w.row("Balance claimed", usd(s.balanceClaimed.amount), { bold: true, size: 11.5 });
-  else w.row(sent ? "Refunded" : forfeits ? "Owed back" : via ? "Left to refund" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
-  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0) - (via?.amount ?? 0)) * 100) / 100) : 0;
+  else w.row(sent ? "Refunded" : forfeits ? "Owed back" : prior ? "Left to refund" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
+  const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0) - prior) * 100) / 100) : 0;
   if (stillOwed > 0) w.row("Still owed", usd(stillOwed));
 
   // 3. Documents (item 9): the rule, then exactly what this packet holds and what it does not.
@@ -419,6 +425,10 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
   if (via) {
     w.text(`Returned through the tenants' PayPal dispute: ${usd(via.amount)}${via.disputeId ? ` (dispute ${via.disputeId})` : ""}${via.at ? `, ${longDate(onDay(via.at))}` : ""}.${via.notKept > 0 ? ` That is more than this statement's refund, so ${usd(via.notKept)} of the deductions above is not kept.` : ""}`, { color: INK2, after: 4 });
   }
+  for (const r of outside?.refunds ?? []) {
+    w.text(`Refunded in PayPal: ${usd(r.amount)} (PayPal id ${r.id})${r.at ? `, ${longDate(onDay(r.at))}` : ""}.`, { color: INK2, after: 4 });
+  }
+  if (s.outside && s.outside.notKept > 0) w.text(`More was refunded in PayPal than this statement's refund, so ${usd(s.outside.notKept)} of the deductions above is not kept.`, { color: INK2, after: 4 });
   w.text(usd(s.refund.amount), { size: 16, font: bold, lead: 20 });
   w.text(`${s.refund.method}${s.refund.paypalId ? ` (PayPal id ${s.refund.paypalId})` : ""}${s.refund.sentAt ? `, sent ${longDate(onDay(s.refund.sentAt))}` : ""}${s.refund.state === "none" ? "" : "."}`, { color: INK2 });
   if (s.refund.state !== "none") w.text(`Payable to ${s.refund.payees.join(" and ")}${s.refund.paypalEmail ? `, PayPal account ${s.refund.paypalEmail}` : ""}.`, { color: INK2 });

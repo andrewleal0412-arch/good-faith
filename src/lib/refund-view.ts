@@ -65,6 +65,12 @@ export type RefundView = {
     // What PayPal already returned through the tenants' PayPal dispute, which comes off the amount; notKept: the
     // deductions it covered past the refund owed. Absent when there is none.
     viaDispute?: { amount: number; disputeId: string | null; notKept: number };
+    // Refunds made in PayPal that the landlord recorded as this deposit's refund, which come off the amount the same
+    // way; notKept as above. Absent when there is none.
+    outside?: { amount: number; notKept: number };
+    // Refunds made in PayPal still waiting to be recorded or marked not this deposit, which hold the refund (each is one
+    // of the blockers); where to decide them. Absent when there is none.
+    waiting?: { count: number; amount: number; href: string };
     rail: Rail;
     why: string;
     noteToPayer?: string; // what PayPal shows the tenants when the whole deposit goes back (closeout.ts); absent otherwise
@@ -154,9 +160,9 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean,
     tip: { title: forfeit.label, body: forfeit.note },
   } : {
     key: "amount", label: f.standing ? `Deposit less the amount ${f.standing.label.toLowerCase()}` : "Deposit less deductions",
-    value: `${usd(f.totals.depositHeld)} less ${usd(f.totals.deductions)}${f.viaDispute ? `, less ${usd(f.viaDispute.amount)} through the PayPal dispute` : ""}`,
+    value: `${usd(f.totals.depositHeld)} less ${usd(f.totals.deductions)}${f.viaDispute ? `, less ${usd(f.viaDispute.amount)} through the PayPal dispute` : ""}${f.outside ? `, less ${usd(f.outside.amount)} refunded in PayPal` : ""}`,
     state: matches ? "ok" : "fail",
-    tip: { title: "The refund", body: `What is left of the deposit after the itemized deductions goes back to the tenants.${f.viaDispute ? " What PayPal already returned through the tenants' PayPal dispute counts toward it." : ""}`, cite: pack.deadline.tip.cite },
+    tip: { title: "The refund", body: `What is left of the deposit after the itemized deductions goes back to the tenants.${f.viaDispute ? " What PayPal already returned through the tenants' PayPal dispute counts toward it." : ""}${f.outside ? " A refund made in PayPal that you recorded as this deposit's refund counts toward it too." : ""}`, cite: pack.deadline.tip.cite },
   });
   const t = f.tenancy;
   out.push({
@@ -269,8 +275,10 @@ export async function loadRefundView(id: string, opts: { demo?: boolean } = {}):
     review: {
       // What goes back: the whole deposit once the deductions are forfeited (New York after day 14), else the rest; less
       // what PayPal already returned through the tenants' PayPal dispute.
-      amount: pending?.amount ?? Math.max(0, Math.round(((f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund) - (f.viaDispute?.amount ?? 0)) * 100) / 100), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
+      amount: pending?.amount ?? Math.max(0, Math.round(((f.standing?.forfeits ? f.totals.depositHeld : f.totals.refund) - (f.viaDispute?.amount ?? 0) - (f.outside?.amount ?? 0)) * 100) / 100), depositHeld: f.totals.depositHeld, deductions: f.totals.deductions,
       ...(f.viaDispute ? { viaDispute: { amount: f.viaDispute.amount, disputeId: f.viaDispute.disputeId, notKept: f.viaDispute.notKept } } : {}),
+      ...(f.outside ? { outside: { amount: f.outside.amount, notKept: f.outside.notKept } } : {}),
+      ...(f.outsideOpen?.length ? { waiting: { count: f.outsideOpen.length, amount: Math.round(f.outsideOpen.reduce((t2, r) => t2 + r.amount, 0) * 100) / 100, href: tabHref(id, "payments", "outside-refunds") } } : {}),
       balanceClaimed: f.totals.balanceClaimed, ...(f.standing && !f.standing.forfeits ? { standing: f.standing.label } : {}), ...(f.standing?.forfeits ? { forfeited: true } : {}),
       rail: f.plan.rail, why: f.plan.why, ...(f.plan.noteToPayer ? { noteToPayer: f.plan.noteToPayer } : {}), method: f.deposit?.method ?? null,
       blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),

@@ -2,6 +2,7 @@ import "server-only";
 import { readDispute, type DisputeRead } from "./chargeback";
 import { audit, db } from "./db";
 import { usd } from "./deductions";
+import { noteOutsideRefund } from "./outside-refunds";
 import type { PaymentRef, PayPalEvent, WebhookStore } from "./paypal-webhook";
 
 // The PayPal webhook's database side (src/lib/paypal-webhook.ts decides; this reads and writes), and what its events
@@ -136,6 +137,10 @@ export const webhookStore: WebhookStore = {
     if (error) throw new Error(`dispute refund: ${error.message}`);
   },
 
+  async noteOutsideRefund(tenancyId, o) {
+    return noteOutsideRefund(tenancyId, { refundId: o.refundId, captureId: o.captureId, amount: o.amount, status: o.status, at: o.at, via: "webhook", eventId: o.eventId });
+  },
+
   async audit(tenancyId, action, detail) {
     await audit(tenancyId, "system", action, detail);
   },
@@ -161,7 +166,7 @@ export async function disputeAftermath(tenancyId: string, raw: unknown) {
  *  money that went back before the dispute is never counted twice. A pending record an acceptance made is completed. */
 export async function recordDisputeOutcome(tenancyId: string, d: DisputeRead) {
   const { data, error } = await db.from("payments").select("id, kind, paypal_id, amount, status, raw").eq("tenancy_id", tenancyId)
-    .in("kind", ["refund", "settlement_refund", "dispute_refund"]);
+    .in("kind", ["refund", "settlement_refund", "dispute_refund", "outside_refund"]);
   if (error) throw new Error(`dispute refund: ${error.message}`);
   const pays = (data ?? []) as { id: string; kind: string; paypal_id: string | null; amount: number | string; status: string; raw: Record<string, unknown> | null }[];
   const ours = new Set(pays.filter((p) => p.kind !== "dispute_refund" && p.paypal_id).map((p) => p.paypal_id));
@@ -197,7 +202,14 @@ export async function retireResponses(disputeId: string) {
 
 /* ---------- The bell ---------- */
 
-export type PayPalAlert = { tenancyId: string; title: string; sub: string; href: string; tone: "green" | "amber" | "red" };
+/** kind: the audit action behind it, and amount and at: its figure and when PayPal reported it, so the shell can show a
+ *  report that needs the landlord under Needs you instead (a reversed deposit, a refund made in PayPal still waiting).
+ *  refundId: the PayPal refund a refund-made-in-PayPal report names; handled: the landlord has since recorded it or
+ *  marked it not this deposit, so it needs no look any more (src/lib/bell.ts leaves it out). */
+export type PayPalAlert = {
+  tenancyId: string; title: string; sub: string; href: string; tone: "green" | "amber" | "red"; kind: string; amount: number | null; at: string;
+  refundId?: string; handled?: boolean;
+};
 
 const ALERT_ACTIONS = ["deposit_paid", "refund_status", "payout_status", "paypal_refund_unrecorded", "deposit_reversed", "paypal_dispute", "dispute_refund_recorded"];
 
@@ -218,8 +230,23 @@ export async function paypalAlerts(workspaceId: string, now = Date.now()): Promi
     const a = alertFor(r.action, d);
     if (!a) continue;
     if (a.tone === "green" && now - Date.parse(r.created_at) > 2 * 86_400_000) continue;
-    out.push({ tenancyId: r.tenancy_id, ...a, sub: r.tenancies?.properties?.address ?? "A property", href: `/tenancy/${r.tenancy_id}?tab=${a.tab}` });
-    if (out.length >= 5) break;
+    out.push({
+      tenancyId: r.tenancy_id, title: a.title, tone: a.tone, sub: r.tenancies?.properties?.address ?? "A property", href: `/tenancy/${r.tenancy_id}?tab=${a.tab}`,
+      kind: r.action, amount: typeof d.amount === "number" ? d.amount : null, at: r.created_at,
+      ...(r.action === "paypal_refund_unrecorded" && typeof d.refund_id === "string" ? { refundId: d.refund_id } : {}),
+    });
+    // A few more than the bell shows: the shell moves what needs the landlord to Needs you.
+    if (out.length >= 8) break;
+  }
+  // A refund made in PayPal that the landlord has since recorded as the deposit's refund or marked not this deposit is
+  // handled: its report needs no look any more. Read only when such a report is in the list.
+  const asked = out.filter((a) => a.refundId);
+  if (asked.length) {
+    const { data: decided, error: de } = await db.from("paypal_outside_refunds").select("tenancy_id, refund_id")
+      .eq("workspace_id", workspaceId).neq("status", "open").in("refund_id", [...new Set(asked.map((a) => a.refundId!))]);
+    if (de) throw new Error(de.message);
+    const done = new Set((decided ?? []).map((n) => `${n.tenancy_id}:${n.refund_id}`));
+    for (const a of asked) if (done.has(`${a.tenancyId}:${a.refundId}`)) a.handled = true;
   }
   return out;
 }
@@ -238,7 +265,7 @@ function alertFor(action: string, d: Record<string, unknown>): { title: string; 
       if (FAILED.includes(status)) return { title: status === "RETURNED" ? "Payout came back" : "Payout did not go through", tone: "red", tab: "payments" };
       if (status === "UNCLAIMED") return { title: "Payout not claimed yet", tone: "amber", tab: "payments" };
       return status === "SUCCESS" ? { title: "Payout completed", tone: "green", tab: "payments" } : null;
-    case "paypal_refund_unrecorded": return { title: "Refund made outside Good Faith", tone: "amber", tab: "payments" };
+    case "paypal_refund_unrecorded": return { title: "Refund made in PayPal", tone: "amber", tab: "payments" };
     case "deposit_reversed": return { title: "Deposit payment reversed", tone: "red", tab: "payments" };
     case "paypal_dispute":
       return d.event === "resolved" ? { title: "PayPal dispute resolved", tone: "green", tab: "payments" }

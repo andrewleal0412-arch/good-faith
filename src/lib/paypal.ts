@@ -150,8 +150,9 @@ export type Invoice = {
   status: string;
   primary_recipients?: { billing_info?: { email_address?: string } }[];
   payments?: { paid_amount?: { value?: string }; transactions?: { payment_id: string; payment_date_time?: string; payment_date?: string; method?: string; amount: { value: string } }[] };
-  // What PayPal has refunded of the payment, whoever sent it (the close-out, a settlement, or the PayPal dashboard).
-  refunds?: { refund_amount?: { value?: string } };
+  // What PayPal has refunded of the payment, whoever sent it (the close-out, a settlement, or the PayPal dashboard), and
+  // each refund: PayPal names it by recipient_transaction_id (the refund's own id) and dates it by day (reconcile.ts).
+  refunds?: { refund_amount?: { value?: string }; transactions?: { type?: string; refund_id?: string; recipient_transaction_id?: string; refund_date?: string; amount?: { value?: string } }[] };
 };
 
 export async function getInvoice(id: string, o: { timeoutMs?: number } = {}) {

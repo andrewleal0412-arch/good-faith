@@ -700,7 +700,7 @@ async function dbChecks() {
     eq("db: payout SUCCESS", JSON.parse(await read(tb.id)).find((p) => p.kind === "payout").status, "SUCCESS");
 
     const alertsA = await paypalAlerts(wa.id);
-    eq("db: the bell for workspace A", alertsA.map((a) => a.title).sort(), ["Deposit of $4,800.00 paid", "PayPal dispute opened", "Refund completed", "Refund made outside Good Faith"].sort());
+    eq("db: the bell for workspace A", alertsA.map((a) => a.title).sort(), ["Deposit of $4,800.00 paid", "PayPal dispute opened", "Refund completed", "Refund made in PayPal"].sort());
     eq("db: the bell for workspace B shows only B's", (await paypalAlerts(wb.id)).map((a) => a.title), ["Payout completed"]);
   } finally {
     // Remove every throwaway row: the events by id, then the tenancies (their payments, activity and PayPal disputes

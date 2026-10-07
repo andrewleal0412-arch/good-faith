@@ -18,6 +18,7 @@ import { DEMO_DEPOSIT_DATE, depositBlock } from "@/lib/demo-pool";
 import { settle, usd, type StoredDeduction } from "@/lib/deductions";
 import { boxesOf, findingTitle, inPageOrder, type StoredFinding } from "@/lib/findings";
 import { refreshDepositInvoice, type DepositInvoiceRow } from "@/lib/deposit";
+import type { Invoice } from "@/lib/paypal";
 import { disputeBanner, loadPayPalDispute } from "@/lib/chargeback-store";
 import { deductionsLock, factsFrom, loadLandlordDispute, sentDispute, type DisputeRow } from "@/lib/disputes";
 import { limitsFor } from "@/lib/deduction-edit";
@@ -28,6 +29,8 @@ import { jevConfigured } from "@/lib/jev";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
 import { closedOut, dueLabelOf, dueOf, inspectionExcused, liveDispute, nextStep, notKeptAfterDispute, refundLeft } from "@/lib/next-step";
 import { disputeReturns } from "@/lib/refund-rail";
+import { loadOutsideRefunds, noteFromInvoice, type OutsideRefundRow } from "@/lib/outside-refunds";
+import { openNotes, outsideReturnedAt, outsideReturns, type RecordRow } from "@/lib/reconcile";
 import { NOTICE_SLUG, describeNoticeGiven, listedRecords, noticeInfoFor, recordsFor, type NoticeKind, type Notices } from "@/lib/notices";
 import { keepUnit, propertyStatus, splitAddress, stepLink, tabHref, tabOf, type TabKey } from "@/lib/property-view";
 import { lawfulDeposit, type Flag, type LeaseTerms } from "@/lib/rules";
@@ -40,6 +43,7 @@ import { summarizeTenancy } from "@/lib/units";
 import { currentWorkspace, isTemplate, isUuid, signedUrlsFor, type Workspace } from "@/lib/workspace";
 import { MoneyTimeline } from "./money";
 import { PayPalDisputeBanner, PayPalDisputeCard, PayPalDisputeCheck } from "./paypal-dispute";
+import { OutsideRefundsBanner, OutsideRefundsCard } from "./outside-refunds";
 import { MoveInSteps } from "./move-in-steps";
 import { MoveOut, type FindingView, type QuietRoom } from "./move-out";
 import { CloseOut } from "./close-out";
@@ -98,7 +102,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const facts = () => loadTenancy(id).then((x) => (x ? factsFrom(id, x, x.deductions, x.payments) : null));
   let sentRead: Promise<DisputeRow | null> | undefined;
   const sent = () => (sentRead ??= sentDispute(id));
-  const [t, { data: log }, { data: runs }, link, dispute, negotiation, ppBanner, template] = await Promise.all([
+  const [t, { data: log }, { data: runs }, link, dispute, negotiation, ppBanner, template, outsideNotes] = await Promise.all([
     loadTenancy(id),
     db.from("audit_log").select("id, actor, action, detail, created_at").eq("tenancy_id", id).order("created_at", { ascending: false }).limit(40),
     db.from("agent_runs").select("id, status, pending, error, created_at").eq("tenancy_id", id).eq("kind", "close_out").order("created_at", { ascending: false }).limit(1),
@@ -112,6 +116,9 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     // The tenants' PayPal dispute of the deposit payment, while PayPal hasn't resolved it: the banner on every tab.
     disputeBanner(id).catch(() => null),
     isTemplate(id),
+    // Refunds made in PayPal, not from here, that PayPal reported on this deposit's payment (reconcile.ts): the ones
+    // still waiting for the landlord show on every tab; the Payments tab reads PayPal again for new ones.
+    loadOutsideRefunds(id),
   ]);
   if (!t) notFound();
   // Every day on this page is a calendar day where the property is (its state pack's zone): today, which the deadline
@@ -155,12 +162,22 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     ...quietPairs.flatMap(({ i, o }) => [i.storage_path, o.storage_path]),
     ...(dispute?.evidence ?? []).map((e) => e.path),
   ];
+  // PayPal's invoice as just read, when it was: the Payments tab checks its refunds against the records.
+  const got: { live: Invoice | null } = { live: null };
   const [invoice, urlOf] = await Promise.all([
-    refresh ? refreshDepositInvoice(storedInvoice, { store: !template }) : Promise.resolve(storedInvoice ?? null),
+    refresh ? refreshDepositInvoice(storedInvoice, { store: !template, onLive: (inv) => { got.live = inv; } }) : Promise.resolve(storedInvoice ?? null),
     signedUrlsFor(t.ws, "photos", toSign),
   ]);
   const invoiceStatus: string | null = invoice?.status ?? null;
   const paymentRows = payments.map((p) => (invoice && p.id === invoice.id ? invoice : p));
+  // The live check, when the page just read PayPal (opened on Payments, or the deposit not yet stored as paid): a refund
+  // of the deposit payment PayPal lists that the records don't hold is noted now, before the header, the banner and the
+  // Next step read what waits, so the request that first spots it shows it everywhere. Opened on another tab, the
+  // Payments tab reads PayPal itself, after the rest of the page.
+  const capture = ((storedInvoice?.raw as { transactions?: { payment_id?: string }[] } | null)?.transactions?.[0]?.payment_id) ?? null;
+  const notes = got.live && !template && storedInvoice?.paypal_id
+    ? await noteFromInvoice({ tenancyId: id, workspaceId: t.ws.id, invoice: got.live, payments: payments as unknown as RecordRow[], notes: outsideNotes, depositInvoiceId: storedInvoice.paypal_id as string, captureId: capture })
+    : outsideNotes;
 
   const url = (path: string | null | undefined) => (path ? urlOf.get(path) ?? null : null);
   const photoViews = photoRows.map((p) => ({ id: p.id, phase: p.phase, room: p.room, url: url(p.storage_path) }));
@@ -192,6 +209,10 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // Money PayPal itself returned through the tenants' PayPal dispute (an accepted claim, PayPal's decision): a prior
   // return. It stands for the refund only once it covers what is owed; until then the rest still goes from here.
   const via = disputeReturns(payments as unknown as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
+  // Refunds made in PayPal that the landlord recorded as this deposit's refund: a prior return the same way, and the
+  // ones PayPal reported that wait for the landlord's decision.
+  const outside = outsideReturns(payments as unknown as { kind: string; paypal_id: string | null; amount: number | string; status: string; created_at: string }[]);
+  const waiting = template ? [] : openNotes(notes, payments as unknown as { kind: string; paypal_id: string | null; amount: number | string; status: string }[]);
 
   // The latest close-out run and the amount of any refund it is waiting on. The review page re-checks it against the
   // rules; this page only says where it stands.
@@ -226,17 +247,27 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const reversedSub = reversal ? `Reversed by PayPal${reversal.at ? `, ${shortDate(dayOf(reversal.at))}` : ""}` : null;
   const money = settle(held ?? 0, deductions, pack);
   const due = dueOf(summary);
-  // What went back: the close-out's refund or Payout, or PayPal's refund through the tenants' PayPal dispute once it
-  // covers what is owed (refundLeft, which takes the dispute's money off).
-  const viaCovers = !own && !!via && held != null && refundLeft(summary) === 0;
-  const returned = own ?? (viaCovers && via ? { kind: "dispute_refund", amount: via.amount, paypal_id: via.disputeId, created_at: via.at, status: "COMPLETED" } : undefined);
+  // What went back: the close-out's refund or Payout, or, once they cover what is owed (refundLeft, which takes them
+  // off), a refund made in PayPal and recorded as this deposit's refund, or PayPal's refund through the tenants' PayPal
+  // dispute.
+  const priorCovers = !own && (!!via || !!outside) && held != null && refundLeft(summary) === 0;
+  const returned = own ?? (priorCovers && outside ? { kind: "outside_refund", amount: outside.amount, paypal_id: outside.refunds[0].id, created_at: outside.refunds[0].at ?? new Date().toISOString(), status: outside.status }
+    : priorCovers && via ? { kind: "dispute_refund", amount: via.amount, paypal_id: via.disputeId, created_at: via.at, status: "COMPLETED" } : undefined);
+  // Before the close-out's own refund, what went back already (its amount comes off what is owed).
+  const prior = Math.round(((via?.amount ?? 0) + (outside?.amount ?? 0)) * 100) / 100;
+  // What the Move-out tab's Refunded figure shows: the close-out's refund, or what went back before it once that covers
+  // what is owed (a refund made in PayPal with any PayPal dispute's money beside it).
+  const returnedHere = returned ? Math.round((Number(returned.amount) + (returned.kind === "outside_refund" ? via?.amount ?? 0 : 0)) * 100) / 100 : 0;
   const notKept = notKeptAfterDispute(summary);
   const delivery = t.statement_delivery ? (t.statement_delivery as DeliveryRecord) : null;
   // New York after day 14 (the statement's standing): the deductions stay as claimed and the whole deposit is owed back.
+  // The day the rest of the deposit went: the close-out's own refund, else the day refunds made in PayPal and recorded
+  // here (with the dispute's money) returned what the deductions leave owed, as the close-out reads it.
   const returnedOk = returned && !returnFailed(returned.status as string) ? returned : null;
+  const outsideAt = !own && held ? outsideReturnedAt(paymentRows as unknown as Parameters<typeof outsideReturnedAt>[0], money.refund) : null;
   const forfeit = held && deductions.length ? pack.close.standing?.({
     today, notices: summary.notices, claimed: money.total, statementDue: due, deliveredOn: delivery?.date ?? null,
-    returnedOn: returnedOk ? dayOf(returnedOk.created_at) : null, refundOwed: money.refund > 0,
+    returnedOn: outsideAt ? dayOf(outsideAt) : returnedOk ? dayOf(returnedOk.created_at) : null, refundOwed: money.refund > 0,
   }) : null;
   const forfeited = forfeit?.forfeits ? forfeit : null;
   // The deductions grid on Move-out: whether its inputs may change, and each line's limits from its lawful range (the
@@ -284,13 +315,22 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // dispute's card is, the card's own button is the primary.
   const answerDispute = ppBanner && ppBanner.response !== "sent" && ppBanner.response !== "sending"
     ? { label: ppBanner.response === "ready" ? "Review response" : ppBanner.response === "unknown" ? "Check response" : "Answer dispute", href: tabHref(id, "payments", "paypal-dispute") }
-    : null;
+    // A refund made in PayPal holds the refund until the landlord records it or sets it aside, on Payments.
+    : waiting.length ? { label: "Review PayPal refund", href: tabHref(id, "payments", "outside-refunds") }
+      : null;
   // The Overview's Next step says the same as Properties while the dispute waits on the landlord: PayPal's date first.
+  // A refund made in PayPal waiting for the landlord's decision is the step the same way: the refund waits on it.
+  const waitingAmount = Math.round(waiting.reduce((t2, r) => t2 + Number(r.amount), 0) * 100) / 100;
   const disputeStep = answerDispute && ppBanner ? {
-    icon: ppBanner.response === "ready" ? "send" as const : "card" as const, href: answerDispute.href,
+    icon: ppBanner.response === "ready" ? "send" as const : "card" as const, href: answerDispute.href, tipTitle: "PayPal dispute",
     title: ppBanner.response === "ready" ? "Approve the PayPal dispute response" : ppBanner.response === "unknown" ? "Check the PayPal dispute response" : "Answer the PayPal dispute",
     sub: ppBanner.dueDate ? `PayPal's date ${shortDate(ppBanner.dueDate)}, ${whenText(daysBetween(today, ppBanner.dueDate), true)}` : undefined,
     tip: `The tenants asked PayPal for ${usd(ppBanner.amount)} of the deposit back. The refund waits until the dispute is answered${due ? `; the state's deadline, ${shortDate(due)}, doesn't` : ""}.`,
+  } : answerDispute && waiting.length ? {
+    icon: "card" as const, href: answerDispute.href, tipTitle: waiting.length > 1 ? "Refunds made in PayPal" : "Refund made in PayPal",
+    title: waiting.length > 1 ? "Review the refunds made in PayPal" : "Review the refund made in PayPal",
+    sub: `${usd(waitingAmount)}${waiting.length === 1 && waiting[0].refunded_at ? ` on ${shortDate(dayOf(waiting[0].refunded_at))}` : ""}`,
+    tip: `PayPal shows ${waiting.length > 1 ? `${waiting.length} refunds` : "a refund"} of the deposit payment that wasn't sent from here. Record ${waiting.length > 1 ? "each one" : "it"} as this deposit's refund, or mark it not this deposit. The refund waits until then${due ? `; the state's deadline, ${shortDate(due)}, doesn't` : ""}.`,
   } : null;
   const primary = answerDispute
     ?? (reviewRefund ? { label: "Review refund", href: `/tenancy/${id}/refund` } : !closed && step.label !== "View" && step.label !== "View statement" ? step : null);
@@ -349,8 +389,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     <>
       <FactStrip cols={4} className="mb-6">
           <Fact label={returned || closed || reversal ? "Deposit" : "Deposit held"} big={held != null} info={held != null && !returned ? demoDepositTip : undefined} value={held != null ? <RollMoney value={held} cents="small" phoneCents="full" /> : <span className="text-ink-3">Not paid</span>}
-            sub={reversedSub ?? (held != null ? (returned ? `${returned.kind === "dispute_refund" ? "Returned through the PayPal dispute" : "Refunded"} ${shortDate(dayOf(returned.created_at))}`
-              : via ? `${usd(via.amount)} returned through the PayPal dispute` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested")} />
+            sub={reversedSub ?? (held != null ? (returned ? `${returned.kind === "dispute_refund" ? "Returned through the PayPal dispute" : returned.kind === "outside_refund" ? "Refunded in PayPal" : "Refunded"} ${shortDate(dayOf(returned.created_at))}`
+              : via ? `${usd(via.amount)} returned through the PayPal dispute` : outside ? `${usd(outside.amount)} refunded in PayPal` : paidOn ? `Paid ${shortDate(paidOn)}` : "Paid by PayPal") : invoice ? "Invoice sent" : "Not requested")} />
           <Fact label="Rent" value={t.monthly_rent != null ? <Money value={Number(t.monthly_rent)} /> : <span className="text-ink-3">Not stated</span>} sub="Per month" />
           <Fact label="Lease start" value={t.start_date ? shortDate(t.start_date as string) : <span className="text-ink-3">Not stated</span>} sub={t.end_date ? "Fixed term" : undefined} />
           <Fact label="Lease end" value={t.end_date ? shortDate(t.end_date as string) : "Month to month"} sub={t.move_out_date ? `Moved out ${shortDate(t.move_out_date as string)}` : t.planned_move_out ? `Moving out ${shortDate(t.planned_move_out as string)}` : "No notice"} />
@@ -400,7 +440,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
       <div className="flex flex-col gap-4 max-lg:order-first">
         <Card>
-          <CardHead title="Next step" right={disputeStep ? <InfoTip align="end" title="PayPal dispute">{disputeStep.tip}</InfoTip>
+          <CardHead title="Next step" right={disputeStep ? <InfoTip align="end" title={disputeStep.tipTitle}>{disputeStep.tip}</InfoTip>
             : next.cite || next.detail ? (
             <InfoTip align="end" title={next.label} cite={next.cite ?? undefined}>{next.detail}</InfoTip>
           ) : undefined} />
@@ -445,12 +485,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           sub={reversedSub ?? (held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid")} />
         <Fact label="Deductions" value={<RollMoney quick value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
           info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />
-        <Fact label={returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : via ? "Left to refund" : "Refund due"} big
-          value={<RollMoney value={returned ? Number(returned.amount) : forfeited ? Math.max(0, Math.round(((held ?? 0) - (via?.amount ?? 0)) * 100) / 100)
-            : money.balanceClaimed > 0 ? money.balanceClaimed : via ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
-          sub={forfeited && returned && (held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) - (summary.settledBack ?? 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - Number(returned.amount) - (own ? via?.amount ?? 0 : 0) - (summary.settledBack ?? 0)) * 100) / 100)} still owed`
-            : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(dayOf(returned.created_at))}` : `By PayPal, ${shortDate(dayOf(returned.created_at))}`)
-              : via ? `After ${usd(via.amount)} through the PayPal dispute` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
+        <Fact label={returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : prior ? "Left to refund" : "Refund due"} big
+          value={<RollMoney value={returned ? returnedHere : forfeited ? Math.max(0, Math.round(((held ?? 0) - prior) * 100) / 100)
+            : money.balanceClaimed > 0 ? money.balanceClaimed : prior ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
+          sub={forfeited && returned && (held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0)) * 100) / 100)} still owed`
+            : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(dayOf(returned.created_at))}` : returned.kind === "outside_refund" ? `In PayPal${via ? " and the dispute" : ""}, ${shortDate(dayOf(returned.created_at))}` : `By PayPal, ${shortDate(dayOf(returned.created_at))}`)
+              : via && !outside ? `After ${usd(via.amount)} through the PayPal dispute` : outside ? `After ${usd(prior)} already refunded` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
         <Fact label={dueLabelOf(summary)}
           info={<InfoTip align="end" title={pack.deadline.tip.title} cite={pack.deadline.tip.cite}>{pack.deadline.tip.text}</InfoTip>}
           value={due ? shortDate(due) : <span className="text-ink-3">Not set</span>}
@@ -495,6 +535,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             edit={editing}
             returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id as string, at: returned.created_at } : null}
             viaDispute={via ? { amount: via.amount, notKept } : null}
+            outside={outside ? { amount: outside.amount, notKept: via ? 0 : notKept } : null}
             forfeited={forfeited ? { label: forfeited.label, note: forfeited.note } : null}
           />
         </section>
@@ -505,9 +546,11 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           <CloseOut
             tenancyId={id}
             tenants={summary.tenants}
-            due={Math.max(0, Math.round(((forfeited ? held ?? 0 : money.refund) - (via?.amount ?? 0)) * 100) / 100)}
+            due={Math.max(0, Math.round(((forfeited ? held ?? 0 : money.refund) - prior) * 100) / 100)}
             returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id as string, on: dayOf(returned.created_at) } : null}
             viaDispute={via ? { amount: via.amount, id: via.disputeId, notKept } : null}
+            outside={outside ? { amount: outside.amount, count: outside.refunds.length } : null}
+            waiting={waiting.length ? { count: waiting.length, amount: waitingAmount } : null}
             run={run ? { status: run.status as string, error: run.error as string | null, at: run.created_at ? dayOf(run.created_at as string) : null, pendingAmount } : null}
             tenantView={tenantPath ? { href: tenantPath, delivered: !!t.statement_delivered_at, disputed: !!dispute } : null}
           />
@@ -611,6 +654,13 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         </OnTab>
       )}
 
+      {waiting.length > 0 && !ppBanner && (
+        <OnTab tab="payments">
+          <OutsideRefundsBanner href={tabHref(id, "payments", "outside-refunds")} count={waiting.length}
+            amount={waitingAmount} />
+        </OnTab>
+      )}
+
       {dispute && (dispute.status === "open" || dispute.status === "negotiating" || dispute.status === "agreed") && (
         <DisputeBanner v={dispute} href={tabHref(id, "move-out", dispute.status === "open" ? "dispute" : "negotiation")} tenantsLabel={tenantsLabel} />
       )}
@@ -619,7 +669,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       <TabPanel tab="move-out">{moveOut}</TabPanel>
       <TabPanel tab="payments">
         <PaymentsTab id={id} ws={t.ws} stored={storedInvoice ?? null} invoice={invoice} refreshed={refresh} payments={payments} deductionRows={deductionRows}
-          tenancy={t} template={template} typeTip={pack.ledger.typeTip} zone={zone} quiet={!!primaryOnPayments} />
+          tenancy={t} template={template} typeTip={pack.ledger.typeTip} zone={zone} quiet={!!primaryOnPayments} notes={notes} />
       </TabPanel>
       <TabPanel tab="documents">
         <Documents ws={t.ws} pack={pack} id={id} leasePath={t.lease_pdf_path as string | null} flags={flags} agreement={agreement} moveInCount={moveIn.length}
@@ -636,9 +686,21 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
  *  tab, the page didn't wait for PayPal: this tab asks it here, streamed in after the rest of the page. */
 async function PaymentsTab(p: {
   id: string; ws: Workspace; stored: PaymentRecord | null; invoice: PaymentRecord | null; refreshed: boolean; payments: PaymentRecord[]; deductionRows: Row[];
-  tenancy: Record<string, unknown>; template: boolean; typeTip: StatePack["ledger"]["typeTip"]; zone: string; quiet: boolean;
+  tenancy: Record<string, unknown>; template: boolean; typeTip: StatePack["ledger"]["typeTip"]; zone: string; quiet: boolean; notes: OutsideRefundRow[];
 }) {
-  const invoice = p.refreshed || !p.stored ? p.invoice : await refreshDepositInvoice(p.stored, { store: !p.template });
+  // PayPal's invoice, read here when the page didn't read it (the live check): a refund of the deposit payment it lists
+  // that the records don't hold is noted for the landlord's decision (reconcile.ts), as its webhook notes it. When the
+  // page read it, the page noted them already, and `notes` is what it found.
+  const got: { live: Invoice | null } = { live: null };
+  const invoice = p.refreshed || !p.stored ? p.invoice : await refreshDepositInvoice(p.stored, { store: !p.template, onLive: (inv) => { got.live = inv; } });
+  const live = got.live;
+  const records = p.payments as unknown as RecordRow[];
+  const capture = ((p.stored?.raw as { transactions?: { payment_id?: string }[] } | null)?.transactions?.[0]?.payment_id) ?? null;
+  const notes = live && !p.template && p.stored?.paypal_id
+    ? await noteFromInvoice({ tenancyId: p.id, workspaceId: p.ws.id, invoice: live, payments: records, notes: p.notes, depositInvoiceId: p.stored.paypal_id, captureId: capture })
+    : p.notes;
+  const outsideCard = p.template ? [] : notes.filter((n) => n.status === "open" || n.status === "dismissed");
+  const shownNotes = outsideCard.length ? [...openNotes(outsideCard, records), ...outsideCard.filter((n) => n.status === "dismissed")] : [];
   const rows = p.payments.map((x) => (invoice && x.id === invoice.id ? invoice : x));
   const moneyRows = ledgerRows(p.tenancy as unknown as Parameters<typeof ledgerRows>[0], rows as unknown as Parameters<typeof ledgerRows>[1], p.deductionRows as unknown as LedgerDeduction[]);
   const paid = wasPaid(invoice?.status ?? null);
@@ -653,6 +715,10 @@ async function PaymentsTab(p: {
   return (
     <div className="flex flex-col gap-6">
       {paypalDispute && <PayPalDisputeCard tenancyId={p.id} v={paypalDispute} quiet={p.quiet} zone={p.zone} />}
+      {shownNotes.length > 0 && (
+        <OutsideRefundsCard tenancyId={p.id} zone={p.zone} quiet={p.quiet || !!paypalDispute}
+          refunds={shownNotes.map((n) => ({ id: n.refund_id, amount: Number(n.amount), at: n.refunded_at, status: n.status, decidedAt: n.decided_at ?? null }))} />
+      )}
       <MoneyTimeline tenancyId={p.id} rows={moneyRows} typeTip={p.typeTip} zone={p.zone} />
       {!paypalDispute && paid && !reversal && !p.template && !block && <PayPalDisputeCheck tenancyId={p.id} />}
     </div>
@@ -672,7 +738,7 @@ function LogRow({ a, today, zone }: { a: { entry: { actor: string; action: strin
   const e = a.entry;
   return (
     <ListRow title={a.title} hint={describe(e.action, e.detail)}
-      sub={e.actor === "agent" ? "Agent" : e.actor === "tenant" ? "Tenant" : e.actor === "system" ? (e.detail?.source === "paypal" ? "PayPal" : "System") : "You"}
+      sub={e.actor === "agent" ? "Agent" : e.actor === "tenant" ? "Tenant" : e.actor === "system" ? (e.detail?.source === "paypal" || e.detail?.source === "paypal_check" ? "PayPal" : "System") : "You"}
       right={dayLabel(dateIn(e.createdAt, zone), today)} />
   );
 }

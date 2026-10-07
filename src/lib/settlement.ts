@@ -71,11 +71,18 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   if (f.reversed) return { blocked: "PayPal reversed the deposit payment (a chargeback or a bank reversal), so nothing goes back through PayPal. Check the PayPal account first." };
   // The tenants disputed the payment with PayPal: the dispute's response is where money goes back while it is open.
   if (f.paypalDispute) return { blocked: `The tenants opened a PayPal dispute of the deposit payment (${f.paypalDispute.id}). Answer it on the Payments tab first: a settlement paid meanwhile could go back twice.` };
+  // A refund made in PayPal that nobody has looked at yet may be this very money, sent by hand: the landlord records it
+  // as the deposit's refund or marks it not this deposit first (reconcile.ts).
+  if (f.outsideOpen?.length) {
+    const r = f.outsideOpen[0];
+    return { blocked: `PayPal shows a ${usd(r.amount)} refund of the deposit payment (refund ${r.id}) that wasn't sent from here. Record it as this deposit's refund, or mark it not this deposit, on the Payments tab first: a settlement paid meanwhile could go back twice.` };
+  }
   if (!f.refundAgreement && pack.refund.agreementRequired) return { blocked: pack.refund.noAgreementBlocker };
   // The settlement goes back on top of the statement's refund, so that refund goes first: the amended statement then
   // records two payments that were both sent. Where the deductions are forfeited and a live dispute holds them (New
   // York after day 14), that refund is the whole deposit (refund-rail.ts, refundOwed).
-  // What PayPal already returned through the tenants' PayPal dispute counts toward that refund (refundStillOwed).
+  // What PayPal already returned through the tenants' PayPal dispute, and a refund made in PayPal that the landlord
+  // recorded as the deposit's refund, count toward that refund (refundStillOwed).
   const owed = refundStillOwed(f);
   if (owed > 0 && !f.alreadyReturned) {
     return { blocked: f.wholeDeposit
@@ -85,7 +92,7 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
 
   // Once the whole deposit went back (the close-out's refund of the whole deposit, when its deductions were forfeited
   // under a live dispute), the settlement has nothing left to send: it records what was agreed and moves no money.
-  const back = cents(payments.filter((p) => ["refund", "payout", "settlement_refund", "settlement_payout", "dispute_refund"].includes(p.kind) && !returnFailed(p.status))
+  const back = cents(payments.filter((p) => ["refund", "payout", "settlement_refund", "settlement_payout", "dispute_refund", "outside_refund"].includes(p.kind) && !returnFailed(p.status))
     .reduce((s, p) => s + Number(p.amount), 0));
   const room = settlementRoom({ amount, depositHeld: f.totals.depositHeld, returned: back });
   if (room.left <= 0.005) {
@@ -95,7 +102,8 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   // settlement never sends more than the deposit still holds, so nothing goes and a person decides.
   if (!room.fits) {
     const via = f.viaDispute?.amount ?? 0;
-    return { blocked: `Only ${usd(room.left)} of the ${usd(f.totals.depositHeld)} deposit is left${via > 0 ? `, after the ${usd(via)} PayPal returned through the tenants' PayPal dispute` : ""}, less than the ${usd(amount)} agreed. A settlement can't send more than the deposit still holds, so nothing was sent.` };
+    const outside = f.outside?.amount ?? 0;
+    return { blocked: `Only ${usd(room.left)} of the ${usd(f.totals.depositHeld)} deposit is left${via > 0 ? `, after the ${usd(via)} PayPal returned through the tenants' PayPal dispute` : ""}${outside > 0 ? `${via > 0 ? " and" : ", after"} the ${usd(outside)} refunded in PayPal` : ""}, less than the ${usd(amount)} agreed. A settlement can't send more than the deposit still holds, so nothing was sent.` };
   }
 
   // What is left of the payment to refund: PayPal's own count, and ours (the statement's refund and any earlier
@@ -103,7 +111,7 @@ export async function settlementPlan(tenancyId: string, amount: number): Promise
   const live = invoice as InvoiceWithRefunds;
   const paid = Number(live.payments?.paid_amount?.value ?? inv.amount);
   const refundedByPayPal = Number(live.refunds?.refund_amount?.value ?? 0);
-  const refundedByUs = payments.filter((p) => (p.kind === "refund" || p.kind === "settlement_refund" || p.kind === "dispute_refund") && !returnFailed(p.status))
+  const refundedByUs = payments.filter((p) => (p.kind === "refund" || p.kind === "settlement_refund" || p.kind === "dispute_refund" || p.kind === "outside_refund") && !returnFailed(p.status))
     .reduce((s, p) => s + Number(p.amount), 0);
   const remaining = cents(paid - Math.max(refundedByPayPal, refundedByUs));
 

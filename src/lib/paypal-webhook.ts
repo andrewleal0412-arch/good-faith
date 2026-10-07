@@ -22,11 +22,13 @@ import { returnCompleted, returnFailed, wasPaid } from "./invoice-status";
 //    PAYMENT.CAPTURE.COMPLETED    the deposit payment's capture confirmed (one that arrives before its invoice's PAID
 //                                 event, which records the capture, matches nothing yet: for ten minutes PayPal is
 //                                 asked to send it again, so it lands after; later it is stored as unmatched);
-//    PAYMENT.CAPTURE.REFUNDED     a refund this app sent: its status; PayPal's own refund through a PayPal dispute
-//                                 (matchDisputeRefund): that dispute's refund record; any other: recorded on the
-//                                 activity (closeOutState then blocks the close-out until someone has looked), once it
-//                                 is two minutes old (younger, it may be this app's own, its row not yet written, so
-//                                 PayPal is asked to send it again);
+//    PAYMENT.CAPTURE.REFUNDED     a refund this app sent, or one made in PayPal that the landlord recorded here: its
+//                                 status; PayPal's own refund through a PayPal dispute (matchDisputeRefund): that
+//                                 dispute's refund record; any other: noted once for the tenancy as a refund made in
+//                                 PayPal (store.noteOutsideRefund, reconcile.ts), with an activity entry the first time,
+//                                 for the landlord to record as the deposit's refund or mark not this deposit
+//                                 (closeOutState holds the close-out until then), once it is two minutes old (younger,
+//                                 it may be this app's own, its row not yet written, so PayPal is asked to send it again);
 //    PAYMENT.CAPTURE.REVERSED     the deposit payment reversed (a chargeback): recorded on the deposit, which blocks
 //                                 the close-out and a settlement;
 //    PAYMENT.PAYOUTSBATCH.*,      a Payout's status (the item's, once PayPal reports one: a batch can succeed while
@@ -69,7 +71,9 @@ export const handles = (type: string) => (WEBHOOK_EVENT_TYPES as readonly string
   || type === "PAYMENT.PAYOUTSBATCH.PROCESSING" || type.startsWith("PAYMENT.PAYOUTS-ITEM.");
 
 export const INVOICE_KINDS = ["deposit_invoice", "damage_invoice"];
-export const REFUND_KINDS = ["refund", "settlement_refund"];
+/** Refunds of the deposit payment on record here: the close-out's, a settlement's, and one made in PayPal that the
+ *  landlord recorded as the deposit's refund (outside_refund), whose later status events update it like the others. */
+export const REFUND_KINDS = ["refund", "settlement_refund", "outside_refund"];
 export const PAYOUT_KINDS = ["payout", "settlement_payout"];
 
 /* ---------- Reading an event ---------- */
@@ -177,6 +181,11 @@ export interface WebhookStore {
   disputeRefunds?(tenancyId: string): Promise<DisputeRefundInfo>;
   /** A refund PayPal made through a dispute that has no record yet: a new dispute refund for that dispute. Optional. */
   addDisputeRefund?(tenancyId: string, o: { disputeId: string; refundId: string | null; amount: number; status: string; raw: Obj }): Promise<void>;
+  /** A refund of the deposit payment made outside the app, noted once per tenancy for the landlord's decision
+   *  (note_outside_refund): 'new' the first time either path (this webhook, or a page's live read of PayPal) sees it,
+   *  'seen' after, 'ours' when the tenancy's records hold it by now, 'template' for a template (nothing written).
+   *  Optional: without it the refund is only on the activity, as before. */
+  noteOutsideRefund?(tenancyId: string, o: { refundId: string; captureId: string | null; amount: number; status: string; at: string | null; eventId: string }): Promise<"new" | "seen" | "ours" | "template">;
   audit(tenancyId: string, action: string, detail: Obj): Promise<void>;
 }
 
@@ -466,10 +475,24 @@ async function onRefunded(e: PayPalEvent, refs: Refs, rows: PaymentRef[], deps: 
   if (youngerThan(e, deps, OWN_REFUND_GRACE_MS)) {
     throw new RetryLater(`refund ${refs.refund ?? "?"} is not on record yet; it may be this app's own, still being recorded`);
   }
-  await deps.store.audit(rows[0].tenancy_id, "paypal_refund_unrecorded", {
-    ...source(e), refund_id: refs.refund ?? null, capture_id: refs.capture ?? null, amount, status: incoming,
-  });
-  return { status: "applied", note: "A refund of the deposit payment this app didn't send: on the activity, no payment row changed." };
+  // Noted once for the tenancy (the page's live read of PayPal may have seen it first), for the landlord to record as
+  // the deposit's refund or mark not this deposit: never recorded here. The activity entry goes with the first sight.
+  const noted = deps.store.noteOutsideRefund && refs.refund && amount != null && amount > 0
+    ? await deps.store.noteOutsideRefund(tenancyId, {
+      refundId: refs.refund, captureId: refs.capture ?? null, amount, status: incoming,
+      at: iso(r.create_time) ?? iso(e.create_time), eventId: e.id,
+    })
+    : "new";
+  if (noted === "ours") return recorded("This refund is on record here by now.");
+  if (noted === "template") return recorded(TEMPLATE_NOTE);
+  if (noted === "new") {
+    await deps.store.audit(tenancyId, "paypal_refund_unrecorded", {
+      ...source(e), refund_id: refs.refund ?? null, capture_id: refs.capture ?? null, amount, status: incoming,
+    });
+  }
+  return { status: "applied", note: noted === "seen"
+    ? "A refund of the deposit payment this app didn't send, already waiting for the landlord's decision."
+    : "A refund of the deposit payment this app didn't send: waiting for the landlord to record it or mark it not this deposit." };
 }
 
 async function onReversed(e: PayPalEvent, refs: Refs, rows: PaymentRef[], deps: WebhookDeps): Promise<Applied> {

@@ -432,6 +432,9 @@ export type CloseOutContext = {
   deductionsCount: number;
   deliveredOn?: string | null; // the statement's delivery record date
   disputeLive?: boolean; // a dispute the tenants sent is open, negotiating or agreed, so the deductions are frozen
+  // With no refund or Payout from the close-out: the day refunds made in PayPal and recorded here (with the dispute's
+  // money) returned what the deductions leave owed (reconcile.ts, outsideReturnedAt), in the pack's zone; else null.
+  returnedOn?: string | null;
 };
 
 export type RefundNoteInput = {

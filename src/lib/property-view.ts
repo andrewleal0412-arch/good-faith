@@ -1,6 +1,6 @@
 import { wasPaid } from "./invoice-status";
 import { streetLine } from "./ledger";
-import { closedOut, packOf, REVERSED_STEP, type NextStep, type StepIcon, type TenancySummary } from "./next-step";
+import { closedOut, outsideCovers, packOf, REVERSED_STEP, type NextStep, type StepIcon, type TenancySummary } from "./next-step";
 import { tabHref } from "./tenancy-tabs";
 
 // How a tenancy reads in the app's chrome: one status chip (one color per status), the filter group it belongs to,
@@ -45,7 +45,7 @@ export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
   if (n.level === "overdue") return { label: "Overdue", tone: "red", group };
   if (group === "move-out") {
     if (s.statementDeliveredAt) return { label: "Refund due", tone: "amber", group };
-    if (s.returned) return { label: "Statement due", tone: "amber", group };
+    if (s.returned || outsideCovers(s)) return { label: "Statement due", tone: "amber", group };
     if (s.moveOutDate) return { label: s.moveOutInspectedAt ? "Move-out review" : "Moved out", tone: "amber", group };
     return { label: "Notice given", tone: "amber", group };
   }

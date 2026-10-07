@@ -12,6 +12,7 @@ import { returnFailed, wasPaid } from "./invoice-status";
 import { deductionsLock, LIVE_STATUSES, SENT_LIVE_STATUSES, type DisputeStatus } from "./dispute-status";
 import { checkProposal, lawfulRanges, statementOrder, type FindingSnapshot, type RangeDeduction, type RangeInput, type Ranges, type Standing } from "./lawful-range";
 import type { Notices } from "./notices";
+import { outsideReturnedAt } from "./reconcile";
 import { settledExtra, wholeOwedBeforeRefund } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { StateCode, StatePack } from "./states/types";
@@ -125,9 +126,13 @@ export function factsFrom(tenancyId: string, t: Record<string, unknown>, rows: R
   const clock = { moveOutDate: t.move_out_date as string | null, endDate: t.end_date as string | null, plannedMoveOut: t.planned_move_out as string | null };
   // Today and the day the money went back, where the property is (its pack's zone): the deadline is counted there.
   const today = todayIn(pack.timeZone.id);
+  // With no refund from the close-out, the day refunds made in PayPal and recorded here (with the dispute's money)
+  // returned what the deductions leave owed: the day the rest of the deposit went.
+  const statementRefund = settle(depositHeld, deductions, pack).refund;
+  const outsideAt = !ret ? outsideReturnedAt(payments ?? [], statementRefund) : null;
   const rangeInput: RangeInput = {
     deductions, depositHeld, today, ...clock, notices, deliveredOn: delivery?.date ?? null,
-    refundedOn: ret ? dateIn(ret.created_at as string, pack.timeZone.id) : null,
+    refundedOn: ret ? dateIn(ret.created_at as string, pack.timeZone.id) : outsideAt ? dateIn(outsideAt, pack.timeZone.id) : null,
   };
   const ranges = lawfulRanges(rangeInput, pack);
   return {
@@ -141,7 +146,7 @@ export function factsFrom(tenancyId: string, t: Record<string, unknown>, rows: R
     delivery, deliveredAt: (t.statement_delivered_at as string | null) ?? null,
     depositHeld, refunded: ret ? { amount: Number(ret.amount), kind: ret.kind as string, at: ret.created_at as string } : null,
     deductions, findings: ((t.move_out_findings ?? []) as StoredFinding[]), ranges, rangeInput,
-    statementRefund: settle(depositHeld, deductions, pack).refund,
+    statementRefund,
   };
 }
 
@@ -153,7 +158,9 @@ export const wholeDepositFirst = (status: DisputeStatus, facts: DisputeFacts) =>
   standing: facts.pack.close.standing, disputeLive: SENT_LIVE_STATUSES.includes(status), refunded: !!facts.refunded, depositHeld: facts.depositHeld,
   input: {
     today: facts.today, notices: facts.rangeInput.notices, claimed: facts.deductions.reduce((s, x) => s + x.amount, 0),
-    statementDue: facts.statementDue, deliveredOn: facts.delivery?.date ?? null, returnedOn: null, refundOwed: facts.statementRefund > 0,
+    // The refund's day as the ranges read it: none while nothing went, or the day refunds made in PayPal and recorded
+    // here returned what is owed (a refund from the close-out answers before this is read).
+    statementDue: facts.statementDue, deliveredOn: facts.delivery?.date ?? null, returnedOn: facts.rangeInput.refundedOn, refundOwed: facts.statementRefund > 0,
   },
 });
 
@@ -181,10 +188,11 @@ export async function deductionsLocked(tenancyId: string): Promise<Response | nu
     db.from("disputes").select("status").eq("tenancy_id", tenancyId).neq("status", "draft"),
   ]);
   const payments = (pays ?? []) as { kind: string; amount: number | string; status: string | null }[];
-  // The statement's refund as it stands, only needed to tell whether PayPal's refund through a dispute covers it.
+  // The statement's refund as it stands, only needed to tell whether PayPal's refund through a dispute, or a refund made
+  // in PayPal and recorded here, covers it.
   let refundOwed: number | null = null;
   const inv = payments.find((p) => p.kind === "deposit_invoice");
-  if (inv && wasPaid(inv.status) && payments.some((p) => p.kind === "dispute_refund")) {
+  if (inv && wasPaid(inv.status) && payments.some((p) => p.kind === "dispute_refund" || p.kind === "outside_refund")) {
     const [{ data: t }, { data: rows }] = await Promise.all([
       db.from("tenancies").select("properties(state)").eq("id", tenancyId).maybeSingle(),
       db.from("deductions").select("category, amount").eq("tenancy_id", tenancyId),
@@ -412,8 +420,10 @@ export async function tenantDisputeStatus(tenancyId: string): Promise<TenantDisp
   // A settled dispute adds what it moved: nothing when the statement's refund was already the whole deposit.
   const inv = (payments ?? []).find((p) => p.kind === "deposit_invoice");
   const ret = (payments ?? []).find((p) => (p.kind === "refund" || p.kind === "payout") && !returnFailed(p.status as string));
+  // With any refund made in PayPal that the landlord recorded as the deposit's refund.
+  const outside = (payments ?? []).filter((p) => p.kind === "outside_refund" && !returnFailed(p.status as string)).reduce((t, p) => t + Number(p.amount), 0);
   const amount = s ? (data.status === "settled" && inv
-    ? settledExtra({ agreed: Number(s.amount), depositHeld: Number(inv.amount), refunded: ret ? Number(ret.amount) : 0 })
+    ? settledExtra({ agreed: Number(s.amount), depositHeld: Number(inv.amount), refunded: (ret ? Number(ret.amount) : 0) + outside })
     : Number(s.amount)) : 0;
   return {
     status: data.status as DisputeStatus, sentAt: data.sent_at as string | null, askedBack: num(data.asked_back), lines: (data.deduction_ids as string[]).length,

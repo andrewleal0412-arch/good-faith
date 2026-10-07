@@ -5,7 +5,9 @@ import { AppShell, type ShellAlert, type ShellChrome } from "@/components/app-sh
 import { RouteSkeleton } from "@/components/route-skeleton";
 import { initialsOf } from "@/components/ui";
 import { displayName } from "@/lib/copy";
+import { paypalBell } from "@/lib/bell";
 import { longDate } from "@/lib/dates";
+import { openOutsideRefunds } from "@/lib/outside-refunds";
 import { SANDBOX } from "@/lib/paypal";
 import { canSignOut } from "@/lib/session-server";
 import { stepLink } from "@/lib/property-view";
@@ -29,11 +31,12 @@ const settled = <T,>(p: Promise<T>, fallback: T, what: string) => p.catch((e) =>
 /** The parts of the chrome that come from the database: the account, the bell and Help's guides. Every read starts at
  *  once (the units are the request's one workspace read, which the page shares). */
 async function chromeOf(ws: Workspace | null): Promise<ShellChrome> {
-  const [{ units, owners }, disputes, ppDisputes, paypal] = await Promise.all([
+  const [{ units, owners }, disputes, ppDisputes, paypal, outside] = await Promise.all([
     settled(loadUnits(), { units: [] as UnitRow[], owners: [] as string[], today: "", upcoming: [] }, "the units"),
     ws ? settled(disputeAlerts(ws.id), [], "the disputes") : Promise.resolve([]),
     ws ? settled(paypalDisputeAlerts(ws.id), [], "the PayPal disputes") : Promise.resolve([]),
     ws ? settled(paypalAlerts(ws.id), [], "PayPal's reports") : Promise.resolve([]),
+    ws ? settled(openOutsideRefunds(ws.id), [], "the refunds made in PayPal") : Promise.resolve([]),
   ]);
 
   // The account: a demo copy's is the demo landlord's business; the owner's GOOD_FAITH_ACCOUNT, or the owner of the
@@ -41,14 +44,22 @@ async function chromeOf(ws: Workspace | null): Promise<ShellChrome> {
   const named = await accountName(owners).catch(() => null);
   const account = named ? displayName(named) : "Your account";
 
+  // PayPal's reports that need the landlord show once, under Needs you, with PayPal's detail, and not again under From
+  // PayPal: a deposit PayPal reversed on a unit not closed out, and a refund made in PayPal still waiting for the
+  // landlord's decision (src/lib/bell.ts).
+  const bell = paypalBell({ units, reports: paypal, outside });
+
   // The bell: the tenants' PayPal disputes of their deposit payments (one to answer, a response to approve or to
-  // check), then their disputes that wait on the landlord (an answer, an approval, or the negotiator asking first),
-  // then the steps that are overdue or due within five days.
+  // check), a deposit PayPal reversed and a refund made in PayPal (above), then the tenants' disputes that wait on the
+  // landlord (an answer, an approval, or the negotiator asking first), then the steps that are overdue or due within
+  // five days.
   const alerts: ShellAlert[] = [
     ...ppDisputes.map((a) => ({ title: a.title, sub: `${streetLine(a.sub)}${a.due ? `, respond by ${longDate(a.due)}` : ""}`, href: a.href, tone: a.tone })),
+    ...bell.needsYou,
     ...disputes.map((a) => ({ ...a, sub: streetLine(a.sub) })),
     ...units
-      .filter((u) => u.next.level === "overdue" || u.next.level === "urgent")
+      // A reversed deposit's own step is the line above.
+      .filter((u) => (u.next.level === "overdue" || u.next.level === "urgent") && !bell.coveredStep(u))
       .slice(0, 6)
       .map((u): ShellAlert => ({
         title: u.next.label,
@@ -71,7 +82,7 @@ async function chromeOf(ws: Workspace | null): Promise<ShellChrome> {
   // that finished or came back, a reversal, a PayPal dispute.
   return {
     account, initials: initialsOf(account), owners, alerts, disclaimer, rules,
-    paypal: paypal.map((a) => ({ title: a.title, sub: streetLine(a.sub), href: a.href, tone: a.tone })),
+    paypal: bell.fromPayPal,
   };
 }
 

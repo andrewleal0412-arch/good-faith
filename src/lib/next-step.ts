@@ -43,6 +43,10 @@ export type TenancySummary = {
   deductions: { category: string; amount: number }[]; // what comes off the deposit, the same rows the close-out settles
   returned: { amount: number; kind: string } | null; // the close-out's refund or Payout
   viaDispute?: number; // what PayPal returned through the tenants' PayPal dispute; absent when nothing did
+  outside?: number; // refunds made in PayPal that the landlord recorded as the deposit's refund; absent when none
+  // the day those refunds (with the dispute's money) covered what the deductions leave owed, where the deadline
+  // forfeits the deductions (New York's day 14 reads it as the day the rest of the deposit went); absent otherwise
+  outsideReturnedOn?: string;
   forfeited?: boolean; // the deadline forfeited every deduction (New York after day 14): none is kept; absent otherwise
   settledBack?: number; // what a dispute's settlement sent back on top of the refund; carried only when forfeited, where it counts toward the whole deposit
   notices: Notices;
@@ -119,16 +123,21 @@ const owedOf = (t: TenancySummary & { deposit: NonNullable<TenancySummary["depos
   (t.forfeited ? t.deposit.amount : settle(t.deposit.amount, t.deductions, packOf(t)).refund);
 
 /** What is left to return once the deductions come off the paid deposit (none of them when forfeited), less what
- *  PayPal already returned through the tenants' PayPal dispute; null until the deposit is paid. */
+ *  PayPal already returned through the tenants' PayPal dispute and the refunds made in PayPal that the landlord
+ *  recorded as the deposit's refund; null until the deposit is paid. */
 export const refundLeft = (t: TenancySummary): number | null => (t.deposit && depositPaid(t)
-  ? Math.max(0, Math.round((owedOf({ ...t, deposit: t.deposit }) - (t.viaDispute ?? 0)) * 100) / 100) : null);
+  ? Math.max(0, Math.round((owedOf({ ...t, deposit: t.deposit }) - (t.viaDispute ?? 0) - (t.outside ?? 0)) * 100) / 100) : null);
+
+/** The refunds made in PayPal and recorded here cover what is owed, with no refund from the close-out: they stand for
+ *  the deposit's refund, on every page that reads this summary. */
+export const outsideCovers = (t: TenancySummary): boolean => !!t.outside && !t.returned && refundLeft(t) === 0;
 
 /** What PayPal returned through the tenants' PayPal dispute beyond the statement's refund: the deductions the landlord
  *  no longer keeps (a claim accepted in full). 0 otherwise. */
 export const notKeptAfterDispute = (t: TenancySummary): number => {
-  if (!t.viaDispute || !t.deposit || !depositPaid(t)) return 0;
+  if ((!t.viaDispute && !t.outside) || !t.deposit || !depositPaid(t)) return 0;
   const owed = owedOf({ ...t, deposit: t.deposit });
-  return Math.round(Math.max(0, Math.min(t.deposit.amount - owed, t.viaDispute + (t.returned?.amount ?? 0) - owed)) * 100) / 100;
+  return Math.round(Math.max(0, Math.min(t.deposit.amount - owed, (t.viaDispute ?? 0) + (t.outside ?? 0) + (t.returned?.amount ?? 0) - owed)) * 100) / 100;
 };
 
 /** What of the whole deposit is still owed after the refund went, once the deadline forfeited the deductions (New York
@@ -137,7 +146,7 @@ export const notKeptAfterDispute = (t: TenancySummary): number => {
  *  and always 0 in a state whose deadline forfeits nothing. */
 export const forfeitShort = (t: TenancySummary): number => {
   if (!t.forfeited || !t.returned || !t.deposit || !depositPaid(t)) return 0;
-  return Math.max(0, Math.round((t.deposit.amount - t.returned.amount - (t.viaDispute ?? 0) - (t.settledBack ?? 0)) * 100) / 100);
+  return Math.max(0, Math.round((t.deposit.amount - t.returned.amount - (t.viaDispute ?? 0) - (t.outside ?? 0) - (t.settledBack ?? 0)) * 100) / 100);
 };
 
 /** Closed out (D15): the statement went out and the money is back (all of it, where the deadline forfeited the
@@ -186,7 +195,8 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
     const forfeit = pack.steps.forfeit?.(t, today, h);
     if (forfeit) return forfeit;
     if (closedOut(t)) {
-      const how = t.returned ? `; ${usd(t.returned.amount)} returned by PayPal${t.viaDispute ? `, and ${usd(t.viaDispute)} through the tenants' PayPal dispute` : ""}${t.settledBack ? `, and ${usd(t.settledBack)} through the dispute's settlement` : ""}`
+      const how = t.returned ? `; ${usd(t.returned.amount)} returned by PayPal${t.viaDispute ? `, and ${usd(t.viaDispute)} through the tenants' PayPal dispute` : ""}${t.outside ? `, and ${usd(t.outside)} refunded in PayPal and recorded here` : ""}${t.settledBack ? `, and ${usd(t.settledBack)} through the dispute's settlement` : ""}`
+        : t.outside ? `; ${usd(t.outside)} refunded in PayPal and recorded as the deposit's refund${t.viaDispute ? `, and ${usd(t.viaDispute)} through the tenants' PayPal dispute` : ""}`
         : t.viaDispute ? `; ${usd(t.viaDispute)} returned through the tenants' PayPal dispute`
         : t.deposit?.reversed ? "; PayPal reversed the deposit payment, so nothing went back through PayPal"
         : !paid ? "; no deposit was paid through PayPal, so there was nothing to return"
@@ -210,9 +220,14 @@ export function nextStep(t: TenancySummary, today: string): NextStep {
     if (t.returned) return withOpen(dated("Record the statement delivery", `${usd(t.returned.amount)} went back by PayPal; the itemized statement still has to reach the tenants.`, flow.deliveryCite, due));
     // PayPal returned what is owed through the tenants' PayPal dispute: only the statement is left, and it says what
     // that did to the deductions.
-    if (t.viaDispute && refundLeft(t) === 0) {
+    if (t.viaDispute && !t.outside && refundLeft(t) === 0) {
       const notKept = notKeptAfterDispute(t);
       return withOpen(dated("Record the statement delivery", `PayPal returned ${usd(t.viaDispute)} through the tenants' PayPal dispute${notKept > 0 ? `, so ${usd(notKept)} of the deductions is no longer kept` : ""}; the itemized statement still has to reach the tenants.`, flow.deliveryCite, due));
+    }
+    // A refund made in PayPal, recorded as the deposit's refund, covers what is owed: only the statement is left.
+    if (t.outside && refundLeft(t) === 0) {
+      const notKept = notKeptAfterDispute(t);
+      return withOpen(dated("Record the statement delivery", `${usd(t.outside)} went back by a refund made in PayPal, recorded as the deposit's refund${notKept > 0 ? `, so ${usd(notKept)} of the deductions is no longer kept` : ""}; the itemized statement still has to reach the tenants.`, flow.deliveryCite, due));
     }
     return withOpen(dated("Send the itemized statement and refund", flow.statementDetail(t.moveOutDate), flow.statementCite, due));
   }

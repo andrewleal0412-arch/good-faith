@@ -96,6 +96,7 @@ function ledgerDetails(rows: LedgerRow[], payments: (LedgerPayment & { tenancy_i
     if (r.kind === "payment") { add("Payment", raw?.transactions?.[0]?.payment_id); add("Invoice", p?.paypal_id); }
     if (r.kind === "refund") { add("Refund", p?.paypal_id); add("Payment refunded", captureOf(raw as Record<string, unknown> | null)); }
     if (r.kind === "payout") add("Payout batch", p?.paypal_id);
+    if (r.kind === "outside_refund") { add("Refund", p?.paypal_id); add("Payment refunded", (raw as { outside?: { capture_id?: unknown } } | null)?.outside?.capture_id); }
     if (r.kind === "settlement" && !r.example) { add(p?.kind === "settlement_payout" ? "Payout batch" : "Refund", p?.paypal_id); add("Payment refunded", captureOf(raw as Record<string, unknown> | null)); }
     if (r.kind === "dispute_refund") {
       add("PayPal dispute", p?.paypal_id);
@@ -110,6 +111,7 @@ function ledgerDetails(rows: LedgerRow[], payments: (LedgerPayment & { tenancy_i
             : r.kind === "deposit_invoice" || r.kind === "damage_invoice" ? "PayPal's invoice, as last read: the property's page asks PayPal again whenever it opens"
               : r.kind === "payment" ? "PayPal's transaction record on the invoice, as last read"
                 : r.kind === "refund" ? "PayPal's answer when the refund was sent through the Agent Toolkit"
+                  : r.kind === "outside_refund" ? "PayPal's record of a refund made in PayPal, which you recorded as the deposit's refund"
                   : r.kind === "payout" ? "PayPal's answer when the Payout was sent"
                     : r.kind === "settlement" ? "PayPal's answer when the settlement was paid"
                       : "PayPal's dispute record, as last read" };
