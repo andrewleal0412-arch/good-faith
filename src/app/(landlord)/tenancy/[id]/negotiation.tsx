@@ -2,7 +2,7 @@
 
 import Link from "@/components/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { FormField } from "@/components/field";
@@ -10,6 +10,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Card, CardHead, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
+import { useWatch } from "@/components/watch";
 import { DEMO_EXAMPLE } from "@/lib/copy";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { LoadedNegotiation } from "@/lib/negotiation";
@@ -20,8 +21,6 @@ import type { LoadedNegotiation } from "@/lib/negotiation";
 // process and the landlord's own offer. Every amount here was computed and checked on the server.
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const POLL_MS = 3000;
-const POLL_LIMIT = 120;
 
 export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, zone = PACIFIC }: {
   tenancyId: string; v: LoadedNegotiation; tenantsLabel: string; landlordLabel: string; quiet: boolean;
@@ -38,29 +37,26 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
   const [amount, setAmount] = useState("");
   const [message, setMessage] = useState("");
   const [confirm, dialog] = useConfirm();
-  const seen = useRef({ turns: v.turns.length, status: v.status });
-
-  // While the agents negotiate (started here, in another tab, or before a reload), ask the server every few seconds and
-  // refresh the page when a turn lands or the run ends.
-  useEffect(() => {
-    if (!polling) return;
-    let n = 0;
-    const t = setInterval(async () => {
-      if (++n > POLL_LIMIT) { clearInterval(t); setPolling(false); return; }
-      const r = await fetch(`/api/tenancies/${tenancyId}/dispute`, { cache: "no-store" }).catch(() => null);
-      const j = r?.ok ? await r.json().catch(() => null) : null;
-      if (!j) return;
-      if (j.turns !== seen.current.turns || j.status !== seen.current.status) {
-        seen.current = { turns: j.turns, status: j.status };
-        router.refresh();
-      }
-      if (j.negotiationStatus !== "running" && busy !== "run") { clearInterval(t); setPolling(false); router.refresh(); }
-    }, POLL_MS);
-    return () => clearInterval(t);
-  }, [polling, tenancyId, router, busy]);
 
   const s = v.settlement;
   const settled = v.status === "settled" || s?.status === "sent";
+
+  // While the agents negotiate (started here, in another tab, or before a reload), and for as long as the tenants may
+  // still move it (accept the settlement, answer an offer, withdraw: any sent dispute that isn't settled or withdrawn),
+  // the card asks the server every few seconds and refreshes the page when a turn landed, the run ended or the tenants
+  // did something (components/watch.ts). So "Approve and pay" comes on by itself when they accept.
+  useWatch({
+    on: polling || (!settled && v.status !== "withdrawn"),
+    url: `/api/tenancies/${tenancyId}/dispute`,
+    stamp: v.stamp,
+    running: polling || v.running,
+    // The run this card was following is over (and its own request for it, if it made one, has answered).
+    also: (j) => {
+      if (!polling || j.negotiationStatus === "running" || busy === "run") return false;
+      setPolling(false);
+      return true;
+    },
+  });
   const negotiable = ["open", "negotiating", "no_agreement"].includes(v.status);
   const canRun = negotiable && v.agentTurnsLeft > 0 && !v.running && !polling;
   // No offer while a payment is on its way or PayPal hasn't confirmed one: the settlement holds until PayPal answers.
@@ -285,7 +281,9 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
         </div>
       )}
 
-      {error && <div className="border-b border-line-2 px-5 py-3"><Notice>{error}</Notice></div>}
+      {/* Not beside a settled dispute: nothing is left to do here, so a refusal from before it settled (a second
+          "Approve and pay" that found the first one already paid, after a dropped connection) no longer applies. */}
+      {error && !settled && <div className="border-b border-line-2 px-5 py-3"><Notice>{error}</Notice></div>}
 
       <div className="px-5 py-1">
         <NegotiationThread turns={v.turns} perspective="landlord" names={names} working={working} />

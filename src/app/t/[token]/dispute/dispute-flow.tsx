@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button, buttonClass, pickerFocus } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { FormField } from "@/components/field";
@@ -10,6 +10,7 @@ import { InfoTip, TipLabel } from "@/components/info-tip";
 import { WorkingDots } from "@/components/motion";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
 import { Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
+import { useWatch } from "@/components/watch";
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
 import { DEMO_EXAMPLE } from "@/lib/copy";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
@@ -47,17 +48,21 @@ function useFieldError(error: string) {
     errorId,
     mark: (text: string, f: string | null) => setAt(f ? { text, field: f } : null),
     field: (f: string) => ({ "data-field": f, ...(marked === f ? { "aria-invalid": true, "aria-describedby": errorId } : {}) }),
+    /** Whether the error on screen names this field: once the field is filled in, the caller takes the error down. */
+    names: (f: string) => marked === f,
   };
 }
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** "Harbor View Rentals'", "Elena Marquez's". */
 const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
+/** The advocate's verdict on each of the landlord's charges. The chip names the charge: on the tenants' own page a bare
+ *  "Looks weak" beside a line they dispute read as their dispute being weak, the opposite of what it says. */
 const VERDICT: Record<Verdict, { label: string; tone: "gray" | "amber" | "red" }> = {
-  solid: { label: "Looks solid", tone: "gray" },
-  weak: { label: "Looks weak", tone: "amber" },
-  unsupported: { label: "Not supported", tone: "amber" },
-  unlawful: { label: "Not allowed", tone: "red" },
+  solid: { label: "Charge looks solid", tone: "gray" },
+  weak: { label: "Charge looks weak", tone: "amber" },
+  unsupported: { label: "Charge not supported", tone: "amber" },
+  unlawful: { label: "Charge not allowed", tone: "red" },
 };
 
 export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, negotiation, zone = PACIFIC }: {
@@ -138,6 +143,8 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
   };
   const refuse = (p: { text: string; field: string | null }) => { fe.mark(p.text, p.field); setError(p.text); };
   const change = () => setEdited(true);
+  /** A name picked answers "Pick your name.", so that message goes with the pick, not at the next press. */
+  const pickedName = (v: string) => { setName(v); if (v && fe.names("name")) setError(""); };
 
   /** The draft as it stands on the page, then any photos picked since, so the server always has what the page shows. */
   async function save(): Promise<boolean> {
@@ -325,7 +332,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
       <section className="mt-6 flex flex-col gap-4">
         {view.tenants.length > 1 && (
           <FormField label="Your name">
-            <select className={inputClass} value={name} onChange={(e) => setName(e.target.value)} {...fe.field("name")}>
+            <select className={inputClass} value={name} onChange={(e) => pickedName(e.target.value)} {...fe.field("name")}>
               <option value="">Pick your name</option>
               {view.tenants.map((t) => <option key={t}>{t}</option>)}
             </select>
@@ -478,27 +485,18 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
   const [confirm, dialog] = useConfirm();
   const fe = useFieldError(error);
   const refuse = (text: string, field: string) => { fe.mark(text, field); setError(text); };
-  const seen = useRef({ turns: n?.turns.length ?? 0, status: n?.status ?? null });
-
-  // While the two agents negotiate, the page asks every few seconds and shows each turn as it lands.
-  useEffect(() => {
-    if (!n?.running) return;
-    let k = 0;
-    const t = setInterval(async () => {
-      if (++k > 120) return clearInterval(t);
-      const r = await fetch(`/api/t/${token}/dispute`, { cache: "no-store" }).catch(() => null);
-      const j = r?.ok ? await r.json().catch(() => null) : null;
-      if (!j) return;
-      if (j.turns !== seen.current.turns || j.sentStatus !== seen.current.status || j.negotiationStatus !== "running") {
-        seen.current = { turns: j.turns, status: j.sentStatus };
-        router.refresh();
-        if (j.negotiationStatus !== "running") clearInterval(t);
-      }
-    }, 3000);
-    return () => clearInterval(t);
-  }, [n?.running, token, router]);
 
   const settled = !!n && (n.status === "settled" || s?.status === "sent");
+  // For as long as the landlord may still move it (their negotiator's answer, an offer, the approval and the payment:
+  // any sent dispute that isn't settled or withdrawn), the page asks every few seconds and refreshes when something
+  // changed, and while the two agents negotiate it shows each turn as it lands (components/watch.ts). So "Their answer
+  // comes back to this page" holds without a reload.
+  useWatch({
+    on: !!n && !settled && n.status !== "withdrawn",
+    url: `/api/t/${token}/dispute`,
+    stamp: n?.stamp ?? "",
+    running: !!n?.running,
+  });
   // The tenants may take back a dispute that is still live, except while the agents run, once they accepted a
   // settlement, or while its payment is on its way (the server checks the same under the dispute's lock).
   const withdrawable = !!n && !settled && canWithdraw({
@@ -514,9 +512,11 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
   // A lawful range of one figure (New York after day 14: every charge $0) leaves no other offer once both are at it.
   const noOtherOffer = !!n && n.maxBack - n.minBack < 0.005;
   const names = { landlord, tenants: "The tenants" };
+  /** A name picked answers "Pick your name.", so that message goes with the pick, not at the next press. */
+  const pickedName = (v: string) => { setName(v); if (v && fe.names("name")) setError(""); };
   const pickName = view.tenants.length > 1 && (
     <FormField label="Your name">
-      <select className={inputClass} value={name} onChange={(e) => setName(e.target.value)} {...fe.field("name")}>
+      <select className={inputClass} value={name} onChange={(e) => pickedName(e.target.value)} {...fe.field("name")}>
         <option value="">Pick your name</option>
         {view.tenants.map((t) => <option key={t}>{t}</option>)}
       </select>

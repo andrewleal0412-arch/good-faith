@@ -13,6 +13,8 @@ the words that matter and every money figure against what the code computes, sav
    7. The tenants' dispute and their advocate's case (beat 5)
    8. The two agents' negotiation (beat 6)
    9. The settlement: the tenants accept, the landlord approves and pays, the amended statement (beat 7)
+      In 8 and 9 the two pages stay open side by side, as in the demo: each shows what the other side did without a
+      reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger) and Insights (beat 3b)
 
 The server runs with GOOD_FAITH_E2E_STUBS=1 (src/lib/e2e-switch.ts): every Claude job answers from a scripted stub,
@@ -335,6 +337,31 @@ def walk(base, setup, shots, check, facts):
         page.goto(base + path, wait_until="networkidle")
         page.wait_for_timeout(250)
 
+    # The two windows side by side (beats 6 and 7): a page left open shows what the other side did without a reload.
+    # `stay` marks the page (a reload or a navigation would drop the mark); `arrives` waits for the change and says
+    # whether the page is still the same one; `asks` counts what the page requested since a moment (its status route,
+    # and the refreshes of itself it made).
+    WATCH_S = 25
+
+    def stay(page):
+        page.evaluate("() => { window.__gfStay = true; }")
+
+    def arrives(page, shown):
+        until = time.time() + WATCH_S
+        while time.time() < until:
+            try:
+                if shown():
+                    return bool(page.evaluate("() => window.__gfStay === true"))
+            except Exception:
+                pass
+            page.wait_for_timeout(250)
+        return False
+
+    def asks(log, since, own=""):
+        mine = [u for t, u in log if t >= since]
+        return (sum(1 for u in mine if u.split("?")[0].endswith("/dispute") and "/api/" in u),
+                sum(1 for u in mine if "_rsc=" in u and u.split("?")[0].endswith(own)))
+
     f0 = facts()
     E = expected(f0, U)
 
@@ -355,6 +382,8 @@ def walk(base, setup, shots, check, facts):
         ctx.add_cookies([{"name": setup["cookie"]["name"], "value": setup["cookie"]["value"], "url": base}])
         page = ctx.new_page()
         errors = []
+        asked_l, asked_t = [], []  # every GET each side's page made, with its moment (the side-by-side checks)
+        page.on("request", lambda r: asked_l.append((time.time(), r.url)) if r.method == "GET" else None)
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text[:200]}") if m.type == "error" else None)
         page.set_default_timeout(30_000)
@@ -485,6 +514,7 @@ def walk(base, setup, shots, check, facts):
         shot(page, "statement-delivered")
 
         tenant = ctx.new_page()
+        tenant.on("request", lambda r: asked_t.append((time.time(), r.url)) if r.method == "GET" else None)
         tenant.on("pageerror", lambda e: errors.append(f"pageerror (tenants): {e}"))
         go(tenant, setup["tenantPath"])
         t = sees("Tenants' page", tenant, "Your deposit refund", "1140 E. Juniper Hollow Ln", f"Refund amount\n\n{R}", f"Deposit paid\n{D}", f"Deductions\n−{P}", f"Refund\n{R}",
@@ -497,12 +527,19 @@ def walk(base, setup, shots, check, facts):
         tenant.get_by_text("Which charges?").wait_for()
         tenant.get_by_label("1. Bedroom carpet", exact=False).check()
         tenant.get_by_placeholder("What's wrong with this charge, in your words").fill("The stain was one small spot, and nobody asked us about cleaning it first.")
+        # Asked without a name: refused on the page (nothing is sent), and the message goes when a name is picked.
+        tenant.get_by_role("button", name="Ask my advocate").click()
+        no_name = tenant.get_by_text("Pick your name.", exact=True)
+        asked_for = no_name.count() == 1 and no_name.first.is_visible()
         tenant.get_by_label("Your name").select_option(label="Priya Raman")
+        tenant.wait_for_timeout(200)
+        check('Dispute form: "Pick your name." shows when a name is missing and goes when one is picked', asked_for and no_name.count() == 0,
+              f"shown {asked_for}, still there after the pick {no_name.count() > 0}")
         tenant.get_by_role("button", name="Ask my advocate").click()
         tenant.get_by_role("region", name="Your advocate's case").wait_for(timeout=90_000)
         case_back = usd(E["case_back"])
         t = sees("Advocate's case", tenant, f"Your advocate proposes back\n\n{case_back}", f"On top of the {R} refund on the statement, from the {P} deducted.",
-                 "Looks weak", "Looks solid", f"{case_back}\n\nback of {usd(E['carpet'])}", "Not legal advice")
+                 "Charge looks weak", "Charge looks solid", f"{case_back}\n\nback of {usd(E['carpet'])}", "Not legal advice")
         only_amounts("Advocate's case", t, [E["case_back"], E["refund"], E["deductions"], *line_amounts, 0.0])
         shot(tenant, "advocate-case")
         tenant.get_by_role("button", name=re.compile("^Send to Elena Marquez")).click()
@@ -512,6 +549,13 @@ def walk(base, setup, shots, check, facts):
         shot(tenant, "dispute-sent")
 
         # 8. The negotiation (beat 6): the landlord's negotiator and the tenants' advocate, checked by code each turn.
+        # The tenants' page stays open on the dispute they sent ("Their answer comes back to this page").
+        stay(tenant)
+        # The unit was closed out (statement delivered, refund sent); with a dispute waiting it is an open move-out again.
+        go(page, "/move-outs")
+        row = next((r for r in page.locator("main table tbody tr").all_inner_texts() if "1140 E. Juniper Hollow Ln" in r), "")
+        check("Move-outs: the disputed unit is listed under Open, with the dispute as its next step", "Disputed" in row and "Answer dispute" in row,
+              f"its row under Open: {row!r}; the page reads: {text(page)[:300]!r}")
         go(page, f"/tenancy/{mo}?tab=move-out")
         sees("Disputed", page, "Disputed", f"Priya Raman disputes 1 deduction and asks for {case_back} back.", "Let my negotiator answer")
         page.get_by_role("button", name="Let my negotiator answer").click()
@@ -541,17 +585,40 @@ def walk(base, setup, shots, check, facts):
         turns = [cents(x["amount_back"]) for x in f2["turns"] if x["n"] > 1 and x["dispute_id"] in {d["id"] for d in f2["disputes"] if d["tenancy_id"] == mo}]
         check(f"Negotiation: the turns recorded give back {', '.join(usd(x) for x in E['turns_back'])}", turns == E["turns_back"], f"{turns}")
 
-        go(tenant, f"{setup['tenantPath']}/dispute")
+        # The tenants' page, never reloaded since they sent the dispute, shows the settlement the agents reached.
+        live = arrives(tenant, lambda: tenant.get_by_text("Settlement offered").first.is_visible())
+        check("Side by side: the tenants' page, left open, shows the settlement the agents reached without a reload", live, text(tenant)[:300])
+        if not live:
+            go(tenant, f"{setup['tenantPath']}/dispute")
         sees("Tenants see the settlement", tenant, f"Settlement offered\n{usd(E['settled'])}", "Both sides agree", f"Offers {b1} back", f"Asks {b2} back")
 
         # 9. The settlement (beat 7): both humans say yes, PayPal (fake) refunds the agreed amount, the statement amends.
+        # The landlord's Move-out tab stays open beside it: "Approve and pay" is off until the tenants accept, and while
+        # it waits the page asks its small status route and refreshes nothing.
+        pay = page.get_by_role("button", name=re.compile(r"^Approve and pay")).first
+        check("Side by side: Approve and pay is off until the tenants accept", pay.is_disabled() and "Waiting for Priya Raman and Daniel Okafor to accept." in text(page), text(page)[:300])
+        stay(page)
+        waited = time.time()
+        page.wait_for_timeout(9000)
+        polls, refreshes = asks(asked_l, waited, f"/tenancy/{mo}")
+        check("Side by side: while it waits on the tenants, the landlord's page asks its status route every few seconds and refreshes nothing",
+              2 <= polls <= 4 and refreshes == 0, f"{polls} status requests and {refreshes} refreshes in 9 s")
         tenant.get_by_label("Your name").select_option(label="Priya Raman")
         tenant.get_by_role("button", name="Accept settlement").click()
         tenant.get_by_role("alertdialog").get_by_role("button", name="Accept settlement").click()
         tenant.wait_for_load_state("networkidle")
         tenant.wait_for_timeout(800)
         shot(tenant, "tenants-accepted")
-        go(page, f"/tenancy/{mo}?tab=move-out")
+        accepted = time.time()
+        live = arrives(page, lambda: pay.is_enabled())
+        check("Side by side: the landlord's Move-out tab, left open, turns Approve and pay on after the tenants accept, without a reload", live,
+              f"after {time.time() - accepted:.0f} s the card reads: {page.locator('#negotiation').inner_text()[:240]!r}")
+        if live:
+            print(f"  Approve and pay came on {time.time() - accepted:.1f} s after the tenants accepted", flush=True)
+            sees("Side by side: the landlord's card says who accepted", page, "Waiting for you", "Accepted\nPriya Raman", "Approve and pay below")
+        else:
+            go(page, f"/tenancy/{mo}?tab=move-out")
+        stay(tenant)
         page.get_by_role("button", name=re.compile(r"^Approve and pay")).first.click()
         dlg = page.get_by_role("alertdialog")
         check("Approve and pay: asks first, naming the amount", f"Send {usd(E['settled'])} to Priya Raman and Daniel Okafor?" in dlg.inner_text(), dlg.inner_text()[:200])
@@ -566,6 +633,15 @@ def walk(base, setup, shots, check, facts):
               json.dumps({"settlements": sets, "payments": spay})[:500])
         sees("Settled", page, "Closed", f"Settled: {usd(E['settled'])} back", sid, "Amended statement")
         shot(page, "settled")
+        # The tenants' page, open since they accepted, shows the payment; then neither page asks again.
+        live = arrives(tenant, lambda: tenant.get_by_text("Sent by PayPal").first.is_visible())
+        check("Side by side: the tenants' page, left open, shows the settlement paid without a reload", live, text(tenant)[:300])
+        if live:
+            sees("Side by side: the tenants' page once paid", tenant, f"Settled\n{usd(E['settled'])}", "Sent by PayPal", sid)
+        done = time.time()
+        page.wait_for_timeout(9000)
+        check("Side by side: once it is settled, neither page asks again", asks(asked_l, done)[0] == 0 and asks(asked_t, done)[0] == 0,
+              f"landlord {asks(asked_l, done)[0]}, tenants {asks(asked_t, done)[0]} status requests in 9 s")
         go(page, f"/tenancy/{mo}/statement")
         t = sees("Amended statement", page, "Amended", f"Returned in all\n{usd(E['returned'])}", f"kept {usd(E['settled_keep'])} of {usd(E['carpet'])}",
                  f"Deductions on the statement\n{P}", f"Agreed adjustment\n−{usd(E['settled'])}", f"Deductions as settled\n{usd(E['kept'])}",

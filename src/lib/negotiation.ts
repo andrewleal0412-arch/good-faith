@@ -71,6 +71,34 @@ function recheckable(s: SettlementRow): boolean {
 export const runningNow = (d: Pick<NegotiationRow, "negotiation_status" | "negotiation_started_at">) =>
   d.negotiation_status === "running" && !!d.negotiation_started_at && Date.parse(d.negotiation_started_at) >= Date.now() - NEGOTIATION_STALE_SECONDS * 1000;
 
+/** Where the negotiation over a sent dispute stands, in one short string that changes whenever either side's page would
+ *  show something new: the dispute's status, how many turns it holds, whether the agents are running, and how far its
+ *  settlement got (offered, accepted by the tenants, on its way, sent, refused, not confirmed by PayPal). Each page is
+ *  rendered with it (NegotiationView.stamp) and, while the dispute can still change, asks its status route for it again
+ *  every few seconds (components/watch.ts): a different stamp means the other side did something, so the page
+ *  refreshes. Nothing in it is private to a side. */
+export function negotiationStamp(d: Pick<NegotiationRow, "status" | "negotiation_status" | "negotiation_started_at">, turns: number,
+  s: Pick<SettlementRow, "status" | "tenant_accepted_at" | "paypal_status" | "updated_at"> | null): string {
+  // A run whose process died reads as stopped, so a page stops waiting on it.
+  const run = runningNow(d) ? "running" : d.negotiation_status === "running" ? "failed" : d.negotiation_status ?? "none";
+  const settlement = !s || s.status === "cancelled" ? "none" : `${s.status}${s.tenant_accepted_at ? "+accepted" : ""}${unconfirmed(s) ? "+unconfirmed" : ""}`;
+  return [d.status, turns, run, settlement].join("|");
+}
+
+/** A sent dispute's stamp as the database holds it now, with its count of turns, in two small reads: for the status
+ *  routes, which a waiting page asks every few seconds. No stamp when a read failed, so a page never refreshes over a
+ *  database hiccup. */
+export async function readStamp(d: NegotiationRow): Promise<{ stamp: string | null; turns: number }> {
+  const [t, s] = await Promise.all([
+    // A GET with a count, not head: true (src/lib/http.ts).
+    db.from("negotiation_turns").select("id", { count: "exact" }).eq("dispute_id", d.id).limit(1),
+    db.from("settlements").select("status, tenant_accepted_at, paypal_status, updated_at").eq("dispute_id", d.id).maybeSingle(),
+  ]);
+  const turns = t.count ?? 0;
+  if (t.error || t.count == null || s.error) return { stamp: null, turns };
+  return { stamp: negotiationStamp(d, turns, s.data as Pick<SettlementRow, "status" | "tenant_accepted_at" | "paypal_status" | "updated_at"> | null), turns };
+}
+
 export function turnFromRow(r: Record<string, unknown>): Turn {
   return {
     id: r.id as string, n: Number(r.n), side: r.side as Side, actor: r.actor as Turn["actor"], move: r.move as TurnMove,
@@ -297,6 +325,7 @@ export type SettlementView = {
 };
 export type NegotiationView = {
   turns: TurnView[];
+  stamp: string; // where it stands, for the page to tell that the other side moved (negotiationStamp)
   running: boolean;
   startedAt: string | null;
   failed: string | null; // why the last run stopped short (the landlord's page only)
@@ -351,6 +380,7 @@ export function negotiationView(d: NegotiationRow, facts: DisputeFacts, turns: T
   const outcome = d.negotiation_outcome;
   return {
     turns: views,
+    stamp: negotiationStamp(d, turns.length, s),
     running: runningNow(d),
     startedAt: d.negotiation_started_at,
     failed: side === "landlord" && d.negotiation_status === "failed" ? d.negotiation_error : null,

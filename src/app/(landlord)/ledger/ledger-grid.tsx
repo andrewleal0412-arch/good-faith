@@ -4,8 +4,8 @@ import Link from "@/components/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgGridProvider, AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
 import type {
-  CellClickedEvent, CellKeyDownEvent, ColDef, ColumnMovedEvent, ColumnResizedEvent, ColumnState, GridApi, GridReadyEvent, IRowNode, ITooltipParams,
-  ProcessCellForExportParams, ProcessHeaderForExportParams, SortChangedEvent, ValueFormatterParams, ValueGetterParams,
+  CellClickedEvent, CellKeyDownEvent, ColDef, ColumnMovedEvent, ColumnResizedEvent, ColumnState, DisplayedColumnsChangedEvent, GridApi, GridReadyEvent, IRowNode, ITooltipParams,
+  ProcessCellForExportParams, ProcessHeaderForExportParams, RowSelectionOptions, SelectionColumnDef, SortChangedEvent, ValueFormatterParams, ValueGetterParams,
 } from "ag-grid-community";
 import { ColumnApiModule, CsvExportModule, ExternalFilterModule, QuickFilterModule, RowApiModule, RowSelectionModule } from "ag-grid-community";
 import { atTextIn, dayLabel, longDate, PACIFIC, shortDate } from "@/lib/dates";
@@ -211,6 +211,16 @@ function RowMenu(p: CustomCellRendererProps<LedgerRow>) {
   );
 }
 
+/* ---------- The row checkboxes ---------- */
+
+// Two of the grid's options, made once. AG Grid React compares each option by identity and applies one that changed:
+// written inline they were new objects on every render, the grid rebuilt its checkbox column for each, that fired
+// onDisplayedColumnsChanged, which set state, which rendered again, without end (the page never came to rest wherever
+// the checkboxes show, which is every width but a phone's).
+const ROW_SELECTION: RowSelectionOptions<LedgerRow> = { mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false };
+const SELECTION_COLUMN: SelectionColumnDef = { width: 48, minWidth: 48, maxWidth: 48, pinned: null, resizable: false, suppressHeaderMenuButton: true, suppressMovable: true };
+const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
 /* ---------- Remembered columns ---------- */
 
 const STORE = "gf.ledger.v2";
@@ -366,6 +376,13 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
     apiRef.current?.resetColumnState();
     if (apiRef.current) applySaved(apiRef.current);
   };
+
+  // The Columns menu's checks: set only when the columns shown really changed, so an event that changes nothing
+  // renders nothing.
+  const onDisplayedColumnsChanged = useCallback((e: DisplayedColumnsChangedEvent<LedgerRow>) => {
+    const ids = e.api.getAllDisplayedColumns().map((c) => c.getColId());
+    setShownCols((was) => (sameIds(was, ids) ? was : ids));
+  }, []);
 
   const onGridReady = useCallback((e: GridReadyEvent<LedgerRow>) => {
     apiRef.current = e.api;
@@ -570,8 +587,8 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
                 const f = filter.current;
                 return !!r && f.has(r) && f.passesChips(r);
               }}
-              rowSelection={narrow ? undefined : { mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }}
-              selectionColumnDef={{ width: 48, minWidth: 48, maxWidth: 48, pinned: null, resizable: false, suppressHeaderMenuButton: true, suppressMovable: true }}
+              rowSelection={narrow ? undefined : ROW_SELECTION}
+              selectionColumnDef={SELECTION_COLUMN}
               rowHeight={layout === "wide" || layout === "compact" ? undefined : 56}
               domLayout={virtual ? "normal" : "autoHeight"}
               rowBuffer={8}
@@ -590,7 +607,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
               onColumnResized={(e: ColumnResizedEvent<LedgerRow>) => { if (e.finished && e.source === "uiColumnResized") remember(); }}
               onColumnMoved={(e: ColumnMovedEvent<LedgerRow>) => { if (e.finished && e.source === "uiColumnMoved") remember(); }}
               onSortChanged={(e: SortChangedEvent<LedgerRow>) => { if (e.source === "uiColumnSorted") remember(); }}
-              onDisplayedColumnsChanged={(e) => setShownCols(e.api.getAllDisplayedColumns().map((c) => c.getColId()))}
+              onDisplayedColumnsChanged={onDisplayedColumnsChanged}
               getRowClass={() => "cursor-pointer"}
             />
           </div>

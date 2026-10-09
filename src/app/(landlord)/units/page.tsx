@@ -16,7 +16,7 @@ import { ledgerTotals, settledOff } from "@/lib/ledger";
 import { paypalDisputeAlerts } from "@/lib/chargeback-store";
 import { disputeAlerts, type DisputeAlert } from "@/lib/negotiation";
 import { closedOut, dueLabelOf, dueOf, forfeitShort, packOf, refundLeft, type TenancySummary } from "@/lib/next-step";
-import { GROUP_LABEL, keepUnit, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup, type StepLink } from "@/lib/property-view";
+import { disputeStep, GROUP_LABEL, keepUnit, propertyStatus, splitAddress, stepLink, tabHref, type StatusGroup } from "@/lib/property-view";
 import { dayFor, packFor } from "@/lib/states/server";
 import { accountName, loadRecentActivity, loadThumbnails, loadUnits, UPCOMING_DAYS } from "@/lib/units";
 import { currentWorkspace } from "@/lib/workspace";
@@ -53,20 +53,6 @@ function Street({ street, state }: { street: string; state: string }) {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
-/** A tenants' dispute that waits on the landlord comes before the unit's own next step: in the table, the rail and the
- *  bell alike (the bell's entries, src/lib/negotiation.ts). */
-const DISPUTE_STEP: Record<string, Pick<StepLink, "label" | "icon">> = {
-  "Tenants disputed the statement": { label: "Answer dispute", icon: "doc" },
-  "Approve and pay the settlement": { label: "Approve settlement", icon: "send" },
-  "Check the settlement with PayPal": { label: "Check payment", icon: "send" },
-  "Your negotiator asks for your OK": { label: "Answer negotiator", icon: "pen" },
-  // The tenants' PayPal dispute of the deposit payment (src/lib/chargeback-store.ts, paypalDisputeAlerts).
-  "Answer the PayPal dispute": { label: "Answer PayPal", icon: "card" },
-  "Approve the PayPal dispute response": { label: "Approve response", icon: "send" },
-  "Check the PayPal dispute response": { label: "Check response", icon: "card" },
-};
-const disputeStep = (a: DisputeAlert): StepLink => ({ label: DISPUTE_STEP[a.title]?.label ?? "View dispute", icon: DISPUTE_STEP[a.title]?.icon ?? "doc", title: a.title, href: a.href });
 
 export default async function PropertiesPage({ searchParams }: PageProps<"/units">) {
   const sp = await searchParams;

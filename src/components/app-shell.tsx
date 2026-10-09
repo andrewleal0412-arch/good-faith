@@ -2,9 +2,10 @@
 
 import Link from "@/components/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, use, useEffect, useRef, useState, type MouseEvent, type ReactNode, type Ref } from "react";
+import { Suspense, use, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type Ref } from "react";
 import { ConfirmDialog } from "./confirm";
 import { Icon, PayPalMark, type IconName } from "./icons";
+import { InfoTip } from "./info-tip";
 import { Menu } from "./menu";
 import { arriveAgain, PresenceList, usePresence } from "./motion";
 import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
@@ -152,13 +153,18 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
               className="inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface md:hidden">
               <Icon name="search" />
             </button>
-            <span className="mr-2 hidden items-center gap-2 text-sm text-ink-2 lg:inline-flex" title={sandbox ? "PayPal sandbox: no real money moves" : "Live PayPal"}>
-              Test mode
-              <span aria-hidden className={`relative h-4 w-7 rounded-full ${sandbox ? "bg-brand" : "bg-line"}`}>
-                <span className={`absolute top-0.5 size-3 rounded-full bg-white shadow-sm transition-[left] duration-(--dur-base) ${sandbox ? "left-3.5" : "left-0.5"}`} />
-              </span>
-              <span className="sr-only">{sandbox ? "on" : "off"}</span>
-            </span>
+            {/* It is drawn as a switch, so a click, a tap or keyboard focus answers with what it means and why it doesn't
+                move (an info tip, as everywhere else), where a native title answered a hover only. */}
+            <InfoTip align="end" className="mr-2 max-lg:hidden" title="Test mode"
+              trigger={<span className="inline-flex items-center gap-2 text-sm text-ink-2">
+                Test mode
+                <span aria-hidden className={`relative h-4 w-7 rounded-full ${sandbox ? "bg-brand" : "bg-line"}`}>
+                  <span className={`absolute top-0.5 size-3 rounded-full bg-white shadow-sm transition-[left] duration-(--dur-base) ${sandbox ? "left-3.5" : "left-0.5"}`} />
+                </span>
+                <span className="sr-only">{sandbox ? "on" : "off"}</span>
+              </span>}>
+              {sandbox ? "PayPal sandbox: no real money moves." : "Live PayPal."} It follows the PayPal account this app is connected to, so it can&apos;t be switched here.
+            </InfoTip>
             <Suspense fallback={<span aria-hidden className={`${iconButton} relative`}><Icon name="bell" /></span>}>
               <Bell chrome={chrome} />
             </Suspense>
@@ -409,12 +415,14 @@ function Owners({ chrome }: { chrome: Promise<ShellChrome> }) {
 
 /** Search across properties and tenants: it filters the Properties table, or on Payments the payments grid. Cmd+K or
  *  Ctrl+K focuses it. Enter answers at once, as a click does: the results page's skeleton, or the page dimmed while it
- *  filters (onSearch, the shell's pending state). */
+ *  filters (onSearch, the shell's pending state). Nothing filters while typing (the list is the server's, and from any
+ *  other page the search opens Properties), so the focused field says "Press Enter to search". */
 function Search({ onSearch }: { onSearch: (to: string) => void }) {
   const router = useRouter();
   const params = useSearchParams();
   const path = usePathname();
   const field = useRef<HTMLInputElement>(null);
+  const hint = useId();
   const [mobile, setMobile] = useState(false);
   const onLedger = path === "/ledger";
   const current = path === "/units" || path === "/" || onLedger ? params.get("q") ?? "" : "";
@@ -447,12 +455,15 @@ function Search({ onSearch }: { onSearch: (to: string) => void }) {
         className={`${mobile ? "gf-fade-in absolute inset-x-0 top-0 z-10 flex h-14 bg-canvas px-4 md:animate-none" : "hidden"} items-center md:static md:flex md:h-auto md:px-0`}>
         <label className="flex h-9 w-full items-center gap-2 rounded-md border border-line bg-surface pl-3 pr-2.5 text-ink-4 transition-[border-color,background-color,box-shadow] focus-within:border-brand focus-within:bg-canvas focus-within:ring-3 focus-within:ring-brand-50 md:w-[400px]">
           <Icon name="search" className="size-[15px]" />
+          {/* The list is filtered on the server, when Enter is pressed, so the field says so while it has focus (in place
+              of the shortcut that brought the cursor here); a phone's keyboard shows its Search key. */}
           <input ref={field} name="q" defaultValue={current} placeholder={onLedger ? "Search payments" : "Search properties, tenants"}
-            aria-label={onLedger ? "Search payments" : "Search properties and tenants"}
+            aria-label={onLedger ? "Search payments" : "Search properties and tenants"} aria-describedby={hint} enterKeyHint="search"
             onBlur={() => setMobile(false)}
             onKeyDown={(e) => { if (e.key === "Escape") { setMobile(false); e.currentTarget.blur(); } }}
-            className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
-          <kbd className="hidden rounded-xs border border-line bg-canvas px-[5px] font-sans text-xs text-ink-3 md:inline">&#8984;K</kbd>
+            className="peer h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
+          <kbd className="hidden rounded-xs border border-line bg-canvas px-[5px] font-sans text-xs text-ink-3 md:inline md:peer-focus:hidden">&#8984;K</kbd>
+          <span id={hint} className="hidden shrink-0 whitespace-nowrap text-xs text-ink-3 md:peer-focus:inline">Press Enter to search</span>
         </label>
         {/* On a phone the search covers the top bar, so it carries its own way out (Escape works too). */}
         {mobile && (

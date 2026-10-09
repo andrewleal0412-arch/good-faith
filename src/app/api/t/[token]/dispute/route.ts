@@ -1,6 +1,6 @@
 import { audit, db } from "@/lib/db";
 import { bad, disputeFacts, draftAction, latestDispute, liveDispute, MESSAGE_MAX, REASON_MAX, REASON_MIN, stripBasis, tenantWrite } from "@/lib/disputes";
-import { runningNow, type NegotiationRow } from "@/lib/negotiation";
+import { readStamp, runningNow, type NegotiationRow } from "@/lib/negotiation";
 import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
 
 export const runtime = "nodejs";
@@ -15,9 +15,10 @@ const BODY_MAX = 64_000;
 const AUDIT_QUIET_MS = 5 * 60_000;
 
 // Where the advocate's run on the draft stands, for the page waiting on a run it didn't start (another tab, or a
-// reload mid-run): its status and, once done, its case; and, once sent, where the negotiation stands (its status and
-// how many turns it holds), for the page showing the two agents' turns as they land. Read-only, so the demo's
-// templates answer too.
+// reload mid-run): its status and, once done, its case; and, once sent, where the negotiation stands (its status, how
+// many turns it holds, and the stamp the page was rendered with as it reads now), for the page waiting on the landlord:
+// the two agents' turns as they land, an offer, the approval and the payment. Read-only, so the demo's templates
+// answer too.
 export async function GET(_req: Request, ctx: RouteContext<"/api/t/[token]/dispute">) {
   const { token } = await ctx.params;
   const link = await resolveTenantToken(token, { touch: false });
@@ -25,12 +26,15 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const [d, latest] = await Promise.all([liveDispute(link.tenancyId), latestDispute(link.tenancyId)]);
   // The negotiation over a sent dispute (live or closed), for the page showing it while the agents go back and forth.
   const sent = latest && latest.status !== "draft" ? (latest as NegotiationRow) : null;
-  const { count } = sent ? await db.from("negotiation_turns").select("id", { count: "exact" }).eq("dispute_id", sent.id).limit(1) : { count: 0 };
+  const { stamp, turns } = sent ? await readStamp(sent) : { stamp: null, turns: 0 };
   return Response.json(
     {
       status: d?.status ?? null, advocateStatus: d?.advocate_status ?? null,
-      advocateError: d?.advocate_status === "failed" ? d.advocate_error : null, advocate: d?.advocate ? stripBasis(d.advocate) : null,
-      sentStatus: sent?.status ?? null, turns: count ?? 0,
+      advocateError: d?.advocate_status === "failed" ? d.advocate_error : null,
+      // The case goes only to the page that waits for it, the draft's. Once sent, the page asks every few seconds for
+      // the stamp alone, and the case is already on it.
+      advocate: d?.status === "draft" && d.advocate ? stripBasis(d.advocate) : null,
+      sentStatus: sent?.status ?? null, turns, stamp,
       // A run whose process died reads as stopped, so the page stops waiting on it.
       negotiationStatus: sent && runningNow(sent) ? "running" : sent?.negotiation_status === "running" ? "failed" : sent?.negotiation_status ?? null,
     },

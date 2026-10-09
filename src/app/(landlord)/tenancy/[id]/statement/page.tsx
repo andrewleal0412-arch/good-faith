@@ -21,6 +21,7 @@ import {
 import { packFor } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
 import { DeliveryPanel } from "./delivery-form";
+import { DownloadPdf } from "./download-pdf";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Itemized statement" };
@@ -99,8 +100,7 @@ export default async function StatementPage({ params }: PageProps<"/tenancy/[id]
         </div>
         <div className="flex items-center gap-2 max-sm:w-full">
           <ButtonLink plain href={`${pdfHref}?inline=1`} target="_blank" rel="noreferrer" className="max-sm:flex-1">Print</ButtonLink>
-          <ButtonLink plain variant="primary" href={pdfHref} className="max-sm:flex-1"
-            title="This statement with its photo exhibits and invoice copies: the version to mail or email"><Icon name="download" />Download PDF</ButtonLink>
+          <DownloadPdf href={pdfHref} className="max-sm:flex-1" title="This statement with its photo exhibits and invoice copies: the version to mail or email" />
         </div>
       </div>
 

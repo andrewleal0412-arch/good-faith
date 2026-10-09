@@ -87,7 +87,10 @@ export function InfoTip({ title, children, cite, label = "More information", tri
   };
   // Keyboard focus opens it; the focus a tap or a click gives the button doesn't (the click pins it instead).
   const onFocus = (e: FocusEvent<HTMLButtonElement>) => { if (e.currentTarget.matches(":focus-visible")) setFocused(true); };
-  const onBlur = () => { setFocused(false); setDismissed(false); };
+  // Focus leaving ends an Escape only once the pointer has left too. A click on the next row's "Why?" right after an
+  // Escape blurs this one while the pointer's grace is still running: letting go of the Escape there opened this tip
+  // again, over the row that was clicked.
+  const onBlur = () => { setFocused(false); if (!hover) setDismissed(false); };
 
   const face = trigger === "icon"
     ? <Icon name="info" className="size-3.5" />

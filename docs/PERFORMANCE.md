@@ -245,6 +245,24 @@ The whole statement is about 170 ms sooner (PayPal's read starts with its rows),
 
 Everything else measured within the run-to-run spread: the sidebar (feedback 11 to 23 ms, content as before), a property's tabs (13 to 30 ms; Move-out 68 to 76 ms, 85 to 92 before), full loads (first paint and content within the spread of the server's answer). The hosted demo isn't measured: this round isn't deployed.
 
+## Payments at rest, and the pages that wait (2026-10-09)
+
+A hands-on test of the hosted demo found Payments never coming to rest at desktop widths: the main thread stayed busy with nothing touched, which heats a laptop and made an automated click on Export time out. Measured on local production builds of `de11cb3` (before) and of the fix (after), the stubs on, a fresh test copy, Chrome through Playwright with no CPU slowdown, counting over 5 seconds after the page had settled (`Performance.getMetrics` for style recalculations and the main thread's task time, a `MutationObserver` for DOM changes):
+
+| Payments (`/ledger`), nothing touched | Before: style recalculations a second | Before: main thread busy | After |
+|---|---:|---:|---:|
+| 1024 px | 1,262 | 99.5% | 0, 0% |
+| 1440 px | 1,418 | 99.5% | 0, 0% |
+| 1920 px | 1,421 | 99.5% | 0, 0% |
+| 1440 px, Settlements view | 2,275 | 99.2% | 0, 0% |
+| 1440 px, one property (`?tenancy=`) | 2,135 | 99.2% | 0, 0% |
+| 390 px (phone) | 0 | 0% | 0, 0% |
+| Insights, 1440 px (for comparison) | 0 | 0% | 0, 0% |
+
+The cause was a render loop, not the rows (about 80,000 to 116,000 DOM changes a second before, none after). `rowSelection` and `selectionColumnDef` were written inline, so each render handed AG Grid new objects; AG Grid React applies an option whose identity changed, so it rebuilt the checkbox column; that fired `onDisplayedColumnsChanged`, which set the Columns menu's state to a new array; which rendered again. A phone was spared because it shows no checkboxes. Both options are now made once (`ROW_SELECTION`, `SELECTION_COLUMN` in `ledger-grid.tsx`), and the Columns menu's state is set only when the columns shown really changed. The grid reads the same before and after: every view's columns and rows at each width, a row's checkbox and "Export 1", the CSV, the Columns menu's checks, hiding and resetting a column, and a row's details.
+
+The same round made the two pages of a dispute hear each other without a reload (`src/components/watch.ts`, `docs/DESIGN.md`, Layouts). It costs one small GET at a time, only on a page showing a sent dispute that isn't settled or withdrawn: about 80 to 100 bytes for the landlord's card and 150 to 180 for the tenants' page (the dispute's row, a count of its turns and four columns of its settlement, on connections the server already holds open), every 4 seconds while it waits on a person, every 3 while the agents run, every 15 after five quiet minutes, none after thirty, none from a hidden tab or a hidden property tab. Measured at rest on a sent dispute: 3 requests in 13 seconds from each page and no refresh; a property with no dispute, one whose dispute is settled, the tenants' main page and their dispute form ask nothing.
+
 ## On Render: the free plan and Starter
 
 Render's free plan gives the service a tenth of a CPU, Starter ($7 a month) half of one. The server's share of a page scales with that; the network share doesn't. Calibrated on the hosted demo before (its warm first bytes, 0.5 to 1.4 s, match about ten times the local CPU plus the database waits, within about 20 percent), the estimates:

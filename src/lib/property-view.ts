@@ -88,6 +88,22 @@ export function stepLink(s: TenancySummary, n: NextStep): StepLink {
   return { ...l, title: n.action ? n.label : TITLE[l.label] ?? l.label };
 }
 
+/** A dispute that waits on the landlord comes before the unit's own next step: in the Properties table and its rail,
+ *  the Move-outs list and the bell alike (the bell's entries: the tenants' dispute, src/lib/negotiation.ts). */
+const DISPUTE_STEP: Record<string, Pick<StepLink, "label" | "icon">> = {
+  "Tenants disputed the statement": { label: "Answer dispute", icon: "doc" },
+  "Approve and pay the settlement": { label: "Approve settlement", icon: "send" },
+  "Check the settlement with PayPal": { label: "Check payment", icon: "send" },
+  "Your negotiator asks for your OK": { label: "Answer negotiator", icon: "pen" },
+  // The tenants' PayPal dispute of the deposit payment (src/lib/chargeback-store.ts, paypalDisputeAlerts).
+  "Answer the PayPal dispute": { label: "Answer PayPal", icon: "card" },
+  "Approve the PayPal dispute response": { label: "Approve response", icon: "send" },
+  "Check the PayPal dispute response": { label: "Check response", icon: "card" },
+};
+/** The step link for one of the bell's dispute entries (a DisputeAlert: its title and where it opens). */
+export const disputeStep = (a: { title: string; href: string }): StepLink =>
+  ({ label: DISPUTE_STEP[a.title]?.label ?? "View dispute", icon: DISPUTE_STEP[a.title]?.icon ?? "doc", title: a.title, href: a.href });
+
 function step(s: TenancySummary, n: NextStep): Omit<StepLink, "title"> {
   const id = s.id;
   const L = n.label;
