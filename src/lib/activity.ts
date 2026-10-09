@@ -200,7 +200,7 @@ const ON_RECORD = ["lease_checked", "tenant_opened_statement", "tenant_link_crea
 export const QUIET_ON_RECORD = QUIET_ACTIONS.filter((a) => !ON_RECORD.includes(a));
 
 type Entry = { tenancyId: string; action: string; detail: Record<string, unknown> | null };
-const FOLDS = ["deduction_added", "deduction_edited", "photos_added", "tenant_link_created"];
+const FOLDS = ["deduction_added", "deduction_edited", "deduction_removed", "photos_added", "tenant_link_created"];
 
 /** Activity rows with a run of the same action on one unit folded into one line (three deductions in a row, photos for
  *  several rooms, a link made twice), each with its short title. */
@@ -217,6 +217,8 @@ export function foldActivity<T extends Entry>(log: T[], tenantsOf: (tenancyId: s
     const title = n > 1 && e.action === "tenant_link_created" ? "Tenant link remade"
       : n > 1 && e.action === "deduction_added" ? `${n} deductions added`
       : n > 1 && e.action === "deduction_edited" ? `${n} deduction changes`
+      // Every deduction taken off at once (New York after day 14) writes one entry per line.
+      : n > 1 && e.action === "deduction_removed" ? `${n} deductions removed`
       : n > 1 && e.action === "photos_added" ? `${String(e.detail?.phase).startsWith("move_out") ? "Move-out" : String(e.detail?.phase) === "after_repair" ? "After-repair" : "Move-in"} photos added for ${n} rooms`
         : activityTitle(e.action, e.detail, tenantsOf(e.tenancyId));
     out.push({ entry: e, title, count: n });

@@ -308,7 +308,7 @@ The last runs, on 2026-10-07:
 |---|---|
 | `tsc`, `eslint --max-warnings=0` | Clean |
 | `ca-snapshot.mjs` | Identical, 17 sections |
-| `state-packs` 256, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 275, `thumbs` 169, `e2e-stubs` 42 | All passed |
+| `state-packs` 285, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 275, `thumbs` 169, `e2e-stubs` 42 | All passed |
 | `e2e-demo.py` on a production build | 69 of 69 |
 | `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation |
 

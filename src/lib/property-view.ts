@@ -104,6 +104,9 @@ function step(s: TenancySummary, n: NextStep): Omit<StepLink, "title"> {
   if (L === "Inspection window opens") return { label: "View dates", href: tabHref(id, "move-out", "notice"), icon: "calendar" };
   if (L === "Move-out") return { label: "Record move-out", href: tabHref(id, "move-out", "photos"), icon: "key" };
   if (L === "Record the tenants' refund agreement") return { label: "Record agreement", href: tabHref(id, "overview", "move-in"), icon: "file-check" };
+  // The same step where the state takes no agreement (New York, Texas, Florida: the tenants' PayPal account), under
+  // its own words, to the same card, so its button answers on the Overview too (with no section it went nowhere there).
+  if (L === packOf(s).refund.agreementStep.label) return { label: L, href: tabHref(id, "overview", "move-in"), icon: "doc" };
   if (L === "Send the PayPal deposit invoice") return { label: "Request deposit", href: tabHref(id, "overview", "move-in"), icon: "receive" };
   if (L === "Deposit invoice unpaid") return { label: "View invoice", href: tabHref(id, "payments"), icon: "card" };
   if (L === REVERSED_STEP) return { label: "Check PayPal", href: tabHref(id, "payments"), icon: "card" };

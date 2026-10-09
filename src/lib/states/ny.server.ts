@@ -189,7 +189,9 @@ export const NY_SERVER: ServerPart = {
         action: { label: "Send refund", path: "refund", icon: "send" },
       } : {
         ...h.undated("Day 14 has passed: refund in full", `${lead} Nothing can be kept: remove the deductions and refund ${before > 0 ? `the rest, ${usd(rest)}` : "all of it"}.`, FORFEIT, "overdue"),
-        action: { label: "Remove deductions", path: "?tab=move-out", icon: "pen" },
+        // To the Deductions card itself, which offers to remove them all at once while this is the step.
+        action: { label: "Remove deductions", path: "?tab=move-out#deductions", icon: "pen" },
+        removeDeductions: true,
       };
     },
     openMoveIn: (t) => [

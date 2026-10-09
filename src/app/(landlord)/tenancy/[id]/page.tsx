@@ -321,7 +321,9 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
   // The record header's one primary action: the refund review (its own focused page) once the findings are in,
   // otherwise the next step. It is the view's only indigo button, so the cards below show theirs as secondary.
-  const reviewRefund = inspected && !returned && !closed;
+  // Not while the next step is to take every deduction off (New York after day 14): the review is blocked until they
+  // are gone, so the primary is that step, which opens the Deductions card.
+  const reviewRefund = inspected && !returned && !closed && !next.removeDeductions;
   // A PayPal dispute waiting on the landlord comes first (the refund is held while it is open); on Payments, where the
   // dispute's card is, the card's own button is the primary.
   const answerDispute = ppBanner && ppBanner.response !== "sent" && ppBanner.response !== "sending"
@@ -548,6 +550,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             viaDispute={via ? { amount: via.amount, notKept } : null}
             outside={outside ? { amount: outside.amount, notKept: via ? 0 : notKept } : null}
             forfeited={forfeited ? { label: forfeited.label, note: forfeited.note } : null}
+            removeAll={next.removeDeductions ? { title: next.label, detail: next.detail, cite: next.cite } : null}
           />
         </section>
       )}

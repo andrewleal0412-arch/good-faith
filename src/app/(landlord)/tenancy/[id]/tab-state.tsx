@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Activity, createContext, Suspense, useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { DUR, EASE, motionOff } from "@/components/motion";
 import { TabBodySkeleton } from "@/components/skeletons";
 import { Tabs } from "@/components/tabs";
 import { TABS, tabHref, tabOf, type TabKey } from "@/lib/tenancy-tabs";
@@ -17,8 +18,58 @@ import { TABS, tabHref, tabOf, type TabKey } from "@/lib/tenancy-tabs";
 // Not pushState: Next's router copies the page's current tree into each entry pushed that way, and router.refresh()
 // renews only the entry it runs in, so after a change on one tab, Back to an entry from before it could bring back a
 // page whose data never arrived (the property stayed on its skeleton until a reload).
+//
+// A #section in a link (a next step, a banner) is brought to the top of the page. From a link on the property that is
+// done here, with the tab switch. From another page, or on a reload, the browser and the router each try once as the
+// page arrives, and miss a section whose tab is still on its way from the server (every visit to a property after
+// the first one in a session); so the property brings up the section its address names itself (bringUp).
 
 const Current = createContext<TabKey | null>(null);
+
+/** The section a #hash names. */
+const sectionOf = (hash: string) => {
+  try {
+    return decodeURIComponent(hash.slice(1));
+  } catch {
+    return hash.slice(1);
+  }
+};
+
+/** How long a section is held at the top after the page last changed height, and how long one that never comes is
+ *  waited for. */
+const SETTLE_MS = 1200;
+const WAIT_MS = 10000;
+/** What the viewer does to take the scroll back. */
+const TAKEOVER = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+
+/** Brings a #section to the top of the page and holds it there while the tab around it is still arriving: content
+ *  streamed from the server after the page, or a part that draws in the browser (the deductions grid) and isn't at its
+ *  height yet, when the page is too short to scroll that far. It lets go once the page has been still for a moment, and
+ *  at once when the viewer scrolls, clicks or types. Returns the way to stop it. */
+function bringUp(id: string): () => void {
+  let still: ReturnType<typeof setTimeout> | undefined;
+  const go = () => {
+    const el = document.getElementById(id);
+    // Not here yet, or on a tab that isn't shown.
+    if (!el || !el.checkVisibility()) return;
+    el.scrollIntoView({ block: "start" });
+    clearTimeout(still);
+    // A skeleton inside it is a part still loading, so it isn't at its height yet.
+    if (!el.querySelector("[data-skeleton]")) still = setTimeout(stop, SETTLE_MS);
+  };
+  const watch = new ResizeObserver(go);
+  const stop = () => {
+    watch.disconnect();
+    clearTimeout(still);
+    clearTimeout(cap);
+    for (const e of TAKEOVER) window.removeEventListener(e, stop, true);
+  };
+  const cap = setTimeout(stop, WAIT_MS);
+  for (const e of TAKEOVER) window.addEventListener(e, stop, { capture: true, passive: true });
+  go();
+  watch.observe(document.body);
+  return stop;
+}
 
 /** The tab being shown, for the parts of the page around the tabs that differ by tab. */
 export const useTab = (): TabKey => useContext(Current) ?? "overview";
@@ -33,16 +84,26 @@ export function TabState({ id, children }: { id: string; children: ReactNode }) 
     setSeen(fromUrl);
     setTab(fromUrl);
   }
+  // The #section the address names, held at the top while its tab settles: when the property arrives (opened from
+  // another page, or loaded whole), and when the address moves to another tab (a link here, the bell).
+  useEffect(() => {
+    const section = sectionOf(window.location.hash);
+    if (section) return bringUp(section);
+  }, [id, fromUrl]);
+
   // A #section the click asked for, scrolled to once its tab is shown (each click counts, so a second click on the
-  // same link scrolls again).
-  const target = useRef<string | null>(null);
+  // same link answers again). From its own tab the section may already be where the scroll would put it, so it also
+  // arrives again there (the arrival every part of the page makes, gf-enter in globals.css): the click always answers.
+  // From another tab, the tab's own arrival is the answer, and the address, now on that tab, holds the section (above).
+  const target = useRef<{ id: string; sameTab: boolean } | null>(null);
   const [asked, setAsked] = useState(0);
   useEffect(() => {
-    const el = target.current ? document.getElementById(target.current) : null;
-    if (el && el.checkVisibility()) {
-      el.scrollIntoView({ block: "start" });
-      target.current = null;
-    }
+    const t = target.current;
+    const el = t ? document.getElementById(t.id) : null;
+    if (!t || !el || !el.checkVisibility()) return;
+    target.current = null;
+    el.scrollIntoView({ block: "start" });
+    if (t.sameTab && !motionOff()) el.animate([{ opacity: 0.4, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: DUR.enter, easing: EASE.standard });
   }, [asked, tab]);
 
   const onClickCapture = (e: MouseEvent<HTMLDivElement>) => {
@@ -53,18 +114,12 @@ export function TabState({ id, children }: { id: string; children: ReactNode }) 
     if (url.origin !== window.location.origin || url.pathname !== `/tenancy/${id}` || [...url.searchParams.keys()].some((k) => k !== "tab")) return;
     e.preventDefault();
     const next = tabOf(url.searchParams.get("tab"));
-    const hash = (() => {
-      try {
-        return decodeURIComponent(url.hash.slice(1));
-      } catch {
-        return url.hash.slice(1);
-      }
-    })();
+    const hash = sectionOf(url.hash);
     setTab(next);
     const to = tabHref(id, next, hash);
     if (to !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(null, "", to);
     if (hash) {
-      target.current = hash;
+      target.current = { id: hash, sameTab: next === tab };
       setAsked((n) => n + 1);
     }
   };

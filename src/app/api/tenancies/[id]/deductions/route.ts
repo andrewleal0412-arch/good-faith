@@ -1,11 +1,14 @@
+import { todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { deductionsLocked } from "@/lib/disputes";
 import { chargeable, type DeductionInput, type Performer, type Proration, type Work } from "@/lib/deductions";
 import { imageType, notAPhotoServer, readForm, sniff, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
+import { nextStep } from "@/lib/next-step";
 import { packFor } from "@/lib/states";
+import { loadUnit } from "@/lib/units";
 import { AFTER_PHOTOS_MAX, mb, UPLOAD_BUDGET } from "@/lib/uploads";
-import { routeTenancy, uploadPrefix } from "@/lib/workspace";
+import { mayRemove, routeTenancy, uploadPrefix } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -132,4 +135,33 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
 
   await audit(id, "landlord", "deduction_added", { item: finding.item, room: finding.room, category: input.category, amount: c.amount, math: c.math, guidance: c.guidance });
   return Response.json({ id: row.id, amount: c.amount, math: c.math });
+}
+
+// Remove every deduction at once: only while the tenancy's next step asks for it (New York after day 14 with no dispute
+// open, where none of them may be kept; the step's removeDeductions, next-step.ts), which is the only time the Move-out
+// tab offers it. Each line goes exactly as its own Remove takes it (DELETE .../deductions/[did]): refused for a template
+// and once the deductions are final or while a dispute the tenants sent is open (deductionsLocked), its receipt removed
+// only when this workspace stored it, the after-repair photos kept, and one deduction_removed entry per line.
+export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/deductions">) {
+  const { id } = await ctx.params;
+  const ws = await routeTenancy(id, { write: true });
+  if (ws instanceof Response) return ws;
+  const { data } = await db.from("deductions").select("id, item, amount, receipt_path").eq("tenancy_id", id).order("created_at");
+  const rows = (data ?? []) as { id: string; item: string; amount: number | string; receipt_path: string | null }[];
+  if (!rows.length) return Response.json({ error: "There are no deductions to remove." }, { status: 404 });
+  const locked = await deductionsLocked(id);
+  if (locked) return locked;
+  const unit = await loadUnit(id);
+  if (!unit || !nextStep(unit, todayIn(packFor(unit.state).timeZone.id)).removeDeductions) {
+    return Response.json({ error: "The deductions come off all at once only when none of them may be kept. To remove one, use its row's menu." }, { status: 409 });
+  }
+  // Only the lines read above; a receipt and an entry only for a line that did go.
+  const { data: gone, error } = await db.from("deductions").delete().eq("tenancy_id", id).in("id", rows.map((d) => d.id)).select("id");
+  if (error) return Response.json({ error: error.message }, { status: 500 });
+  const removed = rows.filter((d) => (gone ?? []).some((g) => g.id === d.id));
+  const receipts: string[] = [];
+  for (const d of removed) if (d.receipt_path && (await mayRemove(ws, id, d.receipt_path))) receipts.push(d.receipt_path);
+  if (receipts.length) await db.storage.from("receipts").remove(receipts);
+  for (const d of removed) await audit(id, "landlord", "deduction_removed", { item: d.item, amount: Number(d.amount) });
+  return Response.json({ ok: true, removed: removed.length });
 }

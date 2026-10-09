@@ -78,6 +78,10 @@ export type NextStep = {
   also: string[]; // earlier steps still open behind this one, e.g. an unpaid deposit invoice once notice is given
   // Where a state pack's own step opens (a record page or a tab), with its verb; California's steps link by label.
   action?: { label: string; path: string; icon: StepIcon };
+  // The step asks for every deduction to come off before the refund (New York after day 14, with no dispute open).
+  // Only then does the Move-out tab offer to remove them all at once, and only then does the route behind it run
+  // (DELETE /api/tenancies/[id]/deductions).
+  removeDeductions?: true;
 };
 
 export const LEVEL_ORDER: Record<Level, number> = { overdue: 0, urgent: 1, soon: 2, later: 3, done: 4 };

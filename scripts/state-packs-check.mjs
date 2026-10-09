@@ -14,7 +14,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
 // states/server.ts: each pack whole (its client half joined to its server half).
-const [states, rules, deductions, nextStepLib, notices, findings] = await Promise.all(["states/server", "rules", "deductions", "next-step", "notices", "findings"].map(lib));
+const [states, rules, deductions, nextStepLib, notices, findings, propertyView] = await Promise.all(["states/server", "rules", "deductions", "next-step", "notices", "findings", "property-view"].map(lib));
 const { packFor, SUPPORTED, stateCode, isSupported, unsupportedMessage, onePack } = states;
 
 let pass = 0, fail = 0;
@@ -154,7 +154,7 @@ eq("CA unchanged: statement due 21 days", next({ state: "CA", ...moved }).due, "
 // N21, a hard block since 2026-10-04: an old acknowledgment record (the override it replaced) changes nothing.
 const ack = { late_acknowledgment: { date: "2026-10-20", method: "signed", to: null, recorded_at: "x", detail: "Keys came back on 10-05" } };
 const nyLateStep = next({ state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-10", deductions: [{ category: "damage", amount: 300 }] });
-eq("NY: after day 14 the step is the full refund", [nyLateStep.label, nyLateStep.level, nyLateStep.cite, nyLateStep.action?.path], ["Day 14 has passed: refund in full", "overdue", "N.Y. GOL 7-108(1-a)(e)", "?tab=move-out"]);
+eq("NY: after day 14 the step is the full refund", [nyLateStep.label, nyLateStep.level, nyLateStep.cite, nyLateStep.action?.path], ["Day 14 has passed: refund in full", "overdue", "N.Y. GOL 7-108(1-a)(e)", "?tab=move-out#deductions"]);
 eq("NY: an old acknowledgment no longer moves it on", next({ state: "NY", notices: { ...offered, ...ack }, ...moved, moveOutDate: "2026-09-10", deductions: [{ category: "damage", amount: 300 }] }).label, "Day 14 has passed: refund in full");
 eq("NY: on the last day the statement is still the step", next({ state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-19", deductions: [{ category: "damage", amount: 300 }] }).label, "Send the itemized statement and refund");
 eq("NY: no deductions, nothing forfeited", next({ state: "NY", notices: offered, ...moved, moveOutDate: "2026-09-10" }).label, "Send the itemized statement and refund");
@@ -165,6 +165,27 @@ eq("NY: statement on time and the deductions use the whole deposit: done", next(
 const nyDisputed = next({ ...nyOut, statementDeliveredAt: "2026-09-20T17:00:00Z", statementDeliveredOn: "2026-09-20", dispute: "open" });
 eq("NY: under a live dispute the step is the whole deposit, sent as it is (the deductions can't be removed)", [nyDisputed.label, nyDisputed.action?.path, /whole deposit/.test(nyDisputed.detail)], ["Day 14 has passed: refund in full", "refund", true]);
 eq("NY: a live dispute before day 14 leaves the usual refund step", next({ ...nyOut, moveOutDate: "2026-09-25", statementDeliveredAt: "2026-09-28T17:00:00Z", statementDeliveredOn: "2026-09-28", dispute: "open" }).label, "Send the refund");
+// "Remove deductions" (a dead click until 2026-10-09: it linked to the Move-out tab it was shown on, with no section).
+// The step opens the Deductions card, and it alone carries removeDeductions: the one rule the card's "Remove all
+// deductions" and the route behind it (DELETE /api/tenancies/[id]/deductions) read, so neither runs in any other state.
+const linkOf = (o) => propertyView.stepLink(sum(o), next(o));
+eq("NY: Remove deductions opens the Deductions card on the Move-out tab", [linkOf(nyOut).label, linkOf(nyOut).href], ["Remove deductions", "/tenancy/t1?tab=move-out#deductions"]);
+eq("NY: the same address tabHref gives every other section link", linkOf(nyOut).href, propertyView.tabHref("t1", "move-out", "deductions"));
+const nyOutLate = { ...nyOut, statementDeliveredAt: "2026-09-20T17:00:00Z", statementDeliveredOn: "2026-09-20" };
+eq("NY: the step asks for every deduction to come off, before the statement and after it", [nyLateStep.removeDeductions, next(nyOutLate).removeDeductions], [true, true]);
+eq("NY: not under a live dispute, where the deductions stay on file", [nyDisputed.removeDeductions, nyDisputed.action?.label], [undefined, "Send refund"]);
+eq("NY: not before day 14 has passed", next({ ...nyOut, moveOutDate: "2026-09-19" }).removeDeductions, undefined);
+eq("NY: not once the refund went (the rest is owed from PayPal)", next({ ...nyOutLate, returned: { amount: 1700, kind: "refund" }, forfeited: true }).removeDeductions, undefined);
+eq("NY: not once refunds made in PayPal returned the whole deposit", next({ ...nyOutLate, outside: 2000 }).removeDeductions, undefined);
+eq("NY: with the deductions gone the step moves on to the refund", [next({ ...nyOut, deductions: [] }), next({ ...nyOutLate, deductions: [] })].map((n) => [n.label, n.removeDeductions]),
+  [["Send the itemized statement and refund", undefined], ["Send the refund", undefined]]);
+for (const state of ["CA", "FL", "TX", "WA"]) {
+  const late = { state, ...moved, moveOutDate: "2026-07-01", deductions: [{ category: "damage", amount: 300 }], tenantMoveOut: { name: "A Tenant", plannedMoveOut: "2026-07-01", forwardingAddress: "9 Elm St", sentOn: "2026-06-01" } };
+  check(`${state}: no step ever asks for every deduction to come off`, [late, { ...late, statementDeliveredAt: "2026-09-25T17:00:00Z" }, { ...late, dispute: "open" }].every((o) => !next(o).removeDeductions));
+}
+// The same kind of dead click: the PayPal account step (New York, Texas, Florida) linked to the Overview it is shown on.
+eq("TX: Record the tenants' PayPal account opens the Move-in card", linkOf({ state: "TX", agreement: false, deposit: null }).href, "/tenancy/t1#move-in");
+eq("CA: Record agreement still opens the Move-in card", [linkOf({ agreement: false }).label, linkOf({ agreement: false }).href], ["Record agreement", "/tenancy/t1#move-in"]);
 const objected = (date) => ({ claim_notice: { date: "2026-09-15", method: "certified", to: "A", recorded_at: "x", detail: "9407", received: "2026-09-17" }, claim_objection: { date, method: "mail", to: "A", recorded_at: "x" } });
 eq("FL: a timely objection: refund the undisputed balance", next({ state: "FL", ...claimed, moveOutDate: "2026-09-01", notices: objected("2026-09-25") }).label, "Refund the undisputed balance");
 eq("FL: the undisputed balance is due 30 days after the notice", next({ state: "FL", ...claimed, moveOutDate: "2026-09-01", notices: objected("2026-09-25") }).due, "2026-10-15");
@@ -293,6 +314,8 @@ for (const f of readdirSync(join(ROOT, "src/lib/states")).filter((x) => x.endsWi
   const text = readFileSync(join(ROOT, "src/lib/states", f), "utf8");
   check(`${f}: no em dashes`, !text.includes("\u2014"));
   check(`${f}: no emojis`, !/\p{Extended_Pictographic}/u.test(text));
+  // A step that opens one of the property's tabs can be shown on that very tab: without a section it would go nowhere.
+  check(`${f}: a step that opens a tab names its section`, !/path: "\?[^"#]*"/.test(text));
 }
 check("Local overlays only warn: Seattle matches", states.localOverlays(WA, "Seattle").length === 1);
 check("Local overlays only warn: New York City matches Brooklyn", states.localOverlays(NY, "Brooklyn").length === 1);

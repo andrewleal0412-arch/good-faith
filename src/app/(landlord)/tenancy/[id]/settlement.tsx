@@ -1,11 +1,15 @@
 "use client";
 
-import { lazy, Suspense, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import { lazy, Suspense, useState, useSyncExternalStore } from "react";
+import { Button } from "@/components/button";
+import { useConfirm } from "@/components/confirm";
+import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Bone } from "@/components/skeletons";
-import { Card, CardHead } from "@/components/ui";
+import { Card, CardHead, Notice } from "@/components/ui";
 import type { EditLimits } from "@/lib/deduction-edit";
-import { settle } from "@/lib/deductions";
+import { settle, usd } from "@/lib/deductions";
 import { packFor } from "@/lib/states";
 import type { GridDeduction, TotalLine } from "./deductions-grid";
 
@@ -40,7 +44,8 @@ export type WearRow = { id: string; n: number; item: string; full: string; room:
 // Deductions: the card on the Move-out tab, an AG Grid of every charge grouped by room (deductions-grid.tsx) with its
 // inputs editable in place, then Deposit held, Deductions and Refund due pinned under it and worked out live. Wear and
 // tear is listed at $0.00 and is never charged. Each row's menu removes it, or edits its inputs in a drawer, until the
-// deposit has gone back.
+// deposit has gone back. While the next step is to take every deduction off (New York after day 14), a line over the
+// grid says so and removes them all after one question; the route allows it only then.
 export function Settlement(p: {
   tenancyId: string;
   state: string; // the state whose documentation rule applies
@@ -56,7 +61,14 @@ export function Settlement(p: {
   // refund owed. When they cover what is owed they are `returned` (kind outside_refund) and read as the refund.
   outside?: { amount: number; notKept: number } | null;
   edit: { allowed: boolean; reason: string | null; limits: Record<string, EditLimits> };
+  // The next step when it asks for every deduction to come off, in the state pack's words (the step's removeDeductions,
+  // next-step.ts): the card then offers to remove them all at once.
+  removeAll?: { title: string; detail: string; cite: string | null } | null;
 }) {
+  const router = useRouter();
+  const [confirm, confirmDialog] = useConfirm();
+  const [removing, setRemoving] = useState(false);
+  const [message, setMessage] = useState<{ tone: "red" | "gray"; text: string } | null>(null);
   const pack = packFor(p.state);
   const s = settle(p.depositHeld ?? 0, p.deductions, pack);
   const tip = pack.documents.settlementTip(s.documentsRequired);
@@ -93,6 +105,25 @@ export function Settlement(p: {
   };
 
   const count = p.deductions.length;
+  // Offered exactly where a row's own Remove is: not once the deposit went back, under a dispute or on a template.
+  const offer = !locked && p.edit.allowed && count > 0 ? p.removeAll ?? null : null;
+  const one = count === 1;
+  // One question, as a row's own Remove asks, then every line goes; the page then reads again, and the step moves on.
+  const removeEvery = async () => {
+    if (!(await confirm({
+      title: one ? "Remove this deduction?" : `Remove all ${count} deductions?`,
+      body: `${usd(s.total)}${one ? "" : " in all"}. ${one ? "Its receipt goes" : "Their receipts go"} too; the after-repair photos stay on file.`,
+      action: one ? "Remove" : "Remove all",
+    }))) return;
+    setRemoving(true);
+    setMessage(null);
+    const r = await fetch(`/api/tenancies/${p.tenancyId}/deductions`, { method: "DELETE" }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) as { error?: string; removed?: number } : {};
+    setRemoving(false);
+    if (!r?.ok) setMessage({ tone: "red", text: j.error ?? `Couldn't remove ${one ? "it" : "them"}. Check the connection and try again.` });
+    else setMessage({ tone: "gray", text: `Removed ${j.removed === 1 ? "the deduction" : `${j.removed ?? count} deductions`}. The refund is next.` });
+    router.refresh();
+  };
   const inBrowser = useSyncExternalStore(noSubscribe, () => true, () => false);
   const bones = (
     <GridBones rooms={new Set([...p.deductions.map((d) => d.room ?? ""), ...p.wear.map((w) => w.room)]).size} rows={count + p.wear.length}
@@ -109,6 +140,23 @@ export function Settlement(p: {
             {!locked && p.edit.allowed && <span className="mt-1.5 block">Change an invoice, hours, rate, age or useful life in its cell; the amount is worked out again, held to the lawful range.</span>}
           </InfoTip>
         } />
+      {offer && (
+        // The words take the line; on a phone the button drops under them, as the Refund card's does.
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3 border-b border-line-2 px-5 py-4">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-red-bg text-red"><Icon name="alert" className="size-3.5" /></span>
+          <div className="min-w-0 flex-[1_1_14rem]">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              {offer.title}
+              <InfoTip title={offer.title} cite={offer.cite ?? undefined}>{offer.detail}</InfoTip>
+            </p>
+            <p className="text-xs text-ink-3">{one ? "This deduction can't be kept." : "None of these deductions can be kept."}</p>
+          </div>
+          <Button onClick={removeEvery} disabled={removing} className="ml-auto max-sm:w-full">{removing ? "Removing..." : one ? "Remove deduction" : "Remove all deductions"}</Button>
+        </div>
+      )}
+      <div aria-live="polite" className="empty:hidden">
+        {message && <Notice tone={message.tone} className="mx-5 my-3">{message.text}</Notice>}
+      </div>
       {inBrowser ? (
       <Suspense fallback={bones}>
       <DeductionsGrid
@@ -126,6 +174,7 @@ export function Settlement(p: {
       />
       </Suspense>
       ) : bones}
+      {confirmDialog}
     </Card>
   );
 }
