@@ -1968,7 +1968,7 @@
         }
       ],
       "link": {
-        "href": "/tenancy/e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
+        "href": "/tenancy/e06de0e7-70e2-4c8a-bb6c-1db47531e5ee#dates",
         "icon": "calendar",
         "label": "View dates",
         "title": "View dates"
@@ -2653,7 +2653,7 @@
         }
       ],
       "link": {
-        "href": "/tenancy/e06de0e7-70e2-4c8a-bb6c-1db47531e5ee?tab=move-out",
+        "href": "/tenancy/e06de0e7-70e2-4c8a-bb6c-1db47531e5ee?tab=move-out#photos",
         "icon": "image",
         "label": "Review findings",
         "title": "Review move-out findings"
@@ -2769,7 +2769,7 @@
         }
       ],
       "link": {
-        "href": "/tenancy/e06de0e7-70e2-4c8a-bb6c-1db47531e5ee?tab=payments",
+        "href": "/tenancy/e06de0e7-70e2-4c8a-bb6c-1db47531e5ee?tab=payments#ledger",
         "icon": "card",
         "label": "View invoice",
         "title": "Deposit invoice unpaid"

@@ -36,7 +36,7 @@ export function paypalBell(o: { units: { summary: TenancySummary; next: NextStep
     const report = o.reports.find((a) => a.kind === "deposit_reversed" && a.tenancyId === u.summary.id);
     const amount = report?.amount ?? u.summary.deposit?.amount ?? null;
     return {
-      title: REVERSED_STEP, tone: "red", href: tabHref(u.summary.id, "payments"),
+      title: REVERSED_STEP, tone: "red", href: tabHref(u.summary.id, "payments", "ledger"),
       sub: `${streetLine(u.summary.address)}, ${amount != null ? `${usd(amount)} ` : ""}reversed by PayPal${report ? ` ${day(report.at, u.summary.id)}` : ""}`,
     };
   });

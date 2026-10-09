@@ -452,7 +452,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       </div>
 
       <div className="flex flex-col gap-4 max-lg:order-first">
-        <Card>
+        <Card id="next-step" className="scroll-mt-8">
           <CardHead title="Next step" right={disputeStep ? <InfoTip align="end" title={disputeStep.tipTitle}>{disputeStep.tip}</InfoTip>
             : next.cite || next.detail ? (
             <InfoTip align="end" title={next.label} cite={next.cite ?? undefined}>{next.detail}</InfoTip>
@@ -462,8 +462,11 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
               <StepBox icon={disputeStep.icon} title={disputeStep.title} sub={disputeStep.sub} href={disputeStep.href} />
             ) : next.level === "done" ? (
               <p className="flex items-center gap-2 text-sm text-green"><Icon name="check" className="size-3.5" />Closed out</p>
+            ) : step.label === "View" ? (
+              // Nothing due: nothing to open, so the words alone, not a button to the page they are on.
+              <p className="text-sm text-ink-3">{next.label}</p>
             ) : (
-              <StepBox icon={step.icon} title={step.label === "View" ? next.label : step.title}
+              <StepBox icon={step.icon} title={step.title}
                 sub={next.due && next.daysLeft != null ? `${next.dueLabel ? `${next.dueLabel} ` : ""}${shortDate(next.due)}, ${whenText(next.daysLeft, next.deadline)}` : undefined}
                 href={step.href} />
             )}
@@ -475,7 +478,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           </div>
         </Card>
 
-        <Card className="p-5">
+        <Card id="dates" className="scroll-mt-8 p-5">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">Dates</span>
             {events.length > 0 && <a href={`/api/tenancies/${id}/calendar`} className="ml-auto text-sm text-brand hover:underline">Add to calendar</a>}

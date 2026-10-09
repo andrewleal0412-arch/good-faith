@@ -78,7 +78,10 @@ const TITLE: Record<string, string> = {
   "Check in": "Check in before the lease ends",
 };
 
-/** The one verb a row links to for its next step, and where it goes. Unknown steps fall back to the step's own words. */
+/** The one verb a row links to for its next step, and where it goes. Unknown steps fall back to the step's own words.
+ *  The link is shown on the property too (the record header, the Overview's Next step card) and in the bell on every
+ *  page, so it can be clicked on the very tab it opens, where a link to the bare tab would change nothing. Each one
+ *  therefore opens another page or names a section of its tab (scripts/state-packs-check.mjs holds that). */
 export function stepLink(s: TenancySummary, n: NextStep): StepLink {
   const l = step(s, n);
   // A state pack's own step reads by its full words in the boxes ("Get the forwarding address in writing").
@@ -95,7 +98,7 @@ function step(s: TenancySummary, n: NextStep): Omit<StepLink, "title"> {
   if (L === "Take move-out photos") return { label: "Add move-out photos", href: tabHref(id, "move-out", "photos"), icon: "camera" };
   if (L === "Compare move-in and move-out photos") return { label: "Compare photos", href: tabHref(id, "move-out", "photos"), icon: "image" };
   if (L === "Record the statement delivery") return { label: "Record delivery", href: `/tenancy/${id}/statement#delivery`, icon: "mail" };
-  if (L === "Send the itemized statement and refund") return { label: "Review findings", href: tabHref(id, "move-out"), icon: "image" };
+  if (L === "Send the itemized statement and refund") return { label: "Review findings", href: tabHref(id, "move-out", "photos"), icon: "image" };
   if (L === "Record the tenants' notice") return { label: "Record notice", href: tabHref(id, "move-out", "notice"), icon: "pen" };
   if (L === "Send the initial-inspection notice") return { label: "Send inspection notice", href: `/tenancy/${id}/notices/inspection`, icon: "mail" };
   if (L === "Send the electronic-refund notice") return { label: "Send refund notice", href: `/tenancy/${id}/notices/electronic-refund`, icon: "mail" };
@@ -108,14 +111,17 @@ function step(s: TenancySummary, n: NextStep): Omit<StepLink, "title"> {
   // its own words, to the same card, so its button answers on the Overview too (with no section it went nowhere there).
   if (L === packOf(s).refund.agreementStep.label) return { label: L, href: tabHref(id, "overview", "move-in"), icon: "doc" };
   if (L === "Send the PayPal deposit invoice") return { label: "Request deposit", href: tabHref(id, "overview", "move-in"), icon: "receive" };
-  if (L === "Deposit invoice unpaid") return { label: "View invoice", href: tabHref(id, "payments"), icon: "card" };
-  if (L === REVERSED_STEP) return { label: "Check PayPal", href: tabHref(id, "payments"), icon: "card" };
+  if (L === "Deposit invoice unpaid") return { label: "View invoice", href: tabHref(id, "payments", "ledger"), icon: "card" };
+  if (L === REVERSED_STEP) return { label: "Check PayPal", href: tabHref(id, "payments", "ledger"), icon: "card" };
   if (L === "Take move-in photos" || L === "Add move-in condition evidence") return { label: "Add move-in photos", href: tabHref(id, "overview", "move-in"), icon: "camera" };
   if (L.startsWith("Lease ended")) return { label: "Update lease", href: tabHref(id, "move-out", "notice"), icon: "calendar" };
   if (L === "Lease ends") return { label: "Check in", href: tabHref(id, "move-out", "notice"), icon: "calendar" };
-  if (L.startsWith("Check in")) return { label: "View dates", href: tabHref(id, "overview"), icon: "calendar" };
+  if (L.startsWith("Check in")) return { label: "View dates", href: tabHref(id, "overview", "dates"), icon: "calendar" };
+  // Nothing to do, so nothing to open: a list's "View" opens the property, and the property's own Next step card says
+  // the words with no button (page.tsx).
   if (L === "Nothing due") return { label: "View", href: tabHref(id, "overview"), icon: "doc" };
-  return { label: L, href: tabHref(id, "overview"), icon: "doc" };
+  // A step nothing above names: to the Overview's Next step card, where its own words and its tip are.
+  return { label: L, href: tabHref(id, "overview", "next-step"), icon: "doc" };
 }
 
 /** "482 N. Glassell St, Unit B" and "Orange, CA 92866" from the lease's one-line address. */

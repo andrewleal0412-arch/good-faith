@@ -109,6 +109,13 @@ export function whenInView(el: Element, play: () => void): () => void {
   };
 }
 
+/** A part of the page arriving again where it stands (the arrival every part makes, gf-enter in globals.css): the
+ *  answer to a click on a link to what is already in place, which would otherwise change nothing. Nothing with reduced
+ *  motion. */
+export function arriveAgain(el: Element) {
+  if (!motionOff()) el.animate([{ opacity: 0.4, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: DUR.enter, easing: EASE.standard });
+}
+
 /** Calls `cb` before the page is printed (the browser's Print, or Save as PDF): a moment still waiting on its first
  *  frame jumps to its end, so paper never shows a part undrawn. Returns a cancel. */
 export function beforePrint(cb: () => void): () => void {

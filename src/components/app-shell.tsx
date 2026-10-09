@@ -6,9 +6,10 @@ import { Suspense, use, useEffect, useRef, useState, type MouseEvent, type React
 import { ConfirmDialog } from "./confirm";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { Menu } from "./menu";
-import { PresenceList, usePresence } from "./motion";
+import { arriveAgain, PresenceList, usePresence } from "./motion";
 import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
 import { Avatar, Notice, Wordmark } from "./ui";
+import { sectionOf } from "@/lib/tenancy-tabs";
 
 // The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Insights, Documents, then the Workflows group),
 // PayPal's connection and the account at its foot; a 56px top bar with search, the Test mode switch (the only place
@@ -187,24 +188,51 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
 
 const iconButton = "inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface";
 
-/** The bell: what needs the landlord, then what PayPal reported. */
+/** The bell: what needs the landlord, then what PayPal reported. Choosing a line closes it, as choosing a menu's item
+ *  does, and a line for the page already shown is answered by that page (answerHere). */
 function Bell({ chrome }: { chrome: Promise<ShellChrome> }) {
   const data = use(chrome);
   return (
     <Menu label="Notifications" width={320} buttonClass={`relative ${iconButton}`}
       trigger={<><Icon name="bell" />{data.alerts.length + data.paypal.length > 0 && <span className="absolute right-[9px] top-2 size-1.5 rounded-full bg-brand ring-2 ring-white" />}</>}>
-      <div className="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-3">Needs you</div>
-      {/* A line that arrives or goes while the bell is open eases in or out. */}
-      {data.alerts.length ? <PresenceList>{lineKeys(data.alerts).map((k, i) => <AlertRow key={k} a={data.alerts[i]} />)}</PresenceList>
-        : <p className="px-2.5 pb-2.5 text-sm text-ink-3">Nothing needs you right now.</p>}
-      {data.paypal.length > 0 && (
-        <>
-          <div className="mt-1 flex items-center gap-1.5 border-t border-line-2 px-2.5 pb-1 pt-2.5 text-xs font-medium text-ink-3"><PayPalMark size={12} />From PayPal</div>
-          <PresenceList>{lineKeys(data.paypal).map((k, i) => <AlertRow key={k} a={data.paypal[i]} />)}</PresenceList>
-        </>
-      )}
+      {(close) => {
+        const pick = (e: MouseEvent<HTMLAnchorElement>) => { close(); answerHere(e); };
+        return (
+          <>
+            <div className="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-3">Needs you</div>
+            {/* A line that arrives or goes while the bell is open eases in or out. */}
+            {data.alerts.length ? <PresenceList>{lineKeys(data.alerts).map((k, i) => <AlertRow key={k} a={data.alerts[i]} onPick={pick} />)}</PresenceList>
+              : <p className="px-2.5 pb-2.5 text-sm text-ink-3">Nothing needs you right now.</p>}
+            {data.paypal.length > 0 && (
+              <>
+                <div className="mt-1 flex items-center gap-1.5 border-t border-line-2 px-2.5 pb-1 pt-2.5 text-xs font-medium text-ink-3"><PayPalMark size={12} />From PayPal</div>
+                <PresenceList>{lineKeys(data.paypal).map((k, i) => <AlertRow key={k} a={data.paypal[i]} onPick={pick} />)}</PresenceList>
+              </>
+            )}
+          </>
+        );
+      }}
     </Menu>
   );
+}
+
+/** A click on a link to the page already shown: a step read in the bell on the page it opens (a notice, the
+ *  statement), or a section of the tab in view. The router does nothing with the address it is on, so the page answers
+ *  it itself: the section the link names is brought to the top, or the page's own top when it names none, and arrives
+ *  again, as a section does on a property (tenancy/[id]/tab-state.tsx). A link to any other page or tab, and a click
+ *  that opens a new tab, is left to open as it always does. */
+function answerHere(e: MouseEvent<HTMLAnchorElement>) {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const url = new URL(e.currentTarget.href, window.location.href);
+  if (url.origin !== window.location.origin || url.pathname !== window.location.pathname || url.search !== window.location.search) return;
+  e.preventDefault();
+  const named = url.hash ? document.getElementById(sectionOf(url.hash)) : null;
+  const section = named?.checkVisibility() ? named : null;
+  if (section) section.scrollIntoView({ block: "start" });
+  else window.scrollTo(0, 0);
+  const part = section ?? document.getElementById("main");
+  if (part) arriveAgain(part);
+  if (url.hash !== window.location.hash) window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 /** Help: the lease check, each state's deposit-law guide, the disclaimer. */
@@ -249,9 +277,9 @@ function lineKeys(xs: ShellAlert[]): string[] {
 }
 
 /** One line in the bell: a status dot, the title, the property under it. */
-function AlertRow({ a, ref }: { a: ShellAlert; ref?: Ref<HTMLAnchorElement> }) {
+function AlertRow({ a, ref, onPick }: { a: ShellAlert; ref?: Ref<HTMLAnchorElement>; onPick: (e: MouseEvent<HTMLAnchorElement>) => void }) {
   return (
-    <Link ref={ref} href={a.href} className="flex items-start gap-2.5 rounded-sm px-2.5 py-2 transition-colors hover:bg-surface">
+    <Link ref={ref} href={a.href} onClick={onPick} className="flex items-start gap-2.5 rounded-sm px-2.5 py-2 transition-colors hover:bg-surface">
       <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${a.tone === "red" ? "bg-red-dot" : a.tone === "green" ? "bg-green-dot" : "bg-amber-dot"}`} />
       <span className="min-w-0">
         <span className="block text-sm font-medium text-ink">{a.title}</span>

@@ -517,7 +517,7 @@ function harness(faults = {}) {
   eq("summary: a reversed deposit says so", rev.deposit.reversed, true);
   const n = next.nextStep(rev, "2026-10-05");
   const link = view.stepLink(rev, n);
-  eq("reversed: the next step is to check PayPal", [n.label, n.level, link.label, link.title, link.href], [next.REVERSED_STEP, "urgent", "Check PayPal", next.REVERSED_STEP, "/tenancy/t-r?tab=payments"]);
+  eq("reversed: the next step is to check PayPal", [n.label, n.level, link.label, link.title, link.href], [next.REVERSED_STEP, "urgent", "Check PayPal", next.REVERSED_STEP, "/tenancy/t-r?tab=payments#ledger"]);
   eq("reversed: the chip", view.propertyStatus(rev, n), { label: "Payment reversed", tone: "red", group: "move-in" });
   eq("reversed: nothing left to refund from it", next.refundLeft(rev), null);
   check("a held deposit's chip and step unchanged", view.propertyStatus(held, next.nextStep(held, "2026-10-05")).label !== "Payment reversed" && next.nextStep(held, "2026-10-05").label !== next.REVERSED_STEP);

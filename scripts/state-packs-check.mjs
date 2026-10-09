@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Unit checks for the state rule packs (src/lib/states/): deadline math on sample dates, the deposit caps, the steps
-// and blockers each state adds, the documents rules, which state a lease is for, and the shape every pack shares.
+// and blockers each state adds, the documents rules, which state a lease is for, the shape every pack shares, and
+// where each step's link opens (another page or a named section of a tab, never a bare tab).
 // Pure: no database, no PayPal, no Claude. Exit 1 if any check fails.
 //
 //   node scripts/state-packs-check.mjs
 
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
@@ -14,7 +15,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
 // states/server.ts: each pack whole (its client half joined to its server half).
-const [states, rules, deductions, nextStepLib, notices, findings, propertyView] = await Promise.all(["states/server", "rules", "deductions", "next-step", "notices", "findings", "property-view"].map(lib));
+const [states, rules, deductions, nextStepLib, notices, findings, propertyView, bellLib] = await Promise.all(["states/server", "rules", "deductions", "next-step", "notices", "findings", "property-view", "bell"].map(lib));
 const { packFor, SUPPORTED, stateCode, isSupported, unsupportedMessage, onePack } = states;
 
 let pass = 0, fail = 0;
@@ -116,7 +117,13 @@ const sum = (o = {}) => ({
   agreement: true, deposit: { amount: 2000, status: "PAID", paypalId: "INV2-TEST" }, depositElectronic: true, moveInPhotos: 4, moveOutPhotos: 0,
   deductions: [], returned: null, notices: {}, refundNotice: { needed: false, reason: "" }, tenantMoveOut: null, ...o,
 });
-const next = (o) => nextStepLib.nextStep(sum(o), today);
+// Every step reached through next(), with the summary it came from: the step links' check at the end reads them all.
+const reached = [];
+const next = (o) => {
+  const s = sum(o), n = nextStepLib.nextStep(s, today);
+  reached.push([s, n]);
+  return n;
+};
 eq("WA: the checklist comes before the deposit invoice", next({ state: "WA", deposit: null, agreement: true }).label, "Record the signed move-in checklist");
 eq("WA: then the invoice", next({ state: "WA", deposit: null, notices: { move_in_checklist: { date: "2026-01-01", method: "signed", to: "A Tenant", recorded_at: "x" } } }).label, "Send the PayPal deposit invoice");
 eq("WA: then the trust account", next({ state: "WA", notices: { move_in_checklist: { date: "2026-01-01", method: "signed", to: "A Tenant", recorded_at: "x" } } }).label, "Record the trust account and send the receipt");
@@ -320,6 +327,79 @@ for (const f of readdirSync(join(ROOT, "src/lib/states")).filter((x) => x.endsWi
 check("Local overlays only warn: Seattle matches", states.localOverlays(WA, "Seattle").length === 1);
 check("Local overlays only warn: New York City matches Brooklyn", states.localOverlays(NY, "Brooklyn").length === 1);
 check("California shows no local overlay", states.localOverlays(CA, "San Francisco").length === 0);
+
+/* ---------- Step links: another page, or a section of a tab ---------- */
+// A step's link is shown on the property too (the record header, the Overview's Next step card) and in the bell on
+// every page, so it can be clicked on the very tab it opens, where a link to the bare tab changes nothing (the dead
+// clicks of 2026-10-09: Remove deductions, Review findings, View invoice, Check PayPal, View dates). So every step link
+// opens another page of the property (a notice, the statement, the refund review) or names a section, and the section
+// is an id that page draws. The one link with nothing to open is Nothing due's "View": a list's way into the property,
+// which the property's own Next step card shows as words with no button.
+const HOME = "/tenancy/t1";
+const PAGES = join(ROOT, "src/app/(landlord)/tenancy/[id]");
+// The ids a page draws: its own file and the pieces beside it ("" is the property, "/statement" the statement).
+const idsOn = (page) => (existsSync(join(PAGES, page)) ? readdirSync(join(PAGES, page)).filter((f) => f.endsWith(".tsx")) : [])
+  .flatMap((f) => [...readFileSync(join(PAGES, page, f), "utf8").matchAll(/\sid="([a-z-]+)"/g)].map((m) => m[1]));
+const opens = (href) => {
+  const u = new URL(href, "http://good-faith.test");
+  const page = u.pathname.startsWith(HOME) ? u.pathname.slice(HOME.length) : null;
+  const section = u.hash.slice(1);
+  return page != null && (section ? idsOn(page).includes(section) : page.length > 1);
+};
+check("step links: a bare tab and the bare property open nothing new", !opens(`${HOME}?tab=move-out`) && !opens(HOME) && !opens(`${HOME}?tab=payments#no-such-card`));
+check("step links: a section the tab draws, and another page, do", opens(`${HOME}?tab=move-out#deductions`) && opens(`${HOME}/refund`) && opens(`${HOME}/statement#delivery`));
+
+// California's steps link by label (property-view.ts). Each label it names, one scenario each, so the labels there are
+// the ones the engine really reaches, and each reached step's link is checked below with every other state's.
+const viewSource = readFileSync(join(ROOT, "src/lib/property-view.ts"), "utf8");
+const branches = viewSource.slice(viewSource.indexOf("function step(")).split("\n").filter((l) => /^\s*if \(L\b/.test(l));
+const exact = branches.flatMap((l) => [...l.matchAll(/L === "([^"]+)"/g)].map((m) => m[1]));
+const prefixes = branches.flatMap((l) => [...l.matchAll(/L\.startsWith\("([^"]+)"\)/g)].map((m) => m[1]));
+check("step links: every label property-view.ts names is read here", branches.length >= 20
+  && branches.every((l) => /L === "|L\.startsWith\("|L === REVERSED_STEP|L === packOf\(s\)\.refund\.agreementStep\.label/.test(l)), `${branches.length} branches`);
+const noticed = { status: "moving_out", noticeGivenOn: "2026-09-13", plannedMoveOut: "2026-10-13" };
+const inspectionSent = { inspection: { date: "2026-09-15", method: "mail", to: "A Tenant", recorded_at: "x" } };
+const out2 = { ...moved, statementDeliveredAt: "2026-10-02T18:00:00Z" };
+for (const o of [
+  {}, { endDate: "2026-11-15" }, { endDate: "2026-09-01" }, { endDate: null }, { moveInPhotos: 0 }, { moveInPhotos: 0, startDate: "2025-01-01" },
+  { deposit: { amount: 2000, status: "SENT", paypalId: "INV2-TEST" } }, { deposit: { amount: 2000, status: "PAID", paypalId: "INV2-TEST", reversed: true } }, { deposit: null }, { agreement: false },
+  noticed, { ...noticed, notices: inspectionSent, refundNotice: { needed: true, reason: "" } }, { ...noticed, notices: inspectionSent, refundNotice: { needed: null, reason: "" } },
+  { ...noticed, notices: inspectionSent, plannedMoveOut: null, endDate: null }, { ...noticed, notices: inspectionSent, plannedMoveOut: "2026-10-30" }, { ...noticed, notices: inspectionSent },
+  { tenantMoveOut: { name: "A Tenant", plannedMoveOut: "2026-11-30", forwardingAddress: "9 Elm St", sentOn: "2026-10-01" } },
+  { ...moved, moveOutPhotos: 0, moveOutInspectedAt: null }, { ...moved, moveOutInspectedAt: null }, moved, { ...moved, returned: { amount: 2000, kind: "refund" } },
+  out2, { ...out2, returned: { amount: 2000, kind: "refund" } },
+]) next(o);
+const labels = reached.map(([, n]) => n.label);
+eq("step links: every label property-view.ts names is a step the engine reaches",
+  [...exact.filter((l) => !labels.includes(l)), ...prefixes.filter((p) => !labels.some((l) => l.startsWith(p)))], []);
+
+// Every step this file reached, in all five states: its link opens something, and none falls through to its own words.
+const links = reached.map(([s, n]) => ({ step: n.label, ...propertyView.stepLink(s, n) }));
+check("step links: the scenarios cover every state and both kinds of step", links.length >= 50 && SUPPORTED.every((c) => reached.some(([s]) => s.state === c))
+  && reached.some(([, n]) => n.action) && reached.some(([, n]) => !n.action), `${links.length} steps`);
+eq("step links: every step reached opens another page or names a section its page draws; Nothing due alone has nothing to open",
+  [...new Set(links.filter((l) => !opens(l.href)).map((l) => `${l.step}: ${l.label} ${l.href}`))], [`Nothing due: View ${HOME}`]);
+const fallback = propertyView.tabHref("t1", "overview", "next-step");
+eq("step links: a step nothing names opens the Overview's Next step card, under its own words",
+  propertyView.stepLink(sum(), { label: "A step nothing names yet" }), { label: "A step nothing names yet", href: fallback, icon: "doc", title: "A step nothing names yet" });
+check("step links: the Next step card is there to open", opens(fallback));
+eq("step links: no step reached falls through to it", [...new Set(links.filter((l) => l.href === fallback).map((l) => l.step))], []);
+
+// Every path a pack's own step names (and the engine's inspection notice), as written, whether or not a scenario
+// above reaches it.
+const stepPaths = [...readdirSync(join(ROOT, "src/lib/states")).map((f) => `states/${f}`), "next-step.ts"]
+  .flatMap((f) => [...readFileSync(join(ROOT, "src/lib", f), "utf8").matchAll(/\bpath: "([^"]*)"/g)].map((m) => ({ file: f, path: m[1] })));
+check("step links: the packs' own paths were found", stepPaths.length >= 10 && ["ny", "fl", "tx", "wa"].every((c) => stepPaths.some((p) => p.file === `states/${c}.server.ts`)), `${stepPaths.length} paths`);
+eq("step links: every path a pack's step names opens another page or a section its page draws",
+  stepPaths.filter((p) => !opens(propertyView.stepLink(sum(), { label: "x", action: { label: "x", path: p.path, icon: "doc" } }).href)).map((p) => `${p.file}: ${p.path}`), []);
+
+// The bell's own lines (bell.ts) follow the same rule, and the reversed deposit's opens the card its step opens.
+const reversedUnit = sum({ deposit: { amount: 2000, status: "PAID", paypalId: "INV2-TEST", reversed: true } });
+const reversedNext = nextStepLib.nextStep(reversedUnit, today);
+const bell = bellLib.paypalBell({ units: [{ summary: reversedUnit, next: reversedNext }], reports: [],
+  outside: [{ tenancyId: "t1", address: "1 Test St, Testville, CA 90000", refunds: [{ amount: 100, refunded_at: null }] }] });
+eq("the bell: a reversed deposit's line and a refund made in PayPal's each name a section", bell.needsYou.map((l) => [l.title, opens(l.href)]), [["Deposit payment reversed", true], ["Refund made in PayPal", true]]);
+eq("the bell: the reversed deposit's line opens the card its step opens", bell.needsYou[0].href, propertyView.stepLink(reversedUnit, reversedNext).href);
 
 console.log(`${pass} passed, ${fail} failed`);
 for (const f of failures) console.log(`  FAIL ${f}`);

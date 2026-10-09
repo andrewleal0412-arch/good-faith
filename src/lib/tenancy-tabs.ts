@@ -14,3 +14,12 @@ export const TABS: { key: TabKey; label: string }[] = [
 export const tabOf = (v: unknown): TabKey => (TABS.some((x) => x.key === v) ? (v as TabKey) : "overview");
 
 export const tabHref = (id: string, tab: TabKey, hash = "") => `/tenancy/${id}${tab === "overview" ? "" : `?tab=${tab}`}${hash ? `#${hash}` : ""}`;
+
+/** The section a #hash names. */
+export const sectionOf = (hash: string) => {
+  try {
+    return decodeURIComponent(hash.slice(1));
+  } catch {
+    return hash.slice(1);
+  }
+};

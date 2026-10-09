@@ -9,10 +9,11 @@ import type { Tip } from "@/lib/states/types";
 
 // One tenancy's money, oldest first: the same rows the Payments ledger shows for every unit, with a way into it
 // filtered to this tenancy. Inflows green, outflows ink with a minus; the status is plain text unless something failed.
+// The card is #ledger, where the steps about the deposit's payment open (an unpaid invoice, a reversed payment).
 // Times are on the property's clock (`zone`, its state pack's).
 export function MoneyTimeline({ tenancyId, rows, typeTip, zone = PACIFIC }: { tenancyId: string; rows: LedgerRow[]; typeTip: Tip; zone?: string }) {
   if (!rows.length) {
-    return <Card><EmptyState icon="card" title="No payments yet" sub="The deposit invoice starts the record." /></Card>;
+    return <Card id="ledger" className="scroll-mt-8"><EmptyState icon="card" title="No payments yet" sub="The deposit invoice starts the record." /></Card>;
   }
   const t = ledgerTotals(rows);
   // One hero: what is still held while the deposit is held, what went back once a refund or payout has gone out.
@@ -37,7 +38,7 @@ export function MoneyTimeline({ tenancyId, rows, typeTip, zone = PACIFIC }: { te
         {back ? <Fact label="Returned" big value={hero(t.returned + t.pending)} sub={t.pending > 0 ? `${shortMoney(t.pending)} pending` : undefined} />
           : <Fact label="Still held" big value={hero(t.held)} />}
       </FactStrip>
-      <Card>
+      <Card id="ledger" className="scroll-mt-8">
         <CardHead title="Payments" meta={`${rows.length}`} right={<Link href={`/ledger?tenancy=${tenancyId}`} className="text-sm text-brand hover:underline">Open in Payments</Link>} />
         {/* Below 1024px, Mercury's transaction list: the type, the date and status under it, the amount on the right. */}
         {/* A payment that lands while the tab is seen (a refund sent, PayPal's word on one) eases in. */}

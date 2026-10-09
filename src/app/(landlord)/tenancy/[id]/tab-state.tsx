@@ -2,10 +2,10 @@
 
 import { useSearchParams } from "next/navigation";
 import { Activity, createContext, Suspense, useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { DUR, EASE, motionOff } from "@/components/motion";
+import { arriveAgain } from "@/components/motion";
 import { TabBodySkeleton } from "@/components/skeletons";
 import { Tabs } from "@/components/tabs";
-import { TABS, tabHref, tabOf, type TabKey } from "@/lib/tenancy-tabs";
+import { sectionOf, TABS, tabHref, tabOf, type TabKey } from "@/lib/tenancy-tabs";
 
 // A property's five tabs, switched in the browser. The server renders every tab in one request (page.tsx): the one the
 // address names into the HTML, the others into the page's data only, which React lays out at idle priority while they
@@ -25,15 +25,6 @@ import { TABS, tabHref, tabOf, type TabKey } from "@/lib/tenancy-tabs";
 // the first one in a session); so the property brings up the section its address names itself (bringUp).
 
 const Current = createContext<TabKey | null>(null);
-
-/** The section a #hash names. */
-const sectionOf = (hash: string) => {
-  try {
-    return decodeURIComponent(hash.slice(1));
-  } catch {
-    return hash.slice(1);
-  }
-};
 
 /** How long a section is held at the top after the page last changed height, and how long one that never comes is
  *  waited for. */
@@ -103,7 +94,7 @@ export function TabState({ id, children }: { id: string; children: ReactNode }) 
     if (!t || !el || !el.checkVisibility()) return;
     target.current = null;
     el.scrollIntoView({ block: "start" });
-    if (t.sameTab && !motionOff()) el.animate([{ opacity: 0.4, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: DUR.enter, easing: EASE.standard });
+    if (t.sameTab) arriveAgain(el);
   }, [asked, tab]);
 
   const onClickCapture = (e: MouseEvent<HTMLDivElement>) => {
