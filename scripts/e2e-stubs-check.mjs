@@ -45,8 +45,8 @@ console.warn = (...a) => { if (String(a[0]).startsWith("[E2E STUBS ON]")) stubLi
 
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
-const [sw, model, stubs, fake, paypal, agent, extract, advocate, nego, range, states] = await Promise.all(
-  ["e2e-switch", "model", "e2e-stubs", "e2e-paypal", "paypal", "agent", "extract", "advocate", "negotiator", "lawful-range", "states/server"].map(lib));
+const [sw, model, stubs, fake, paypal, agent, extract, advocate, nego, range, states, leaseKeyLib] = await Promise.all(
+  ["e2e-switch", "model", "e2e-stubs", "e2e-paypal", "paypal", "agent", "extract", "advocate", "negotiator", "lawful-range", "states/server", "lease-key"].map(lib));
 const CA = states.packFor("CA");
 
 let pass = 0, fail = 0;
@@ -103,6 +103,18 @@ stubsOn(true);
   let threw = "";
   try { await extract.extractLeaseTerms(new TextEncoder().encode("%PDF-1.4"), "someone-elses-lease.pdf"); } catch (e) { threw = e.message; }
   check("lease: any other file is refused", /reads only demo\/lease-single-owner\.pdf/.test(threw), threw);
+  // The guard against a second tenancy of a lease a copy already has (src/lib/lease-key.ts): what the lease check
+  // read keys the same as the tenancy the copy was made from, whose every date the copy moved, so the start opens that
+  // tenancy instead of making another property at the same address.
+  const { leaseKey } = leaseKeyLib;
+  const read = { address: terms.propertyAddress, tenants: terms.tenants };
+  eq("lease: the demo lease keys the same as a copy's own tenancy of it, whose dates the copy moved",
+    leaseKey(read), leaseKey({ address: "1140 E. JUNIPER HOLLOW LN, Orange, CA  92867", tenants: ["Daniel Okafor", "Priya Raman"] }));
+  check("lease: another unit at the same street number doesn't key the same",
+    leaseKey(read) !== leaseKey({ address: "1140 E. Juniper Hollow Ln, Unit 2, Orange, CA 92867", tenants: terms.tenants }));
+  check("lease: the same unit let to other tenants doesn't key the same",
+    leaseKey(read) !== leaseKey({ address: terms.propertyAddress, tenants: ["Someone Else"] }));
+  eq("lease: a lease with no address keys nothing", leaseKey({ address: null, tenants: terms.tenants }), null);
 }
 {
   // The close-out agent's steps, from what its tools answered.

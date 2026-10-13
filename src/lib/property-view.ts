@@ -27,19 +27,37 @@ export const moveInOpen = (s: TenancySummary) => {
     || pack.steps.openMoveIn(s).length > 0;
 };
 
-export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
-  // A PayPal dispute or chargeback of the deposit payment, before anything else while PayPal hasn't resolved it.
-  if (s.paypalDispute) {
-    return { label: "PayPal dispute", tone: "red", group: closedOut(s) ? "closed" : s.moveOutDate || s.statementDeliveredAt || s.noticeGivenOn || s.tenantMoveOut ? "move-out" : moveInOpen(s) ? "move-in" : "leased" };
-  }
-  if (closedOut(s)) {
-    // The tenants' dispute of the statement, while it is live; Closed again once it ends.
-    if (s.dispute === "agreed") return { label: "Settlement agreed", tone: "amber", group: "closed" };
-    if (s.dispute) return { label: "Disputed", tone: "amber", group: "closed" };
-    return { label: "Closed", tone: "gray", group: "closed" };
-  }
-  const group: StatusGroup = s.moveOutDate || s.statementDeliveredAt || s.noticeGivenOn || s.tenantMoveOut ? "move-out"
+/** Which stage of the tenancy a unit is in, from its dates alone: the filter group of a unit that is not closed. */
+const stageOf = (s: TenancySummary): StatusGroup =>
+  s.moveOutDate || s.statementDeliveredAt || s.noticeGivenOn || s.tenantMoveOut ? "move-out"
     : moveInOpen(s) ? "move-in" : "leased";
+
+/** Closed: the statement and the money are out (closedOut), no dispute on the unit is live, and no step is still
+ *  asking for the deposit back in full. A unit already closed out is an open move-out again while the tenants' dispute
+ *  of the statement, or their PayPal dispute of the deposit payment, is live, and while its step is to take every
+ *  deduction off (Florida past the claim notice's 30 days, where the deductions may have used the whole deposit and
+ *  none of it may be kept). The Properties filter, its count and the Move-outs list read this one rule, so no page
+ *  counts a unit closed that another shows as open (units/page.tsx, move-outs/page.tsx). */
+export const propertyClosed = (s: TenancySummary, n?: NextStep) =>
+  closedOut(s) && !s.dispute && !s.paypalDispute && !n?.removeDeductions;
+
+export function propertyStatus(s: TenancySummary, n: NextStep): PropertyStatus {
+  // A PayPal dispute or chargeback of the deposit payment, before anything else while PayPal hasn't resolved it. It
+  // keeps the unit out of Closed until PayPal is done with it, even where the statement and the refund went.
+  if (s.paypalDispute) return { label: "PayPal dispute", tone: "red", group: stageOf(s) };
+  if (propertyClosed(s, n)) return { label: "Closed", tone: "gray", group: "closed" };
+  if (closedOut(s)) {
+    // Closed out, but not finished: the tenants' dispute of the statement while it is live, or a step that still asks
+    // for the whole deposit back (New York after day 14, Florida past the claim notice's 30 days). An open move-out
+    // again, as the Move-outs list has it.
+    if (s.dispute === "agreed") return { label: "Settlement agreed", tone: "amber", group: "move-out" };
+    if (s.dispute) return { label: "Disputed", tone: "amber", group: "move-out" };
+    // The step left is to take every deduction off, which only a pack's forfeiture asks for, and both packs that ask
+    // raise it at "overdue" (scripts/state-packs-check.mjs holds that), so the chip is fixed rather than read off the
+    // level. A pack that ever asks for it less urgently belongs in the general path below instead.
+    return { label: "Overdue", tone: "red", group: "move-out" };
+  }
+  const group = stageOf(s);
   // PayPal reversed the deposit payment: before anything else, until the tenancy is closed out.
   if (s.deposit?.reversed) return { label: "Payment reversed", tone: "red", group };
   if (n.level === "overdue") return { label: "Overdue", tone: "red", group };

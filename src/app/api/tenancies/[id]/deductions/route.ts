@@ -137,8 +137,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   return Response.json({ id: row.id, amount: c.amount, math: c.math });
 }
 
-// Remove every deduction at once: only while the tenancy's next step asks for it (New York after day 14 with no dispute
-// open, where none of them may be kept; the step's removeDeductions, next-step.ts), which is the only time the Move-out
+// Remove every deduction at once: only while the tenancy's next step asks for it (New York after day 14, or Florida once
+// the 30 days for the claim notice ran out, in both with no dispute open and none of them to be kept; the step's
+// removeDeductions, next-step.ts), which is the only time the Move-out
 // tab offers it. Each line goes exactly as its own Remove takes it (DELETE .../deductions/[did]): refused for a template
 // and once the deductions are final or while a dispute the tenants sent is open (deductionsLocked), its receipt removed
 // only when this workspace stored it, the after-repair photos kept, and one deduction_removed entry per line.

@@ -7,6 +7,7 @@ import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
+import { copyText } from "@/lib/clipboard";
 import { TENANT_VIEW_TIP } from "@/lib/copy";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 
@@ -58,20 +59,11 @@ export function TenantLinkPanel(p: {
   }
 
   /** The clipboard API exists only on secure origins (localhost or https), so over plain http the field is selected
-   *  and the older copy command tried before falling back to copying by hand. */
+   *  and the older copy command tried before falling back to copying by hand (src/lib/clipboard.ts). */
   async function copy() {
     if (!url) return;
     setCopyNote("");
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      return;
-    } catch { /* fall through */ }
-    field.current?.focus();
-    field.current?.select();
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch { ok = false; }
-    if (ok) setCopied(true);
+    if (await copyText(url, field.current)) setCopied(true);
     else setCopyNote("Couldn't copy automatically. The link is selected: copy it with Cmd+C or Ctrl+C.");
   }
 

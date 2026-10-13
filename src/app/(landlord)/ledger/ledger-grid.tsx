@@ -14,6 +14,7 @@ import { Button, ButtonLink } from "@/components/button";
 import { CopyId } from "@/components/copy-id";
 import { Drawer } from "@/components/drawer";
 import { browserStore, csvSafe, GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
+import { copyText } from "@/lib/clipboard";
 import { Icon, PayPalMark } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
@@ -122,7 +123,9 @@ type Layout = "narrow" | "medium" | "compact" | "wide";
 /** How a tenancy's deposit stands once money went back: all of what is owed, part of it (a refund made in PayPal or
  *  through a PayPal dispute before the rest), or still on its way. */
 type Back = "returned" | "partly" | "pending";
-type Ctx = { back: Map<string, Back>; today: string; layout: Layout; onlyProperty: (id: string) => void; open: (r: LedgerRow) => void };
+type Ctx = { back: Map<string, Back>; today: string; layout: Layout; onlyProperty: (id: string) => void;
+  /** The row's details. `selectId` is the PayPal id a Copy the browser refused wants shown selected there. */
+  open: (r: LedgerRow, selectId?: string) => void };
 
 function PropertyCell(p: CustomCellRendererProps<LedgerRow, string>) {
   if (!p.data) return null;
@@ -199,7 +202,11 @@ function RowMenu(p: CustomCellRendererProps<LedgerRow>) {
       { label: "View receipt", href: `/tenancy/${r.tenancyId}/statement`, icon: "doc" as const },
       { label: "Negotiation", href: `/tenancy/${r.tenancyId}?tab=move-out#negotiation`, icon: "split" as const },
     ] : []),
-    ...(r.paypalId ? [{ label: "Copy PayPal ID", icon: "copy" as const, onSelect: () => { navigator.clipboard?.writeText(r.paypalId!).catch(() => {}); } }] : []),
+    // The id on the clipboard. When the browser refuses it (no permission, or a plain http origin) the press opens the
+    // row's details, where the same id sits with its own copy button: it arrives selected, with one line saying to copy
+    // it by hand, so the press never does nothing (src/lib/clipboard.ts, components/copy-id.tsx).
+    ...(r.paypalId ? [{ label: "Copy PayPal ID", icon: "copy" as const,
+      onSelect: () => { void copyText(r.paypalId!).then((ok) => { if (!ok) ctx.open(r, r.paypalId!); }); } }] : []),
     { divider: true },
     { label: "Only this property", icon: "building", onSelect: () => ctx.onlyProperty(r.tenancyId) },
   ];
@@ -257,6 +264,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
   const [shown, setShown] = useState(0);
   const [selected, setSelected] = useState(0);
   const [open, setOpen] = useState<LedgerRow | null>(null);
+  const [selectId, setSelectId] = useState<string | null>(null); // the id a refused Copy sends to the details, selected
   const [shownCols, setShownCols] = useState<string[]>([]); // the Columns menu's checks follow the grid's own state
   // The view is in the address (?view=), so it can be linked to, comes back on a reload and goes back with Back.
   const choose = (v: View) => {
@@ -331,7 +339,9 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
   }, [rows, units, property]);
 
   const onlyProperty = useCallback((id: string) => setProperty(id), []);
-  const context = useMemo<Ctx>(() => ({ back, today, layout, onlyProperty, open: setOpen }), [back, today, layout, onlyProperty]);
+  // A Copy the browser refused opens the details with that id selected (RowMenu); every other way in opens them plain.
+  const openRow = useCallback((r: LedgerRow, selectId?: string) => { setSelectId(selectId ?? null); setOpen(r); }, []);
+  const context = useMemo<Ctx>(() => ({ back, today, layout, onlyProperty, open: openRow }), [back, today, layout, onlyProperty, openRow]);
 
   const recount = useCallback((api: GridApi<LedgerRow>) => {
     setShown(api.getDisplayedRowCount());
@@ -479,8 +489,8 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
   const onCellClicked = useCallback((e: CellClickedEvent<LedgerRow>) => {
     const t = e.event?.target as HTMLElement | null;
     if (!e.data || t?.closest("a, button, input, [role=menu]") || e.column.getColId() === "menu") return;
-    setOpen(e.data);
-  }, []);
+    openRow(e.data);
+  }, [openRow]);
   const onCellKeyDown = useCallback((e: CellKeyDownEvent<LedgerRow>) => {
     // The row's menu, from its cell (the grid is one Tab stop).
     if (e.column.getColId() === "menu") {
@@ -488,8 +498,8 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
       return;
     }
     const k = (e.event as KeyboardEvent | undefined)?.key;
-    if (k === "Enter" && e.data && e.column.getColId() !== "menu" && !(e.event?.target as HTMLElement | null)?.closest("button, a")) setOpen(e.data);
-  }, []);
+    if (k === "Enter" && e.data && e.column.getColId() !== "menu" && !(e.event?.target as HTMLElement | null)?.closest("button, a")) openRow(e.data);
+  }, [openRow]);
 
   // Past a screenful the grid gets a fixed height and renders only the rows in view (and a few either side), so a
   // few hundred rows scroll as fast as ten; a short list grows to fit, with no scroll box inside the page.
@@ -625,8 +635,8 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
         </div>
       </div>
 
-      <Drawer open={!!open} onClose={() => setOpen(null)} title={open ? `${TYPE[open.kind]}, ${shortDate(open.date)}` : ""} sub={open ? `${open.unit}, ${open.tenants}` : undefined}>
-        {open && <Details r={open} d={details[open.id]} status={statusOf(open, back)} at={(ts) => atFor(open, ts)} />}
+      <Drawer open={!!open} onClose={() => { setOpen(null); setSelectId(null); }} title={open ? `${TYPE[open.kind]}, ${shortDate(open.date)}` : ""} sub={open ? `${open.unit}, ${open.tenants}` : undefined}>
+        {open && <Details r={open} d={details[open.id]} status={statusOf(open, back)} at={(ts) => atFor(open, ts)} selectId={selectId} />}
       </Drawer>
     </>
   );
@@ -634,7 +644,9 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
 
 /** One row in full: the amount and its status, what it was and the rule behind it, every PayPal id with a copy button,
  *  where the status came from, and what PayPal's webhook said about it. */
-function Details({ r, d, status, at }: { r: LedgerRow; d: LedgerDetail | undefined; status: string; at: (ts: string) => string }) {
+function Details({ r, d, status, at, selectId }: { r: LedgerRow; d: LedgerDetail | undefined; status: string; at: (ts: string) => string;
+  /** The PayPal id a Copy the browser refused was for: it arrives selected, ready to copy by hand. */
+  selectId?: string | null }) {
   const section = "mt-6 border-t border-line-2 pt-4";
   return (
     <div>
@@ -655,7 +667,7 @@ function Details({ r, d, status, at }: { r: LedgerRow; d: LedgerDetail | undefin
       <div className={section}>
         <h3 className="flex items-center gap-1.5 text-sm font-medium"><PayPalMark size={14} />PayPal</h3>
         {d?.ids.length ? (
-          <KV className="mt-3" rows={d.ids.map((x) => [x.label, <CopyId key={x.id} text={x.id} label={`Copy the ${x.label.toLowerCase()} id`} />])} />
+          <KV className="mt-3" rows={d.ids.map((x) => [x.label, <CopyId key={x.id} text={x.id} label={`Copy the ${x.label.toLowerCase()} id`} selected={x.id === selectId} />])} />
         ) : (
           <p className="mt-2 text-sm text-ink-3">None. {r.kind === "deduction" ? "A deduction is on the statement, not in PayPal." : "PayPal holds no record of this row."}</p>
         )}

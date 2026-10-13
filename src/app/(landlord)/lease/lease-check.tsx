@@ -133,7 +133,9 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "Couldn't start the tenancy. Try again.");
-      router.push(`/tenancy/${j.id}`);
+      // In a copy of the demo a lease that already has a tenancy opens it instead of starting a second one
+      // (src/app/api/tenancies/route.ts); the property it opens says so in one sentence.
+      router.push(j.existing ? `/tenancy/${j.id}?lease=existing` : `/tenancy/${j.id}`);
     } catch (e) {
       setStarting(false);
       setStartError(e instanceof TypeError ? "Couldn't reach the server. Check the connection and try again." : (e as Error).message);

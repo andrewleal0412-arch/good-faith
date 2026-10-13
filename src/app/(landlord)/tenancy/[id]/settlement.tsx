@@ -44,7 +44,8 @@ export type WearRow = { id: string; n: number; item: string; full: string; room:
 // Deductions: the card on the Move-out tab, an AG Grid of every charge grouped by room (deductions-grid.tsx) with its
 // inputs editable in place, then Deposit held, Deductions and Refund due pinned under it and worked out live. Wear and
 // tear is listed at $0.00 and is never charged. Each row's menu removes it, or edits its inputs in a drawer, until the
-// deposit has gone back. While the next step is to take every deduction off (New York after day 14), a line over the
+// deposit has gone back. While the next step is to take every deduction off (New York after day 14, Florida past the
+// claim notice's 30 days), a line over the
 // grid says so and removes them all after one question; the route allows it only then.
 export function Settlement(p: {
   tenancyId: string;

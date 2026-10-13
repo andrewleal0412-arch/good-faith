@@ -9,7 +9,7 @@ import { Menu, type MenuItem } from "@/components/menu";
 import { PresenceList } from "@/components/motion";
 import { RollMoney } from "@/components/roll-money";
 import { RulesChip } from "@/components/rules-chip";
-import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, StatusChip, StepBox, Table, Td, Th, Thumb, trClass } from "@/components/ui";
+import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, Notice, StatusChip, StepBox, Table, Td, Th, Thumb, trClass } from "@/components/ui";
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
 import { returnFailed, wasPaid } from "@/lib/invoice-status";
@@ -26,6 +26,7 @@ import { loadNegotiation } from "@/lib/negotiation";
 import { dateIn, dayLabel, daysBetween, shortDate, todayIn, whenText } from "@/lib/dates";
 import { tenancyEvents } from "@/lib/ics";
 import { jevConfigured } from "@/lib/jev";
+import { SAME_LEASE } from "@/lib/lease-key";
 import { ledgerRows, type LedgerDeduction } from "@/lib/ledger";
 import { closedOut, dueLabelOf, dueOf, inspectionExcused, liveDispute, nextStep, notKeptAfterDispute, refundLeft } from "@/lib/next-step";
 import { disputeReturns } from "@/lib/refund-rail";
@@ -321,7 +322,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
 
   // The record header's one primary action: the refund review (its own focused page) once the findings are in,
   // otherwise the next step. It is the view's only indigo button, so the cards below show theirs as secondary.
-  // Not while the next step is to take every deduction off (New York after day 14): the review is blocked until they
+  // Not while the next step is to take every deduction off (New York after day 14, Florida past the claim notice's 30
+  // days): the review is blocked until they
   // are gone, so the primary is that step, which opens the Deductions card.
   const reviewRefund = inspected && !returned && !closed && !next.removeDeductions;
   // A PayPal dispute waiting on the landlord comes first (the refund is held while it is open); on Payments, where the
@@ -664,6 +666,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       </div>
 
       <TabBar id={id} className="mb-6 mt-5" />
+
+      {/* A lease this copy of the demo already had a tenancy for: the lease check opened this property instead of
+          starting a second tenancy of it (src/app/api/tenancies/route.ts), and this is the one sentence that says so.
+          Only a demo copy guards a start that way, so only a demo copy says it: in the owner's workspace the parameter
+          could only be typed by hand, and the sentence would be untrue there. */}
+      {sp.lease === "existing" && t.ws.kind === "demo" && <Notice tone="gray" className="mb-6">{SAME_LEASE}</Notice>}
 
       {ppBanner && (
         <OnTab tab="payments">

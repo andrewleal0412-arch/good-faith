@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { copyText, selectIn } from "@/lib/clipboard";
 import { Icon } from "./icons";
 
 /** What the row says when the id couldn't be copied for the reader. */
@@ -8,9 +9,10 @@ const BY_HAND = "Couldn't copy automatically. The ID is selected, so you can cop
 
 /** A PayPal id with a copy button that turns into a check for a moment, the two crossfading. Used on the refund receipt
  *  and the tenant page. When the browser refuses the clipboard (no permission, or a plain http origin) the id is
- *  selected and the older copy command tried, as the tenant link does (tenancy/[id]/tenant-link.tsx); failing that too,
- *  the id stays selected and a line under it says so, so the press never does nothing. */
-export function CopyId({ text, label }: { text: string; label: string }) {
+ *  selected and the older copy command tried (src/lib/clipboard.ts, as the tenant link does); failing that too, the id
+ *  stays selected and a line under it says so, so the press never does nothing. With `selected` it starts that way,
+ *  for a copy refused somewhere else that opened this row (the Payments row menu's Copy PayPal ID). */
+export function CopyId({ text, label, selected }: { text: string; label: string; selected?: boolean }) {
   const [done, setDone] = useState(false);
   const [used, setUsed] = useState(false); // fade only after a click, never on the page's first paint
   const [byHand, setByHand] = useState(false); // not copied: the id is selected and the line under it is shown
@@ -22,26 +24,15 @@ export function CopyId({ text, label }: { text: string; label: string }) {
     setTimeout(() => setDone(false), 1500);
   };
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      return copied();
-    } catch { /* fall through */ }
-    const sel = window.getSelection();
-    if (sel && id.current) {
-      const range = document.createRange();
-      range.selectNodeContents(id.current);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch { ok = false; }
-    if (ok) {
-      sel?.removeAllRanges();
-      return copied();
-    }
+    if (await copyText(text, id.current)) return copied();
     setDone(false);
     setByHand(true);
   }
+  // Shown because a copy from elsewhere was refused: the id is selected and the line is there from the first paint, so
+  // that press ends with the id ready to copy by hand.
+  useEffect(() => {
+    if (selected && selectIn(id.current)) setByHand(true);
+  }, [selected]);
   return (
     <span className={`inline-flex items-center gap-x-2 tabular-nums ${byHand ? "flex-wrap" : ""}`}>
       <span ref={id} className="break-all">{text}</span>

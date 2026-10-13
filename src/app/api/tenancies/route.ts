@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { audit, db } from "@/lib/db";
+import { leaseKey } from "@/lib/lease-key";
 import { takeAllowance } from "@/lib/limits";
 import { evaluateLease, type LeaseTerms } from "@/lib/rules";
 import { ACCESS_MESSAGES } from "@/lib/session";
@@ -48,9 +49,24 @@ const bodySchema = z.object({
   leasePath: z.string().regex(/^ws\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/).nullable().optional(),
 });
 
+/** The tenancy in this workspace that this lease already has, if there is one: the same property address and the same
+ *  tenants (src/lib/lease-key.ts), oldest first. Read only in a demo copy, where every demo lease already has its
+ *  tenancy and a second one of it is nothing but confusing; the owner's workspace may hold the same lease twice on
+ *  purpose (the demo seed does, with `npm run demo:seed -- --fresh`). */
+async function tenancyFromSameLease(workspaceId: string, terms: LeaseTerms): Promise<string | null> {
+  const key = leaseKey({ address: terms.propertyAddress, tenants: terms.tenants });
+  if (!key) return null;
+  const { data, error } = await db.from("tenancies").select("id, tenants, properties(address)").eq("workspace_id", workspaceId).order("created_at");
+  if (error || !data) return null;
+  const rows = data as unknown as { id: string; tenants: { name: string | null }[] | null; properties: { address: string | null } | null }[];
+  const same = rows.find((r) => leaseKey({ address: r.properties?.address, tenants: (r.tenants ?? []).map((t) => t.name) }) === key);
+  return same?.id ?? null;
+}
+
 // Start a tenancy from a checked lease: the property (with the state whose law it follows), the tenancy with its
 // extracted terms and flags, and the first audit entries. Flags are recomputed here with the state's pack rather than
-// trusted from the browser, and a state with no pack is refused.
+// trusted from the browser, and a state with no pack is refused. In a demo copy the same lease started twice opens the
+// tenancy it already made instead of making a second one.
 export async function POST(req: Request) {
   // The tenancy goes into the session's workspace: the owner's, or this visitor's copy of the demo.
   const ws = await currentWorkspace();
@@ -66,6 +82,13 @@ export async function POST(req: Request) {
   if (!isSupported(state)) return Response.json({ error: unsupportedMessage(state) }, { status: 400 });
   const pack = packFor(state);
   terms.state = state;
+  // A lease this copy of the demo already has a tenancy for: that tenancy, so a judge who checks a demo lease never
+  // ends up with two tenancies of one lease at one address. Nothing is written and nothing is spent. The browser sends
+  // the visitor to it with the sentence that says why (?lease=existing).
+  if (ws.kind === "demo") {
+    const same = await tenancyFromSameLease(ws.id, terms);
+    if (same) return Response.json({ id: same, existing: true });
+  }
   const flags = evaluateLease(terms, pack);
   // Today's allowance of new tenancies (src/lib/limits.ts), so an open demo can't fill the database.
   const run = await takeAllowance("tenancy");

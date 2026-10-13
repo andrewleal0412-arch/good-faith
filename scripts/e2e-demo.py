@@ -16,6 +16,7 @@ the words that matter and every money figure against what the code computes, sav
       In 8 and 9 the two pages stay open side by side, as in the demo: each shows what the other side did without a
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger) and Insights (beat 3b)
+  11. The same lease twice: Start tenancy on a lease the copy already has opens that tenancy, and makes no second one
 
 The server runs with GOOD_FAITH_E2E_STUBS=1 (src/lib/e2e-switch.ts): every Claude job answers from a scripted stub,
 Jev is off, and every PayPal call goes to a fake PayPal inside the server that refunds only the test's own fake
@@ -551,11 +552,22 @@ def walk(base, setup, shots, check, facts):
         # 8. The negotiation (beat 6): the landlord's negotiator and the tenants' advocate, checked by code each turn.
         # The tenants' page stays open on the dispute they sent ("Their answer comes back to this page").
         stay(tenant)
-        # The unit was closed out (statement delivered, refund sent); with a dispute waiting it is an open move-out again.
+        # The unit was closed out (statement delivered, refund sent); with a dispute waiting it is an open move-out again,
+        # on Move-outs and on Properties alike: a unit with a live dispute is in neither Closed list nor Closed count.
         go(page, "/move-outs")
         row = next((r for r in page.locator("main table tbody tr").all_inner_texts() if "1140 E. Juniper Hollow Ln" in r), "")
         check("Move-outs: the disputed unit is listed under Open, with the dispute as its next step", "Disputed" in row and "Answer dispute" in row,
               f"its row under Open: {row!r}; the page reads: {text(page)[:300]!r}")
+        go(page, "/units?filter=closed")
+        shut = page.locator("main table tbody tr").all_inner_texts()
+        check("Properties: the Closed filter lists the closed unit and not the one whose dispute is live",
+              len(shut) == 1 and "482 N. Glassell St" in shut[0], f"rows under Closed: {shut}")
+        tab = re.sub(r"\s+", "", page.locator("a[href='/units?filter=closed']").first.inner_text())
+        check("Properties: the Closed count says one, the same rule as the list", tab == "Closed1", tab)
+        go(page, "/units?filter=move-out")
+        row = next((r for r in page.locator("main table tbody tr").all_inner_texts() if "1140 E. Juniper Hollow Ln" in r), "")
+        check("Properties: the disputed unit is under Move-out instead, with the dispute as its next step", "Disputed" in row and "Answer dispute" in row,
+              f"its row under Move-out: {row!r}; the page reads: {text(page)[:300]!r}")
         go(page, f"/tenancy/{mo}?tab=move-out")
         sees("Disputed", page, "Disputed", f"Priya Raman disputes 1 deduction and asks for {case_back} back.", "Let my negotiator answer")
         page.get_by_role("button", name="Let my negotiator answer").click()
@@ -681,6 +693,22 @@ def walk(base, setup, shots, check, facts):
         page.wait_for_timeout(800)
         sees("Insights, Texas only", page, f"Deposits held\n{usd(TXF['held'])}", f"Collected\n{usd(TXF['collected'])}", f"Returned\n{usd(TXF['returned'])}", f"Kept as deductions\n{usd(TXF['kept'])}")
         shot(page, "insights-texas")
+
+        # 11. The same lease twice: this copy already has a tenancy for the demo lease, so Start tenancy opens that
+        # tenancy and makes no second one of it (src/lib/lease-key.ts). Last, so nothing above sees the extra page.
+        f4 = facts()
+        go(page, "/lease")
+        page.locator("input[type=file]").set_input_files(str(REPO / "demo/lease-single-owner.pdf"))
+        page.get_by_role("heading", name="Findings").wait_for(timeout=60_000)
+        page.get_by_role("button", name="Start tenancy").click()
+        page.wait_for_url(re.compile(r"/tenancy/[0-9a-f-]{36}"), timeout=60_000)
+        check("Same lease twice: Start tenancy opens the tenancy this copy already has for that lease", f"/tenancy/{mo}" in page.url, page.url)
+        sees("Same lease twice", page, "1140 E. Juniper Hollow Ln", "This lease already has a tenancy in this copy of the demo, so this opens it instead of starting a second one.")
+        shot(page, "same-lease-again")
+        f5 = facts()
+        check("Same lease twice: no second tenancy and no second property were made",
+              len(f5["tenancies"]) == len(f4["tenancies"]) and len({(t.get("properties") or {}).get("address") for t in f5["tenancies"]}) == len(f5["tenancies"]),
+              f"{len(f4['tenancies'])} tenancies before, {len(f5['tenancies'])} after: {[(t.get('properties') or {}).get('address') for t in f5['tenancies']]}")
 
         check("no page error or console error on the way", not errors, "; ".join(errors[:8]))
         browser.close()

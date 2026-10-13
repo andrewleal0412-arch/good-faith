@@ -5,9 +5,9 @@ import { Card, EmptyState, PageHead, Segmented, StatusChip, Table, Td, Th, Thumb
 import { paypalDisputeAlerts } from "@/lib/chargeback-store";
 import { dayLabel, daysBetween, shortDate, whenText } from "@/lib/dates";
 import { disputeAlerts, type DisputeAlert } from "@/lib/negotiation";
-import { closedOut, dueLabelOf, dueOf, type TenancySummary } from "@/lib/next-step";
+import { dueLabelOf, dueOf, type TenancySummary } from "@/lib/next-step";
 import { onePack } from "@/lib/states/server";
-import { disputeStep, propertyStatus, splitAddress, stepLink, tabHref } from "@/lib/property-view";
+import { disputeStep, propertyClosed, propertyStatus, splitAddress, stepLink, tabHref } from "@/lib/property-view";
 import { loadThumbnails, loadUnits } from "@/lib/units";
 import { currentWorkspace } from "@/lib/workspace";
 
@@ -42,9 +42,10 @@ export default async function MoveOutsPage({ searchParams }: PageProps<"/move-ou
   const disputeOf = new Map([...alerts].reverse().map((a) => [a.tenancyId, a]));
   const stepOf = (u: (typeof units)[number]) => { const a = disputeOf.get(u.summary.id); return a ? disputeStep(a) : stepLink(u.summary, u.next); };
   const ending = units.filter((u) => u.summary.noticeGivenOn || u.summary.tenantMoveOut || u.summary.moveOutDate || u.summary.statementDeliveredAt);
-  const isClosed = (s: TenancySummary) => closedOut(s) && !s.dispute && !s.paypalDispute;
-  const open = ending.filter((u) => !isClosed(u.summary));
-  const closed = ending.filter((u) => isClosed(u.summary));
+  // Closed is the one rule Properties reads too (propertyClosed, property-view.ts): a live dispute, or a step that
+  // still asks for the whole deposit back, reopens the move-out.
+  const open = ending.filter((u) => !propertyClosed(u.summary, u.next));
+  const closed = ending.filter((u) => propertyClosed(u.summary, u.next));
   const shown = view === "closed" ? closed : open;
   const thumbs = await loadThumbnails(shown.map((u) => u.summary.id));
   // The column's tip speaks for the one state every row follows, or generally when they span several.

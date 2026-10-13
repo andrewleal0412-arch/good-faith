@@ -186,10 +186,53 @@ eq("NY: not once the refund went (the rest is owed from PayPal)", next({ ...nyOu
 eq("NY: not once refunds made in PayPal returned the whole deposit", next({ ...nyOutLate, outside: 2000 }).removeDeductions, undefined);
 eq("NY: with the deductions gone the step moves on to the refund", [next({ ...nyOut, deductions: [] }), next({ ...nyOutLate, deductions: [] })].map((n) => [n.label, n.removeDeductions]),
   [["Send the itemized statement and refund", undefined], ["Send the refund", undefined]]);
-for (const state of ["CA", "FL", "TX", "WA"]) {
+// Florida's own case for the same control (F9, F10): no claim notice inside the 30 days
+// forfeits the claim and any setoff, so nothing on the statement may be kept. The step says what the close-out's
+// blocker says, opens the Deductions card and carries removeDeductions, under the same guards as New York's. Florida's
+// math is untouched: its deadline forfeits no deduction by itself (F13 can relieve the landlord of the notice, which
+// the file doesn't record), so the lines come off by hand and `forfeited` is never set.
+const certified = (date, received) => ({ claim_notice: { date, method: "certified", to: "A Tenant", recorded_at: "x", detail: "9407", ...(received ? { received } : {}) } });
+const flOut = { state: "FL", ...claimed, moveOutDate: "2026-08-20", plannedMoveOut: "2026-08-20", noticeGivenOn: "2026-07-20" };
+const flLate = next(flOut);
+eq("FL: past the 30 days with no claim notice, the step is the full refund",
+  [flLate.label, flLate.level, flLate.cite, flLate.action?.label, flLate.action?.path, flLate.removeDeductions],
+  ["Day 30 has passed: refund in full", "overdue", "Fla. Stat. 83.49(3)(a)", "Remove deductions", "?tab=move-out#deductions", true]);
+check("FL: the step's words are the pack's own", /ran out on September 19, 2026/.test(flLate.detail)
+  && /Remove the deductions to return the whole deposit/.test(flLate.detail), flLate.detail.slice(0, 200));
+eq("FL: Remove deductions opens the Deductions card on the Move-out tab", [linkOf(flOut).label, linkOf(flOut).href], ["Remove deductions", "/tenancy/t1?tab=move-out#deductions"]);
+eq("FL: a claim notice dated after the 30 days asks for the same", [next({ ...flOut, notices: certified("2026-09-25", "2026-09-27") }).label, next({ ...flOut, notices: certified("2026-09-25", "2026-09-27") }).removeDeductions],
+  ["Day 30 has passed: refund in full", true]);
+eq("FL: a notice inside the 30 days takes nothing off", next({ ...flOut, notices: certified("2026-09-15", "2026-09-17") }).removeDeductions, undefined);
+eq("FL: not before the 30 days run out", [next({ ...flOut, moveOutDate: "2026-09-20", plannedMoveOut: "2026-09-20" }).label, next({ ...flOut, moveOutDate: "2026-09-20", plannedMoveOut: "2026-09-20" }).removeDeductions],
+  ["Send the claim notice by certified mail", undefined]);
+eq("FL: not under a live dispute, where the deductions stay on file", next({ ...flOut, statementDeliveredAt: "2026-09-25T17:00:00Z", dispute: "open" }).removeDeductions, undefined);
+eq("FL: not once the refund went", next({ ...flOut, returned: { amount: 1600, kind: "refund" } }).removeDeductions, undefined);
+eq("FL: not without a deposit paid through PayPal", next({ ...flOut, deposit: null }).removeDeductions, undefined);
+eq("FL: with the deductions gone the step moves on to the statement and refund", [next({ ...flOut, deductions: [] }).label, next({ ...flOut, deductions: [] }).removeDeductions],
+  ["Send the itemized statement and refund", undefined]);
+eq("FL: the refund the code computes is unchanged, the deductions still off the deposit until they are removed",
+  deductions.settle(2000, [{ category: "damage", amount: 400 }], FL).refund, 1600);
+for (const state of ["CA", "TX", "WA"]) {
   const late = { state, ...moved, moveOutDate: "2026-07-01", deductions: [{ category: "damage", amount: 300 }], tenantMoveOut: { name: "A Tenant", plannedMoveOut: "2026-07-01", forwardingAddress: "9 Elm St", sentOn: "2026-06-01" } };
   check(`${state}: no step ever asks for every deduction to come off`, [late, { ...late, statementDeliveredAt: "2026-09-25T17:00:00Z" }, { ...late, dispute: "open" }].every((o) => !next(o).removeDeductions));
 }
+
+/* ---------- Which filter group a unit falls in (Properties and Move-outs read one rule) ---------- */
+// A unit already closed out is an open move-out again while a dispute on it is live, so the Properties Closed filter,
+// its count and the Move-outs Closed list all leave it out (propertyClosed, property-view.ts).
+const closedUnit = { ...moved, deductions: [{ category: "damage", amount: 400 }], statementDeliveredAt: "2026-10-02T18:00:00Z", returned: { amount: 1600, kind: "refund" } };
+const groupOf = (o) => { const u = sum(o); const n = nextStepLib.nextStep(u, today); const st = propertyView.propertyStatus(u, n); return [st.label, st.group, propertyView.propertyClosed(u, n)]; };
+eq("Properties: a closed-out unit is Closed", groupOf(closedUnit), ["Closed", "closed", true]);
+eq("Properties: the tenants' live dispute of the statement puts it back under Move-out", groupOf({ ...closedUnit, dispute: "open" }), ["Disputed", "move-out", false]);
+eq("Properties: a settlement agreed is still a move-out", groupOf({ ...closedUnit, dispute: "agreed" }), ["Settlement agreed", "move-out", false]);
+eq("Properties: their PayPal dispute of the deposit payment too", groupOf({ ...closedUnit, paypalDispute: true }), ["PayPal dispute", "move-out", false]);
+eq("Properties: once the dispute ends it is Closed again", groupOf({ ...closedUnit, dispute: null }), ["Closed", "closed", true]);
+eq("Properties: a PayPal dispute before the move-out keeps the unit in its own stage", groupOf({ paypalDispute: true }), ["PayPal dispute", "leased", false]);
+// A step that asks for every deduction to come off means the whole deposit is still owed, so the unit is not closed,
+// whatever the deductions came to (Florida past the claim notice's 30 days; New York reads the same from its own
+// forfeiture, which leaves the refund owed).
+eq("Properties: a unit whose step is to take every deduction off is not closed", groupOf({ ...flOut, statementDeliveredAt: "2026-09-25T17:00:00Z", deductions: [{ category: "damage", amount: 2000 }] }),
+  ["Overdue", "move-out", false]);
 // The same kind of dead click: the PayPal account step (New York, Texas, Florida) linked to the Overview it is shown on.
 eq("TX: Record the tenants' PayPal account opens the Move-in card", linkOf({ state: "TX", agreement: false, deposit: null }).href, "/tenancy/t1#move-in");
 eq("CA: Record agreement still opens the Move-in card", [linkOf({ agreement: false }).label, linkOf({ agreement: false }).href], ["Record agreement", "/tenancy/t1#move-in"]);
@@ -264,6 +307,10 @@ check("TX: the penalty says wrongfully", /wrongfully withheld/.test(TX.chip.text
 check("FL: the 7-day notice tip names the method", /certified mail or in person/.test(FL.tenant.mailTip(false).text));
 check("FL: no notice by day 30 forfeits the claim", FL.close.extraBlockers(facts({ tenancy: { moveOutDate: "2026-08-20" } }), ctx()).some((b) => /forfeited/.test(b)));
 check("FL: a notice sent after day 30 forfeits too", FL.close.extraBlockers(facts({ tenancy: { moveOutDate: "2026-08-20" } }), ctx({ notices: { claim_notice: { date: "2026-09-25", method: "certified", to: "A", recorded_at: "x", detail: "9407", received: "2026-09-27" } } })).some((b) => /forfeited/.test(b)));
+// The step that offers to remove the deductions (above) is the blocker in the same words, with the citation in its own
+// field: one sentence, written once (forfeitWords, fl.server.ts).
+const flBlocker = FL.close.extraBlockers(facts({ tenancy: { moveOutDate: "2026-08-20" } }), ctx())[0] ?? "";
+check("FL: the forfeiture step and the close-out's blocker say the same thing", flBlocker.replace(" (Fla. Stat. 83.49(3)(a))", "") === flLate.detail, flBlocker.slice(0, 160));
 check("FL: inside 30 days asks for the notice", FL.close.extraBlockers(facts({ tenancy: { moveOutDate: "2026-09-25" } }), ctx()).some((b) => /Send the claim notice first/.test(b)));
 check("FL: the objection window holds the deduction", FL.close.extraBlockers(facts({ tenancy: { moveOutDate: "2026-09-25" } }), ctx({ notices: { claim_notice: { date: "2026-09-28", method: "email", to: "A", recorded_at: "x", detail: "a@b.c" } } })).some((b) => /may object until/.test(b)));
 check("WA: no checklist bars damage deductions", WA.close.extraBlockers(facts(), ctx()).some((b) => /checklist/.test(b)));

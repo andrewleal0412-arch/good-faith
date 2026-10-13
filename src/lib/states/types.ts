@@ -280,9 +280,11 @@ export type StatePack = {
     beforeMoveOut?: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
     /** Extra steps after the comparison, before the statement and refund; null when none is open. */
     afterInspection: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
-    /** Where missing the deadline forfeits the deductions and the app holds the refund until they are removed (New
-     *  York, day 14): that step, from the comparison on, before the statement goes out and after; null when none is
-     *  open. Absent elsewhere. */
+    /** Where missing the deadline costs the landlord the right to keep anything and the app holds the refund until the
+     *  deductions are removed (New York after day 14; Florida once the 30 days for the claim notice ran out): that
+     *  step, from the comparison on, before the statement goes out and after; null when none is open. Absent
+     *  elsewhere. In New York the deadline also forfeits the deductions in the code's own math (deadline.forfeits);
+     *  Florida's does not, so there the lines stay on the deposit until they are removed by hand. */
     forfeit?: (t: TenancySummary, today: string, h: StepHelpers) => NextStep | null;
     /** Move-in items still open that the card lists under a later step. */
     openMoveIn: (t: TenancySummary) => string[];

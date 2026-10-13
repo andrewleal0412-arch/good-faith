@@ -8,9 +8,25 @@ import {
   security, shortOf, wear, type ItemSpec,
 } from "./common.server";
 import { FL, FL_BURDEN_CITE, flClockStart, objectionOf, receivedOn } from "./fl";
-import type { ServerPart, StandingInput } from "./types";
+import type { Notices } from "../notices";
+import type { ClockInput, ServerPart, StandingInput } from "./types";
 
 const F = (s: string) => `Fla. Stat. ${s}`;
+
+/** F9, F10: the claim notice missed its 30 days, so nothing may be kept. The close-out's blocker says it with the
+ *  citation inline; the next step says it with the citation in its own field, so the words are the same in both. */
+const forfeitWords = (last: string, cite = "") =>
+  `The 30 days for the claim notice ran out on ${longDate(last)}, so the claim and any setoff against the deposit are forfeited${cite}. Remove the deductions to return the whole deposit; a claim for damages can be brought separately after it is returned.`;
+
+/** When the claim is forfeited on the dates on file: the 30 days ran out with no claim notice, or the notice is dated
+ *  after them. `last` is the last day for the notice, 30 days from the clock's start (flClockStart). */
+function claimForfeited(t: ClockInput & { notices: Notices }, today: string): string | null {
+  const start = flClockStart(t);
+  if (!start) return null;
+  const last = addDays(start, 30);
+  const n = t.notices.claim_notice;
+  return (n ? n.date > last : today > last) ? last : null;
+}
 
 /** F12: a claim the tenants objected to in time is disputed, not deducted (product policy on the spec's E): the
  *  undisputed balance goes back on schedule and the claimed amount stays in the separate account. */
@@ -88,7 +104,7 @@ export const FL_SERVER: ServerPart = {
       const start = flClockStart({ moveOutDate: f.tenancy.moveOutDate, endDate: ctx.endDate, plannedMoveOut: ctx.plannedMoveOut })!;
       const last = addDays(start, 30);
       const n = ctx.notices.claim_notice;
-      const forfeit = `The 30 days for the claim notice ran out on ${longDate(last)}, so the claim and any setoff against the deposit are forfeited (Fla. Stat. 83.49(3)(a)). Remove the deductions to return the whole deposit; a claim for damages can be brought separately after it is returned.`;
+      const forfeit = forfeitWords(last, ` (${F("83.49(3)(a)")})`);
       if (!n) {
         return [ctx.today > last ? forfeit : `Send the claim notice first: by certified mail (or email under a signed s. 83.505 addendum) by ${longDate(last)}, 30 days after the tenancy ended. Nothing may be deducted until 15 days after the tenants receive it (Fla. Stat. 83.49(3)(a)-(b)).`];
       }
@@ -171,6 +187,25 @@ export const FL_SERVER: ServerPart = {
           action: { label: "View notice", path: "notices/claim-notice", icon: "doc" } };
       }
       return null;
+    },
+    // F9, F10: the claim notice missed its 30 days, so the claim and any setoff are forfeited and nothing on the
+    // statement may be kept. Florida's own math is untouched (its deadline forfeits no deduction by itself: F13 can
+    // relieve the landlord of the notice, which the file doesn't record), so the deductions come off by hand. This
+    // step is the close-out's blocker in the same words, and it opens the Deductions card, which takes them all off at
+    // once while it is the step. Under the same guards as New York's: a paid deposit to refund, deductions still on
+    // file, no refund sent yet, and never while a dispute the tenants sent is open (their dispute holds the lines, so
+    // the usual refund step stands and the blocker still says the claim is forfeited).
+    forfeit: (t, today, h) => {
+      if (!t.moveOutDate || !t.deductions.length || t.returned || t.dispute) return null;
+      if (!t.deposit || !wasPaid(t.deposit.status)) return null; // nothing came in through PayPal, so nothing to refund
+      const last = claimForfeited(t, today);
+      if (!last) return null;
+      return {
+        ...h.undated("Day 30 has passed: refund in full", forfeitWords(last), F("83.49(3)(a)"), "overdue"),
+        // To the Deductions card itself, which offers to remove them all at once while this is the step.
+        action: { label: "Remove deductions", path: "?tab=move-out#deductions", icon: "pen" },
+        removeDeductions: true,
+      };
     },
     openMoveIn: (t) => (t.deposit && wasPaid(t.deposit.status) && !t.notices.deposit_account ? ["deposit not yet recorded in a separate Florida account"] : []),
   },
