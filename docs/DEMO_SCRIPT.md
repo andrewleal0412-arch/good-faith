@@ -6,6 +6,7 @@ Under three minutes, eight beats, one fresh demo copy. Each beat names the scree
 
 - Open the hosted demo once a few minutes ahead, so Render is awake, and check the pool has a deposit ready (`npm run demo:pool -- --status`).
 - Enter the judges' code in a private window: a fresh copy, dated today. Use Start over if you rehearsed in it.
+- Hide the demo guide before the take: the panel the copy opens with sits above every page's heading, so it would be in every shot. Hide, in its own head, puts it away for that browser; Demo guide in the account menu brings it back.
 - Two windows side by side: the landlord on the left, the tenants' page on the right. "Open the tenant's view" opens a new tab, not a window, so drag that tab out to the right once it opens.
 - Beats 5 and 7 hold seven clicks each in 25 seconds, which fits only without fumbling: the tenants' page asks for their name before Ask my advocate and before Accept settlement, and Send, Accept settlement and Approve and pay each ask once more in a small dialog, naming the amount where there is one. To give beat 5 room, record the statement's delivery off camera right after beat 4 (Statement, Record delivery, any method), open the tenant's view then and drag it into the right window, and start beat 5 on the tenants' page. Rehearse 5 to 7 once on a spare copy (Start over gives a fresh one).
 - The statement and the refund review draw their own rows first and fill PayPal's part in about a second; Record delivery, Prepare refund, Send refund and Decline stay off until it has, so wait for the button to come on rather than clicking into a disabled one.
@@ -25,6 +26,19 @@ Under three minutes, eight beats, one fresh demo copy. Each beat names the scree
 | 6 | 1:40 to 2:10 | Two-agent negotiation | Landlord's Move-out tab (left), tenants' dispute page (right) | Let my negotiator answer; open one turn's Reasoning and figures, and a Why? | "My negotiator answers with my evidence, their advocate answers back. Every turn is checked by code: inside the lawful range, no taking back a concession, citations from the statute only, and no legal advice." |
 | 7 | 2:10 to 2:35 | PayPal settlement | Tenants' page, then landlord's Move-out tab | Your name, Accept settlement and confirm (right); Approve and pay and confirm (left); then Amended statement and Payments | "It takes both humans: the tenants accept, I approve. PayPal refunds the agreed amount against the same deposit payment, and the statement becomes the amended statement. No small claims court for either side." |
 | 8 | 2:35 to 2:55 | Multi-state | Properties, then 2317 Mesquite Bend Dr, Unit 3 | On Properties, point at the TX mark beside 2317 Mesquite Bend Dr, Unit 3; open the unit and hover the Rules chip under its address (Rules: Tex. Prop. Code ch. 92) | "The same engine runs California, New York, Texas, Florida and Washington from verified rule packs: different deadlines, documents and penalties, the same PayPal rails and guards." |
+
+**The same eight beats inside a demo copy.** A judge's private copy opens with them as a short checklist above each
+page: one line each, in this order, each a link to where that beat happens in that copy, and each ticked off by the
+copy's own rows (the lease Claude read, the paid deposit, the photo comparison, the refund, the dispute, the
+negotiation, the settlement, the unit in the second state). It reads the copy again whenever a click opens another
+page, so a step that completes in the tenants' tab is ticked on the landlord's side without a reload.
+
+The table above is the source of the beats. `src/lib/demo-guide.ts` carries the same eight numbers and titles, names
+the screen each one opens, and takes the unit a beat runs on from the address that beat's own row names (beat 2 for the
+live unit, beat 8 for the second state's), so nothing a judge does in the copy can move the guide to another unit.
+`scripts/e2e-demo.py` reads both files and fails when the numbers, the titles, their order or those two addresses
+drift, so a beat renamed, reordered or moved to another unit here has to move there too. The owner's workspace never
+shows it.
 
 **Optional beat 3b, the deductions grid and Insights (about 25 seconds, for the AG Grid sponsor prize or a longer cut).** Right after beat 3, on the same Move-out tab, in the Deductions card: click the carpet's Life cell and type 12. The cell refuses it: the tip under it gives the reason with the DRE guide's citation and says Escape keeps 10 years. Press Escape. Click Life again, type 9 and press Enter: the amount flashes to $600.00 and Refund due moves to $3,910.00 under the grid. Then type 10 back the same way, so beat 4 still sends $3,790. Open Insights from the sidebar and tap a state in the state filter: the figures, the four charts and the grid narrow together. Say: "Every money screen is an AG Grid. The landlord edits the inputs in place, the same code the server runs holds each one to the lawful range as it is typed, and the totals move live. Insights reads the same ledger rows as Payments, so the numbers agree." This beat needs the landlord's window at least 1024 wide, where every input is its own cell; in a narrower window the inputs move to Edit in the row's menu.
 

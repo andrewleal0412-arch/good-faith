@@ -10,8 +10,9 @@
 export type LeaseIdentity = { address: string | null | undefined; tenants: (string | null | undefined)[] };
 
 /** Case, punctuation and runs of spaces don't matter: "1140 E. Juniper Hollow Ln" and "1140 e juniper hollow ln" are
- *  the same address, since Claude's reading of one PDF can differ that much between runs. */
-const squash = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+ *  the same address, since Claude's reading of one PDF can differ that much between runs. The demo guide compares a
+ *  copy's addresses the same way (src/lib/demo-guide.ts). */
+export const squash = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 /** The key two tenancies share when they came from one lease, or null when there isn't enough to tell: the address and
  *  the tenants' names, the names in a fixed order so their order on the lease never matters. A lease with no name read

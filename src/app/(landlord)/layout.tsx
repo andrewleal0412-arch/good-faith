@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AppShell, type ShellAlert, type ShellChrome } from "@/components/app-shell";
@@ -7,6 +7,8 @@ import { initialsOf } from "@/components/ui";
 import { displayName } from "@/lib/copy";
 import { paypalBell } from "@/lib/bell";
 import { longDate } from "@/lib/dates";
+import { GUIDE_COOKIE, guideState } from "@/lib/demo-guide";
+import { demoGuideSteps } from "@/lib/demo-guide-server";
 import { openOutsideRefunds } from "@/lib/outside-refunds";
 import { SANDBOX } from "@/lib/paypal";
 import { canSignOut } from "@/lib/session-server";
@@ -124,8 +126,14 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
   const known = ws?.kind === "demo" ? DEMO_ACCOUNT : ws?.kind === "owner" ? process.env.GOOD_FAITH_ACCOUNT?.trim() || null : null;
   const account = known ? displayName(known) : null;
   const notFoundFirst = ws ? await answersNotFound((await headers()).get(PATH_HEADER) ?? "") : false;
+  // A visitor's private copy of the demo, made with the judges' code: the only workspace that gets Start over and the
+  // demo guide. What this browser last chose to do with the guide (open, collapsed, hidden) is a cookie the server
+  // reads, so a hidden guide draws nothing at all rather than flashing and going; the guide stays mounted, so Demo
+  // guide in the account menu brings it back without a reload.
+  const demo = canSignOut() && ws?.kind === "demo";
+  const guide = demo ? { state: guideState((await cookies()).get(GUIDE_COOKIE)?.value), steps: settled(demoGuideSteps(), null, "the demo guide") } : null;
   return (
-    <AppShell sandbox={SANDBOX} signOut={canSignOut()} startOver={canSignOut() && ws?.kind === "demo"}
+    <AppShell sandbox={SANDBOX} signOut={canSignOut()} startOver={demo} guide={guide}
       account={account ? { account, initials: initialsOf(account) } : null} chrome={chromeOf(ws)}>
       {notFoundFirst ? children : <Suspense fallback={<RouteSkeleton />}>{children}</Suspense>}
     </AppShell>

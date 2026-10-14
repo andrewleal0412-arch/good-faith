@@ -4,7 +4,8 @@
 It walks docs/DEMO_SCRIPT.md in a real browser on a fresh private demo copy, as a judge would, and checks at each step
 the words that matter and every money figure against what the code computes, saving a screenshot of each step:
 
-   1. Properties: the three units, the Texas unit's Rules chip (beat 8)
+   1. Properties: the three units, the Texas unit's Rules chip (beat 8), and the demo guide's eight beats, each
+      ticked off this copy's own rows and linking to where that beat happens in it
    2. Check a lease: demo/lease-single-owner.pdf, its flags and the lawful deposit (beat 1)
    3. The move-out unit's Overview: the deposit paid through a PayPal invoice, the signed refund agreement (beat 2)
    4. Move-out: the move-in and move-out photo pairs with Claude's damage boxes, the three deductions (beat 3)
@@ -17,6 +18,11 @@ the words that matter and every money figure against what the code computes, sav
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger) and Insights (beat 3b)
   11. The same lease twice: Start tenancy on a lease the copy already has opens that tenancy, and makes no second one
+  12. The demo guide's own ground: a move-out date set on the Texas unit leaves every step where it was (the unit each
+      beat runs on is the address the demo script names, not the copy's latest move-out); its route answers with the
+      copy's eight steps; a click from one page to another makes it read them again rather than keep the last page's;
+      and Hide puts it away for the browser, a reload keeps it away, the account menu brings it back. Its eight steps
+      and the two properties they name are also checked against the beat table of docs/DEMO_SCRIPT.md, with no browser
 
 The server runs with GOOD_FAITH_E2E_STUBS=1 (src/lib/e2e-switch.ts): every Claude job answers from a scripted stub,
 Jev is off, and every PayPal call goes to a fake PayPal inside the server that refunds only the test's own fake
@@ -243,6 +249,46 @@ def amounts(text):
     return sorted({cents(m.replace(",", "")) for m in MONEY.findall(text)})
 
 
+def doc_beats():
+    """The numbered beats of docs/DEMO_SCRIPT.md's beat table: each one's number and its title. The motion table's rows
+    don't start with a bare number, so they are skipped."""
+    out = []
+    for line in (REPO / "docs/DEMO_SCRIPT.md").read_text().splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 5 or not re.fullmatch(r"\d+", cells[0]):
+            continue
+        out.append((int(cells[0]), cells[2]))
+    return out
+
+
+def guide_beats():
+    """The same beats as src/lib/demo-guide.ts carries them for the guide inside a demo copy."""
+    src = (REPO / "src/lib/demo-guide.ts").read_text()
+    return [(int(n), t) for n, t in re.findall(r"\{\s*n:\s*(\d+),\s*title:\s*\"([^\"]+)\"", src)]
+
+
+def doc_beat_rows():
+    """Each numbered beat's whole row of docs/DEMO_SCRIPT.md's beat table, by number: where the property that beat runs
+    on is named."""
+    out = {}
+    for line in (REPO / "docs/DEMO_SCRIPT.md").read_text().splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 5 or not re.fullmatch(r"\d+", cells[0]):
+            continue
+        out[int(cells[0])] = " | ".join(cells)
+    return out
+
+
+def guide_units():
+    """The property each beat names in src/lib/demo-guide.ts (BEATS, `unit`): the unit that beat runs on in a copy."""
+    src = (REPO / "src/lib/demo-guide.ts").read_text()
+    return {int(n): u for n, u in re.findall(r"\{\s*n:\s*(\d+),.*?unit:\s*\"([^\"]+)\"", src)}
+
+
 def recompute(d):
     """A deduction's amount from its stored inputs, worked out here independently of src/lib/deductions.ts: the
     vendor's invoice, the landlord's hours times the rate, and a replacement prorated over its useful life."""
@@ -329,6 +375,12 @@ def walk(base, setup, shots, check, facts):
               f"missing {missing}; the page reads: {t[:600]!r}")
         return t
 
+    def guide(page):
+        """The demo guide as the page shows it: {beat number: ("done" | "now" | "todo", where it links)}."""
+        return {int(k): tuple(v) for k, v in page.evaluate("""() => Object.fromEntries(
+          [...document.querySelectorAll('[data-guide-step]')].map((li) => [li.dataset.guideStep,
+            [li.dataset.guideState, li.querySelector('a') ? new URL(li.querySelector('a').href).pathname + new URL(li.querySelector('a').href).search + new URL(li.querySelector('a').href).hash : null]]))""").items()}
+
     def only_amounts(step, t, allowed):
         """Every dollar figure on the screen is one the code computes for it: a wrong total can't hide in a corner."""
         stray = [a for a in amounts(t) if not any(abs(a - x) < 0.005 for x in allowed)]
@@ -374,6 +426,19 @@ def walk(base, setup, shots, check, facts):
     check(f"deductions: {usd(E['deductions'])} in all, the demo's {usd(DEMO['deductions'])}; refund {usd(E['refund'])}, the demo's {usd(DEMO['refund'])}",
           abs(E["deductions"] - DEMO["deductions"]) < 0.005 and abs(E["refund"] - DEMO["refund"]) < 0.005 and abs(E["deposit"] - DEMO["deposit"]) < 0.005,
           json.dumps({k: E[k] for k in ("deposit", "deductions", "refund")}))
+    # The demo guide's eight steps are docs/DEMO_SCRIPT.md's eight beats: the same numbers and titles, in its order
+    # (src/lib/demo-guide.ts). Checked here, so a beat renamed or reordered in one file fails until it moves in both.
+    beats, guided = doc_beats(), guide_beats()
+    check(f"demo guide: the demo script has eight numbered beats ({len(beats)} found)", len(beats) == 8, json.dumps(beats))
+    check("demo guide: its steps are those beats, by number and title, in that order", beats == guided,
+          f"the demo script has {json.dumps(beats)}, the guide {json.dumps(guided)}")
+    # The guide picks the unit a beat runs on by the address that beat's own row names, so nothing a judge does in the
+    # copy can move it (liveUnit, src/lib/demo-guide.ts). Those addresses have to stay the same in both files.
+    units_named, rows = guide_units(), doc_beat_rows()
+    astray = {n: u for n, u in units_named.items() if u not in rows.get(n, "")}
+    check("demo guide: the live unit and the second state's unit are the ones their own beats name in the demo script",
+          2 in units_named and 8 in units_named and not astray, f"the guide names {json.dumps(units_named)}; astray {json.dumps(astray)}")
+
     D, R, P = usd(E["deposit"]), usd(E["refund"]), usd(E["deductions"])
     line_amounts = [E["carpet"], E["wall"], E["range"]]
 
@@ -397,6 +462,24 @@ def walk(base, setup, shots, check, facts):
         # Before the refund: the move-out unit's deposit and the Texas one (the closed unit's went back).
         sees("Properties: deposits held", page, f"Deposits held\n{usd(E['portfolio']['held'])}")
         shot(page, "properties")
+
+        # 1b. The demo guide (components/demo-guide.tsx): the eight beats above every page of a judge's own copy, each
+        # a link into this copy, each ticked off by the copy's own rows. Before the close-out, what the copy was made
+        # with is ticked (the lease Claude read, the paid deposit, the photo comparison, the unit in the second state)
+        # and the live part, from the refund on, is not.
+        g = guide(page)
+        check("Demo guide: the eight beats are listed in order", sorted(g) == [1, 2, 3, 4, 5, 6, 7, 8], f"{sorted(g)}")
+        check("Demo guide: before the close-out, four beats are ticked off the copy's own rows and the refund is next",
+              [g[i][0] for i in range(1, 9)] == ["done", "done", "done", "now", "todo", "todo", "todo", "done"],
+              json.dumps({k: v[0] for k, v in sorted(g.items())}))
+        sees("Demo guide", page, "Demo guide", "4 of 8 done", "1. Lease check", "4. Refund approval", "8. Multi-state",
+             "Claude boxes what changed between the photos.")
+        want = {1: "/lease", 2: f"/tenancy/{mo}#move-in", 3: f"/tenancy/{mo}?tab=move-out#photos", 4: f"/tenancy/{mo}/refund",
+                5: f"/tenancy/{mo}/statement#delivery", 6: f"/tenancy/{mo}?tab=move-out#negotiation",
+                7: f"/tenancy/{mo}?tab=move-out#negotiation", 8: f"/tenancy/{tx}"}
+        wrong = {k: g[k][1] for k in want if g[k][1] != want[k]}
+        check("Demo guide: every step opens that beat's own page and card in this copy", not wrong, f"wanted {json.dumps(want)}, got {json.dumps(wrong)}")
+
         go(page, f"/tenancy/{tx}")
         sees("Texas unit", page, "Rules: Tex. Prop. Code ch. 92", "Austin, TX 78745", "Notice given")
         page.get_by_role("button", name=re.compile(r"^Rules: Tex\. Prop\. Code")).first.hover()
@@ -512,6 +595,12 @@ def walk(base, setup, shots, check, facts):
         link = page.get_by_role("link", name=re.compile("Open the tenant's view")).first
         href = link.get_attribute("href")
         check("Statement: Open the tenant's view opens this copy's tenants' page in a new tab", href == setup["tenantPath"] and link.get_attribute("target") == "_blank", f"{href} {link.get_attribute('target')}")
+        # The guide ticks itself off the copy's rows: the refund it pointed at is done, and the tenant-dispute step now
+        # opens the card that opens the tenants' page, where before the delivery it opened the delivery card.
+        g = guide(page)
+        check("Demo guide: the refund step is ticked once the refund is sent", g[4][0] == "done", json.dumps({k: v[0] for k, v in sorted(g.items())}))
+        check("Demo guide: with the statement delivered, the tenant-dispute step opens the Tenant link card",
+              g[5] == ("now", f"/tenancy/{mo}?tab=tenants#tenant-link"), json.dumps(g[5]))
         shot(page, "statement-delivered")
 
         tenant = ctx.new_page()
@@ -664,6 +753,10 @@ def walk(base, setup, shots, check, facts):
         t = sees("Payments tab", page, f"Collected\n{D}", f"Deductions as settled\n{usd(E['kept'])}", f"Still held\n$0.00", f"Returned\n{usd(E['returned'])}",
                  f"−{R}", f"−{usd(E['settled'])}", "Settlement", "Refund", rid, sid)
         only_amounts("Payments tab", t, [E["deposit"], E["kept"], 0.0, E["returned"], E["refund"], E["settled"], E["deductions"], *line_amounts])
+        g = guide(page)
+        check("Demo guide: all eight beats are ticked once the settlement is paid", [v[0] for _, v in sorted(g.items())] == ["done"] * 8,
+              json.dumps({k: v[0] for k, v in sorted(g.items())}))
+        sees("Demo guide, walked", page, "8 of 8 done")
         shot(page, "property-payments")
 
         # 10. Payments, the AG Grid ledger, and Insights (beat 3b), against the whole copy's figures as they stand now.
@@ -709,6 +802,59 @@ def walk(base, setup, shots, check, facts):
         check("Same lease twice: no second tenancy and no second property were made",
               len(f5["tenancies"]) == len(f4["tenancies"]) and len({(t.get("properties") or {}).get("address") for t in f5["tenancies"]}) == len(f5["tenancies"]),
               f"{len(f4['tenancies'])} tenancies before, {len(f5['tenancies'])} after: {[(t.get('properties') or {}).get('address') for t in f5['tenancies']]}")
+
+        # 12. The guide's own ground, last, so nothing above runs without it.
+        #
+        # 12a. The unit a beat runs on is the address docs/DEMO_SCRIPT.md names for it, not the copy's latest move-out:
+        # the Texas unit's own page offers a move-out date and beat 8 sends a judge there, so a date set on it must
+        # leave every step's link and tick where it was (liveUnit, src/lib/demo-guide.ts).
+        go(page, "/units")
+        before = guide(page)
+        answered = page.evaluate("""async (id) => {
+          const r = await fetch(`/api/tenancies/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ moveOutDate: new Date().toISOString().slice(0, 10) }) });
+          return r.status; }""", tx)
+        check("Demo guide: the Texas unit takes a move-out date of today, as its own page offers", answered == 200, f"the route answered {answered}")
+        go(page, "/units")
+        after = guide(page)
+        check("Demo guide: a move-out date set on the Texas unit leaves every step where it was", after == before,
+              f"was {json.dumps(before)}, now {json.dumps(after)}")
+        check("Demo guide: the live beats still open the California move-out unit, and the multi-state beat the Texas one",
+              all(f"/tenancy/{mo}" in (after[i][1] or "") for i in (2, 3, 4, 5, 6, 7)) and after[8][1] == f"/tenancy/{tx}",
+              json.dumps({k: v[1] for k, v in sorted(after.items())}))
+
+        # 12b. The ticks don't go stale: Next keeps a layout it has already rendered when a click opens another page
+        # under it, so the panel asks its own route (src/app/api/demo/guide/route.ts) when the page under it changes.
+        asked = page.evaluate("""async () => {
+          const r = await fetch('/api/demo/guide', { cache: 'no-store' });
+          return { status: r.status, body: await r.json() }; }""")
+        steps = (asked.get("body") or {}).get("steps") or []
+        check("Demo guide: its own route answers with this copy's eight steps, all of them done by now",
+              asked["status"] == 200 and [x["n"] for x in steps] == [1, 2, 3, 4, 5, 6, 7, 8] and all(x["done"] for x in steps),
+              json.dumps(asked)[:500])
+        since = time.time()
+        page.get_by_role("navigation", name="Main").get_by_role("link", name="Tenants").click()
+        page.wait_for_url(re.compile(r"/tenants$"), timeout=30_000)
+        page.wait_for_timeout(1500)
+        again = [u for t, u in asked_l if t >= since and "/api/demo/guide" in u]
+        check("Demo guide: a click from one page to another makes it read the copy again", len(again) >= 1,
+              f"{len(again)} requests to its route since the click")
+        check("Demo guide: it still shows the eight beats, all ticked, on the page the click opened",
+              [v[0] for _, v in sorted(guide(page).items())] == ["done"] * 8, json.dumps(guide(page)))
+
+        # 12c. Its controls: Hide puts it away for this browser and a reload keeps it away (the choice is a cookie the
+        # server reads, so a hidden guide is never rendered at all), and Demo guide in the account menu brings it back.
+        go(page, "/units")
+        page.locator("section[aria-label='Demo guide']").get_by_role("button", name="Hide").click()
+        check("Demo guide: Hide puts it away", page.locator("[data-guide-step]").count() == 0)
+        go(page, "/units")
+        check("Demo guide: it stays away after a reload, and the page never renders it",
+              page.locator("section[aria-label='Demo guide']").count() == 0 and "Demo guide" not in text(page))
+        page.get_by_role("button", name="Account").first.click()
+        page.get_by_role("button", name="Demo guide").click()
+        page.locator("[data-guide-step]").first.wait_for(timeout=10_000)
+        check("Demo guide: Demo guide in the account menu brings it back, open", page.locator("[data-guide-step]").count() == 8)
+        shot(page, "demo-guide")
 
         check("no page error or console error on the way", not errors, "; ".join(errors[:8]))
         browser.close()

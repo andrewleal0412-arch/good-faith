@@ -4,12 +4,14 @@ import Link from "@/components/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, use, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type Ref } from "react";
 import { ConfirmDialog } from "./confirm";
+import { DemoGuide } from "./demo-guide";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { InfoTip } from "./info-tip";
 import { Menu } from "./menu";
 import { arriveAgain, PresenceList, usePresence } from "./motion";
 import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
 import { Avatar, Notice, Wordmark } from "./ui";
+import type { GuideState, GuideStep } from "@/lib/demo-guide";
 import { sectionOf } from "@/lib/tenancy-tabs";
 
 // The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Insights, Documents, then the Workflows group),
@@ -33,6 +35,9 @@ type ShellProps = {
   startOver: boolean; // this is a visitor's private copy of the demo, which can be replaced by a fresh one
   account: { account: string; initials: string } | null; // known before any read (a demo copy, or GOOD_FAITH_ACCOUNT)
   chrome: Promise<ShellChrome>;
+  // The demo guide at the top of every page, in a private demo copy only (null in the owner's workspace): what this
+  // browser last chose to do with it, and the eight beats of this copy, which stream in with the rest of the chrome.
+  guide: { state: GuideState; steps: Promise<GuideStep[] | null> } | null;
   children: ReactNode;
 };
 
@@ -47,7 +52,7 @@ const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) =>
   { href: "/move-outs", icon: "key", label: "Move-outs", match: (p) => p.startsWith("/move-outs") },
 ];
 
-export function AppShell({ sandbox, signOut, startOver, account, chrome, children }: ShellProps) {
+export function AppShell({ sandbox, signOut, startOver, account, chrome, guide, children }: ShellProps) {
   const path = usePathname();
   const [drawer, setDrawer] = useState(false);
   const nav = usePresence(drawer);
@@ -178,6 +183,10 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, childre
           </div>
         </header>
         <main id="main" tabIndex={-1} className="w-full max-w-content px-4 pb-12 pt-5 outline-none md:px-7 md:pt-7 print:max-w-none print:p-0">
+          {/* A judge's own copy opens with the eight beats of the demo script, each a link into this copy
+              (components/demo-guide.tsx). It sits in the page's flow above the heading, so it covers nothing it points
+              at, and stays where it is while the next page arrives. */}
+          {guide && <DemoGuide {...guide} />}
           {/* The page stays mounted while the next one is opened, under its skeleton; a filter being applied dims it,
               after a moment, so a quick answer doesn't flicker. A page arriving rises into place (gf-page, globals.css):
               its parts are new, or were hidden under the skeleton, so their arrival plays; a re-render plays nothing. */}
@@ -391,11 +400,19 @@ function AccountCard(p: SideProps & { close: () => void }) {
       <Suspense fallback={null}><Owners chrome={p.chrome} /></Suspense>
       {p.signOut && (
         <form method="post" action="/api/access/sign-out" className="mt-1.5 border-t border-line-2 pt-1.5">
+          {/* A private copy of the demo: the way back to a guide this browser hid (components/demo-guide.tsx), and a
+              fresh copy. Neither is in the owner's workspace. */}
           {p.startOver && (
-            <button type="button" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:start-over")); }}
-              className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
-              <Icon name="restart" className="size-[15px] text-ink-3" />Start over
-            </button>
+            <>
+              <button type="button" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:demo-guide")); }}
+                className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
+                <Icon name="check" className="size-[15px] text-ink-3" />Demo guide
+              </button>
+              <button type="button" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:start-over")); }}
+                className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
+                <Icon name="restart" className="size-[15px] text-ink-3" />Start over
+              </button>
+            </>
           )}
           <button type="submit"
             className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
