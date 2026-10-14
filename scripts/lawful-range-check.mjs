@@ -14,7 +14,7 @@ import { MockLanguageModelV4 } from "ai/test";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
-const [states, range, advocate, dates] = await Promise.all(["states/server", "lawful-range", "advocate", "dates"].map(lib));
+const [states, range, advocate, words, dates] = await Promise.all(["states/server", "lawful-range", "advocate", "agent-words", "dates"].map(lib));
 const { packFor } = states;
 const { lawfulRanges, checkProposal, backFor } = range;
 const CA = packFor("CA"), TX = packFor("TX"), NY = packFor("NY"), FL = packFor("FL"), WA = packFor("WA");
@@ -363,14 +363,14 @@ function caseFileFor(deductions, pack, o = {}) {
   eq("advocate: the amount stands (wording can't move it)", [c.lines[0].verdict, c.lines[0].keep], ["weak", 360]);
   check("advocate: both replacements are listed", c.adjustments.filter((a) => /past informing/.test(a)).length === 2, JSON.stringify(c.adjustments));
   eq("advocate: 'unsupported' the code doesn't find becomes weak", c.lines[1].verdict, "weak");
-  check("beyondInforming: plain informing passes", !advocate.beyondInforming("The landlord would lose the right to keep any of it. The invoice is missing."));
-  check("beyondInforming: a judge, a lawsuit, a threat are caught", ["A judge would agree.", "File a lawsuit.", "That is a threat.", "We guarantee it."].every(advocate.beyondInforming));
+  check("beyondInforming: plain informing passes", !words.beyondInforming("The landlord would lose the right to keep any of it. The invoice is missing."));
+  check("beyondInforming: a judge, a lawsuit, a threat are caught", ["A judge would agree.", "File a lawsuit.", "That is a threat.", "We guarantee it."].every(words.beyondInforming));
 }
 {
   // The tenants' photos reach the model by number, never by file name (a name is their text).
-  eq("advocate: tenant photos are labeled by number", advocate.tenantPhotoLabel(0), "The tenants' photo 1");
+  eq("advocate: tenant photos are labeled by number", words.tenantPhotoLabel(0), "The tenants' photo 1");
   const file = caseFileFor([carpet()], CA, { disputed: ["carpet"] });
-  file.dispute.evidence = [{ ref: "ws/x/t/dispute/d/p.jpg", label: advocate.tenantPhotoLabel(0), box: null, line: 1 }];
+  file.dispute.evidence = [{ ref: "ws/x/t/dispute/d/p.jpg", label: words.tenantPhotoLabel(0), box: null, line: 1 }];
   const model = new MockLanguageModelV4({ doGenerate: [step([call("p1", "list_photos")]), answer({ summary: "One line.", lines: [{ line: 1, verdict: "weak", reason: "x", citation: "Civ. Code 1950.5(b)(2)", keep: 700 }] })] });
   await advocate.runAdvocate(file, CA, { model, loadPhoto: async () => null });
   const listed = JSON.stringify(model.doGenerateCalls[1].prompt.filter((m) => m.role === "tool"));
@@ -390,7 +390,7 @@ function caseFileFor(deductions, pack, o = {}) {
   let threw = false;
   try { await advocate.runAdvocate(caseFileFor([wall()], CA, { disputed: ["wall"] }), CA, { model, loadPhoto: async () => null }); } catch { threw = true; }
   check("advocate: no case, no answer", threw);
-  eq("cleanText: dashes and emojis", advocate.cleanText("A — B – C 2–3 \u{1F44D}", 100), "A, B, C 2-3");
+  eq("cleanText: dashes and emojis", words.cleanText("A — B – C 2–3 \u{1F44D}", 100), "A, B, C 2-3");
 }
 
 console.log(`${pass} passed, ${fail} failed`);

@@ -242,6 +242,17 @@ function lineRange(d: RangeDeduction, n: number, ctx: { pack: StatePack; documen
   };
 }
 
+/** Every citation an agent may use on a case over these ranges: the ranges' own and the pack's rule cites. An agent
+ *  copies one; anything else is replaced with the line's first (advocate.ts, negotiator.ts, chargeback-store.ts). It
+ *  lives here, with the ranges, so a page that only shows a case's citations doesn't load an agent and its model SDK. */
+export function allowedCitations(pack: StatePack, ranges: Ranges): string[] {
+  const own = ranges.lines.flatMap((l) => l.citations);
+  const kinds = (["damage", "cleaning", "wear_and_tear", "unclear"] as const).map((k) => pack.findings[k].cite);
+  const tags = (["rent", "damage", "cleaning"] as const).map((k) => pack.statute.tagCite(pack.tags[k].tag));
+  return [...new Set([...own, ...kinds, ...tags, pack.dispute.late.cite, ranges.late.cite, pack.dispute.evidence.cite, pack.copy.guidanceCite,
+    pack.documents.afterPhotoTip.cite, pack.documents.estimateTip.cite, pack.statement.documentsCite(true), pack.deadline.tip.cite].filter((c): c is string => !!c))];
+}
+
 /* ---------- Checking a proposal ---------- */
 
 export type ProposalLine = { id: string; n: number; amount: number; asked: number | null; keep: number; min: number; max: number; problem: string | null };

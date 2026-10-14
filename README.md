@@ -297,6 +297,7 @@ node scripts/reconcile-check.mjs    # refunds made in PayPal, PayPal stubbed: no
 node scripts/cache-check.mjs        # nothing kept between requests can carry one workspace's data to another (add --live <base> to check two throwaway copies on a running build)
 node scripts/thumbs-check.mjs       # the photo thumbnails made ahead for the templates match what the app would make
 node scripts/e2e-stubs-check.mjs    # the end-to-end test's stubs: on only for GOOD_FAITH_E2E_STUBS=1, never on Render, never with live PayPal; nothing leaves the process
+node scripts/page-weight-check.mjs  # no page loads an agent: the model SDKs, PayPal's Agent Toolkit, the MCP SDK, the PDF writer and the image library stay on the paths that use them, off every page, the proxy and instrumentation (docs/PERFORMANCE.md)
 python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end on a production build (below)
 python scripts/a11y-check.py --worktree <a new dir> --shots <dir>  # WCAG 2.2 AA on every page at 1280 and 390 px (docs/ACCESSIBILITY.md)
 ```
@@ -309,8 +310,8 @@ The last runs, on 2026-10-13:
 |---|---|
 | `tsc`, `eslint --max-warnings=0` | Clean |
 | `ca-snapshot.mjs` | Identical, 17 sections |
-| `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 279, `thumbs` 169, `e2e-stubs` 46 | All passed |
-| `e2e-demo.py` on a production build | 85 of 85 |
+| `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 284, `thumbs` 169, `e2e-stubs` 46, `page-weight` 164 | All passed |
+| `e2e-demo.py` on a production build | 105 of 105 |
 | `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation |
 
 `next build` needs `.env.local` (or the same variables in the environment). Build in a copy of the repo so it doesn't clobber a running dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; Turbopack refuses a symlinked `node_modules`) and `.env.local` copied over. The two Python tests do this for you.

@@ -15,13 +15,13 @@
 // the same against a stubbed model (scripts/negotiation-check.mjs). Not legal advice: the agents inform and negotiate
 // inside limits set by code and law, and nothing takes effect until the tenants accept and the landlord approves.
 
-import { generateText, Output, type LanguageModel } from "ai";
+import type { LanguageModel } from "ai";
 import { z } from "zod";
-import { allowedCitations, beyondInforming, cleanText, type CaseFile } from "./advocate";
+import type { CaseFile } from "./advocate";
+import { beyondInforming, cleanText } from "./agent-words";
 import { usd } from "./deductions";
 import { appReason, checkReasons, defaultJev, demotedNote, INJECTION_NOTE, injectionFlagged, isAppReason, tenantsWords, untilFailure, type JevCall, type ReasonsCheck } from "./jev";
-import { backFor, checkProposal, type LineRange, type Ranges } from "./lawful-range";
-import { claude } from "./model";
+import { allowedCitations, backFor, checkProposal, type LineRange, type Ranges } from "./lawful-range";
 import type { StatePack } from "./states/types";
 
 /** At most three exchanges between the two agents (six agent turns after the tenants' case), whatever the humans do. */
@@ -497,6 +497,9 @@ export async function agentTurn(o: {
   side: Side; file: CaseFile; pack: StatePack; turns: Turn[]; policy: NegotiationPolicy; model?: LanguageModel; jev?: JevCall | null;
 }): Promise<CheckResult> {
   const limit = o.side === "landlord" ? effectiveLimit(o.policy, o.file.ranges) : null;
+  // The model SDKs load here, on the one path that asks a model. Every landlord page and the tenants' pages read this
+  // file for the turns a dispute already holds, and none of them asks for a new one (docs/PERFORMANCE.md).
+  const [{ generateText, Output }, { claude }] = await Promise.all([import("ai"), import("./model")]);
   const result = await generateText({
     model: o.model ?? claude("negotiator"),
     system: system(o.side, o.pack, limit),

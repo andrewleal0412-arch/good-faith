@@ -1,7 +1,6 @@
 import "server-only";
 import { cache } from "react";
 import type { LanguageModel } from "ai";
-import { allowedCitations } from "./advocate";
 import { isDemoExample } from "./copy";
 import { audit, db } from "./db";
 import { caseFile, disputeFacts, sentDispute, wholeDepositFirst, type DisputeFacts, type DisputeRow, type DisputeStatus } from "./disputes";
@@ -10,7 +9,7 @@ import {
   agentTurns, agreed, cleanPolicy, effectiveLimit, keepsOf, latestOf, MAX_AGENT_TURNS, MAX_TURNS, offerTurn, runNegotiation,
   statementKeeps, type NegotiationPolicy, type Side, type StopReason, type Turn, type TurnLine, type TurnMove,
 } from "./negotiator";
-import { checkProposal } from "./lawful-range";
+import { allowedCitations, checkProposal } from "./lawful-range";
 import { tenancyDepositBlock } from "./demo-pool";
 import { settledExtra } from "./refund-rail";
 import type { StatePack } from "./states/types";

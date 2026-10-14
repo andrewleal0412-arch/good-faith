@@ -15,15 +15,13 @@
 
 import { generateText, isStepCount, Output, tool, type LanguageModel, type ToolSet } from "ai";
 import { z } from "zod";
+import { beyondInforming, cleanText, NOT_LEGAL_ADVICE } from "./agent-words";
 import type { Box } from "./boxes";
 import { usd } from "./deductions";
 import { appReason, checkReasons, defaultJev, demotedNote, INJECTION_NOTE, injectionFlagged, isAppReason, tenantsWords, type JevCall, type ReasonsCheck } from "./jev";
-import { checkProposal, type LineRange, type Ranges } from "./lawful-range";
+import { allowedCitations, checkProposal, type LineRange, type Ranges } from "./lawful-range";
 import { claude, modelName } from "./model";
 import type { StateCode, StatePack } from "./states/types";
-
-/** Shown with every case, on the tenants' page and the landlord's. */
-export const NOT_LEGAL_ADVICE = "Not legal advice. Your advocate reads the records and the state's rules and drafts your case; it can't tell you what a court would decide.";
 
 /* ---------- The case file ---------- */
 
@@ -117,48 +115,6 @@ export type RawCase = z.infer<typeof caseSchema>;
 /* ---------- Checks ---------- */
 
 const cents = (n: number) => Math.round(n * 100) / 100;
-
-/** How the tenants' own photos are named to the model: by number only. A file name is the tenants' text and could
- *  carry instructions, so it never reaches the model. */
-export const tenantPhotoLabel = (k: number) => `The tenants' photo ${k + 1}`;
-
-/** Wording that goes past informing: telling the tenants to sue, naming a court or a judge, predicting who wins,
- *  threatening, promising. The system prompt forbids it; this catches what gets through anyway (the tenants' words and
- *  photos are model inputs, so an injection can steer wording, though never an amount). Over-cautious on purpose: a
- *  caught line falls back to the code's own reason, which is always true. */
-const BEYOND_INFORMING: RegExp[] = [
-  /\bsu(?:e|ed|es|ing)\b/i,
-  /\blaw ?suits?\b/i,
-  /\blitigat/i,
-  /\bsmall[- ]claims\b/i,
-  /\bcourts?\b/i,
-  /\bjudges?\b/i,
-  /\b(?:you|they|the landlord|your landlord|the tenants)(?:'ll| will| would| should| are going to| are likely to| are sure to)? (?:win|prevail)\b/i,
-  /\blose (?:the|this|your|their) (?:case|suit|dispute)\b/i,
-  /\bthreat/i,
-  /\breport (?:you|them|him|her|the landlord|your landlord|it to)\b/i,
-  /\bguarantee/i,
-];
-export const beyondInforming = (s: string) => BEYOND_INFORMING.some((re) => re.test(s));
-
-/** Model text as the product shows it: no em or en dashes, no emojis, no runs of spaces, cut to a length. */
-export function cleanText(s: unknown, max: number): string {
-  const t = String(s ?? "")
-    .replace(/\s*—\s*/g, ", ").replace(/\s+–\s+/g, ", ").replace(/–/g, "-")
-    .replace(/\p{Extended_Pictographic}️?/gu, "")
-    .replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").replace(/[ \t]{2,}/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 3).replace(/\s+\S*$/, "")}...` : t;
-}
-
-/** Every citation the advocate may use: the ranges' own and the pack's rule cites. It copies one; anything else is
- *  replaced with the line's first. */
-export function allowedCitations(pack: StatePack, ranges: Ranges): string[] {
-  const own = ranges.lines.flatMap((l) => l.citations);
-  const kinds = (["damage", "cleaning", "wear_and_tear", "unclear"] as const).map((k) => pack.findings[k].cite);
-  const tags = (["rent", "damage", "cleaning"] as const).map((k) => pack.statute.tagCite(pack.tags[k].tag));
-  return [...new Set([...own, ...kinds, ...tags, pack.dispute.late.cite, ranges.late.cite, pack.dispute.evidence.cite, pack.copy.guidanceCite,
-    pack.documents.afterPhotoTip.cite, pack.documents.estimateTip.cite, pack.statement.documentsCite(true), pack.deadline.tip.cite].filter((c): c is string => !!c))];
-}
 
 /** The model's case made lawful: every line on the statement once, each keep inside its range, "unlawful" and
  *  "unsupported" only where the code says so (and always there, at $0), a solid charge at what the record supports,

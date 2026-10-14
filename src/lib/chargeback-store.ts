@@ -1,27 +1,26 @@
 import "server-only";
 import { cache } from "react";
-import sharp from "sharp";
-import { allowedCitations, type CasePhoto, type LoadPhoto } from "./advocate";
-import { connectPayPal, mcpJson } from "./agent";
+import type { LanguageModel } from "ai";
+import type { CasePhoto, LoadPhoto } from "./advocate";
 import {
   ACTION_LABEL, defenseOptions, defensePosition, endedWithoutMoveOut, evidenceInput, evidenceName, evidenceWithheld, figuresIn, MAX_EVIDENCE_BYTES,
   MAX_EVIDENCE_FILE_BYTES, readDispute, outcomeWords, reasonWords, responseHash, statusWords, validateDefense,
   type ActionOption, type DefenseAction, type DefenseContext, type DefenseResponse, type DisputeRead, type EvidenceItem, type Position,
 } from "./chargeback";
-import { forTheRecord, runDefenseAgent, type DefenseFile, type DefenseLine } from "./chargeback-agent";
+import type { DefenseFile, DefenseLine } from "./chargeback-agent";
 import { dateIn, shortDate } from "./dates";
 import { audit, db } from "./db";
 import { depositBlock } from "./demo-pool";
 import { usd } from "./deductions";
 import { caseFile, disputeFacts, loadCasePhoto, sentDispute, type DisputeFacts, type DisputeRow } from "./disputes";
 import { returnFailed } from "./invoice-status";
+import { allowedCitations } from "./lawful-range";
 import { claudeNeverAnswered, type Allowance } from "./limits";
 import { dueOf, packOf } from "./next-step";
 import { acceptDisputeClaim, getDisputeRest, isDisputeId, makeDisputeOffer, paypal, PayPalRefused, SANDBOX, sendDisputeEvidence, type EvidenceFile } from "./paypal";
 import type { PayPalDisputeRow } from "./paypal-webhook";
 import { disputeAftermath, webhookStore } from "./paypal-webhook-store";
 import { buildStatement } from "./statement";
-import { buildStatementPdf } from "./statement-pdf";
 import { zoneOf } from "./states/server";
 import type { TenantMoveOut } from "./tenant";
 import { loadUnit } from "./units";
@@ -83,12 +82,15 @@ export type DefenseDeps = {
   accept?: typeof acceptDisputeClaim;
   offer?: typeof makeDisputeOffer;
   files?: (keys: string[], c: CaseBits) => Promise<{ files: EvidenceFile[]; skipped: string[] }>;
-  model?: Parameters<typeof runDefenseAgent>[1]["model"];
+  model?: LanguageModel;
   loadPhoto?: LoadPhoto;
 };
 
 /** One call to PayPal's Agent Toolkit over MCP (list_disputes or get_dispute), its JSON out of the tool's answer. */
 async function toolkit(name: "list_disputes" | "get_dispute", input: Obj): Promise<Obj> {
+  // The toolkit and its MCP server are loaded here, not when this file loads: a property page shows a dispute from the
+  // database and must not pay for PayPal's Agent Toolkit to render (docs/PERFORMANCE.md).
+  const { connectPayPal, mcpJson } = await import("./agent");
   const pp = await connectPayPal({ disputes: true });
   try {
     const t = (await pp.client.tools())[name];
@@ -424,6 +426,8 @@ export async function prepareDefense(tenancyId: string, ws: Workspace, take: () 
   }
   await audit(tenancyId, "landlord", "dispute_defense_started", { dispute_id: stored.id, response_id: responseId, options: s.options.map((o) => o.action) });
   try {
+    // The defense agent and its model SDK are loaded here, on the one path that runs them.
+    const { forTheRecord, runDefenseAgent } = await import("./chargeback-agent");
     const run = await runDefenseAgent(defenseFile(s), {
       loadPhoto: deps.loadPhoto ?? loadCasePhoto,
       readDispute: async () => (deps.getDispute ?? readLive)(stored.id),
@@ -650,6 +654,9 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
 async function evidencePhoto(p: CasePhoto): Promise<Uint8Array | null> {
   const { data, error } = await db.storage.from("photos").download(p.ref);
   if (error || !data) return null;
+  // sharp loads here, with the photo it resizes. The caller skips a photo it can't read, so a failure to load the
+  // library is logged on its way out rather than read as a photo that isn't there.
+  const { default: sharp } = await import("sharp").catch((e) => { console.error("sharp failed to load", e); throw e; });
   const base = sharp(new Uint8Array(await data.arrayBuffer())).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true });
   const { data: jpeg, info } = await base.jpeg({ quality: 82 }).toBuffer({ resolveWithObject: true });
   if (!p.box) return new Uint8Array(jpeg);
@@ -676,7 +683,11 @@ export async function evidenceFiles(keys: string[], c: CaseBits): Promise<{ file
   for (const key of keys) {
     if (key === "statement") {
       const st = await buildStatement(c.tenancyId).catch(() => null);
-      const pdf = st ? await buildStatementPdf(st).catch(() => null) : null;
+      // pdf-lib loads here, with the packet it writes. A packet that can't be built is skipped below, so a failure
+      // to load the writer is logged first rather than read as a statement that has no packet.
+      const pdf = st ? await import("./statement-pdf")
+        .catch((e) => { console.error("the PDF writer failed to load", e); throw e; })
+        .then((m) => m.buildStatementPdf(st)).catch(() => null) : null;
       add(pdf ? { name: evidenceName("itemized-statement", "pdf"), type: TYPE.pdf, data: pdf.bytes } : null, key);
       continue;
     }

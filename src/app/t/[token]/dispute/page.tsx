@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "@/components/link";
 import { notFound } from "next/navigation";
 import { Icon } from "@/components/icons";
-import { NOT_LEGAL_ADVICE } from "@/lib/advocate";
+import { NOT_LEGAL_ADVICE } from "@/lib/agent-words";
 import { displayName } from "@/lib/copy";
 import { loadTenantDispute } from "@/lib/disputes";
 import { loadNegotiation } from "@/lib/negotiation";

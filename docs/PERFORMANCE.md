@@ -10,6 +10,7 @@ Andrew, 2026-10-05: "the site is slow, it takes forever to go from tab to tab; i
 - **A full load paints in 50 to 100 ms for the sidebar pages and 200 to 360 ms for a property** (the shell and the page's skeleton stream first), instead of 470 to 1,570 ms.
 - Nothing is cached between requests or between workspaces, and a change shows at once (`scripts/cache-check.mjs`).
 - **Move to Starter before judging.** The free plan sleeps after 15 minutes (a judge's first page waited 6 to 11 s on 2026-10-05), and its CPU is a fifth of Starter's. The estimates are at the end.
+- **A judge's first three pages after a start cost the server 38 percent less work** (950 ms of CPU to 590 ms on the mini): no page loads an agent any more, so the model SDKs, PayPal's Agent Toolkit, the PDF writer and the image library are no longer evaluated to render a page (4,254 kB of server JavaScript on a landlord page down to 1,082). See The first page after a start.
 - **Part 2 (2026-10-07):** the statement and the refund review show their own content in 0.4 to 0.5 s instead of after PayPal's answer (about 1 s), photo grids load 6 to 10 kB thumbnails instead of the photos (the statement 1.75 MB to 77 kB), every AG Grid page loads 57 kB less JavaScript, a property opened again within a minute doesn't wait on PayPal, and Insights draws its grid 140 ms sooner on a click. See Speed, part 2.
 
 ## How it was measured
@@ -263,6 +264,81 @@ The cause was a render loop, not the rows (about 80,000 to 116,000 DOM changes a
 
 The same round made the two pages of a dispute hear each other without a reload (`src/components/watch.ts`, `docs/DESIGN.md`, Layouts). It costs one small GET at a time, only on a page showing a sent dispute that isn't settled or withdrawn: about 80 to 100 bytes for the landlord's card and 150 to 180 for the tenants' page (the dispute's row, a count of its turns and four columns of its settlement, on connections the server already holds open), every 4 seconds while it waits on a person, every 3 while the agents run, every 15 after five quiet minutes, none after thirty, none from a hidden tab or a hidden property tab. Measured at rest on a sent dispute: 3 requests in 13 seconds from each page and no refresh; a property with no dispute, one whose dispute is settled, the tenants' main page and their dispute form ask nothing.
 
+## The first page after a start (2026-10-13)
+
+On Render the first page after a start has waited 6 to 11 seconds (measured on the free plan on 2026-10-05, and about 11 seconds again after the deploy of 2026-10-09). Most of that is the plan: the free service sleeps after 15 minutes, so the container has to start, and it has a tenth of a CPU. The plan is Andrew's call and not part of this round. This is the code's own share: what the first request to a route pays that the second one doesn't, and what came off it.
+
+### How this was measured
+
+- **Local production builds in a temporary worktree** (`scripts/e2e-demo.py --prepare`), of `9493e04` (before) and of this round (after), on the Mac mini, with the judges'-path stubs on (`GOOD_FAITH_E2E_STUBS=1`) and one throwaway demo copy and a locally signed demo session for the whole run. **These are the mini's numbers, not Render's.** The mini is about 100 ms from Supabase per round trip (median 114 ms over eight warm reads, 87 to 167); Render's Oregon region is about 25 ms, and its CPU is a fifth (Starter) or a tenth (free) of a core. With the stubs on, PayPal is a fake inside the server, so a property page's PayPal read costs no network here: what is measured is the code, which is what this round is about.
+- **Five cold starts each.** Each one: start `next start` with the stubs' environment, wait only until it writes "Ready in" to its log (no request before that, since a request warms the route it asks for), then one GET of the route with the session cookie, then the same GET again, then stop the server. Timed from the request to the response's headers and to its last byte. The driver is a short Python script around `scripts/e2e-demo.py`'s own `new_codes`, `start_server` and `stop_server`; it is not in the repo. Medians of five; the spread is in the tables.
+- **Two orders, because they answer different questions.** One cold start for all three routes in a visitor's own order (`/access`, then Properties, which is `/units`, then a property, which is `/tenancy/<id>`) is what a judge actually pays. One cold start per route is what each route pays on its own, which is what shows where the time goes: in the first order a property pays almost nothing, since Properties has already loaded nearly all of its modules.
+- **`/access` is asked for signed out**, since that is a judge's first page; with a session it only redirects.
+- **The server's own CPU time** per request (`ps` on the whole process tree), before and after each request, so the work is separated from the waiting. This is the number that scales with the plan.
+
+### What the first request paid for
+
+Almost all of it was evaluating JavaScript, once per route. Every landlord page and the landlord shell read `src/lib/chargeback-store.ts` (the bell's open PayPal disputes, a property's dispute card), and that file loaded, at the top, the close-out agent (`agent.ts`, and with it PayPal's Agent Toolkit, the MCP SDK and the AI SDK), the defense agent, the statement's PDF writer and the image library. The Agent Toolkit's own API client brings mathjs, axios, ajv and lodash: 2.5 MB of mathjs source alone, in one chunk of 3.2 MB that the server evaluated the first time anyone opened a page. The tenants' advocate came along too, through four pure helpers (the citations a case may use, the limit on informing, text cleaning, a photo's label) that lived in `advocate.ts` beside the agent.
+
+None of it renders anything. A page reads the database and the state's rule pack; every Claude job and every PayPal write runs from an API route.
+
+| What a route makes the server load (the chunks its entry lists) | Before | After |
+|---|---:|---:|
+| `/access` | 597 kB | 597 kB |
+| Properties (`/units`), Move-outs, Insights, the landlord shell | 4,254 kB | 1,082 kB |
+| A property (`/tenancy/<id>`) | 4,298 kB | 1,125 kB |
+| The tenants' main page | 1,021 kB | 960 kB |
+| The refund review | 947 kB | 947 kB |
+
+Off every page's graph now: PayPal's Agent Toolkit, the MCP SDK, `@ai-sdk/anthropic` and `@ai-sdk/mcp`, pdf-lib, sharp, and the mathjs, axios, ajv and lodash that come with the toolkit. What is left on a landlord page is Next's own renderer, the Supabase client, the five states' rule packs and the app's own code.
+
+Those kilobytes bound the work rather than measure it: V8 compiles a function when it is first run, so a chunk the entry lists but barely touches costs little. Taking the model SDK off `negotiator.ts` (the third row below) moved 451 kB and no measurable time on this machine; it was kept because it also takes the SDK off the tenants' pages, and because one rule is easier to hold than a rule with an exception. The first two rows are where the time went.
+
+### What changed
+
+| Finding | Change | Where |
+|---|---|---|
+| `chargeback-store.ts` loaded the close-out agent, the defense agent, the PDF writer and sharp when it loaded, and every landlord page reads it. | Each one is loaded where it is used: `await import("./agent")` in the one function that calls the toolkit, `./chargeback-agent` where the defense agent runs, `./statement-pdf` where the packet is written, `sharp` where a photo is resized. The file reads the database as before. | `src/lib/chargeback-store.ts` |
+| Four pure helpers lived in `advocate.ts`, so reading a dispute's facts, the chargeback rules or a negotiation turn loaded the tenants' advocate and the model SDKs. | They moved to `src/lib/agent-words.ts` (the not-legal-advice line, the photo label, the limit on informing, text cleaning) and `allowedCitations` to `lawful-range.ts`, next to the ranges it reads. `advocate.ts` is now loaded only by the route that runs the advocate. | `src/lib/agent-words.ts`, `lawful-range.ts`, `advocate.ts`, `disputes.ts`, `chargeback.ts`, `negotiator.ts`, the tenants' dispute page |
+| `negotiator.ts` loaded the model SDKs at the top, and every landlord page and the tenants' pages read it for the turns a dispute already holds. | `ai` and the model are loaded in `agentTurn`, the one function that asks for a new turn. | `src/lib/negotiator.ts` |
+| `disputes.ts` loaded sharp at the top, and every page reads it for a dispute's facts. | sharp is loaded in `loadCasePhoto`, with the photo it resizes. | `src/lib/disputes.ts` |
+| Nothing held the line. | `node scripts/page-weight-check.mjs` reads the imports in `src` as the bundler does (`import type` erased, a dynamic `import()` a boundary) and fails if anything the server renders or runs for a request reaches one of those packages (every page, layout, error, not-found and loading file, the proxy and instrumentation), or if the module that owns one has stopped loading it. 164 checks. | `scripts/page-weight-check.mjs`, `README.md` |
+
+### The numbers
+
+**One cold start, the three pages in a visitor's order** (median of 5; "first" is the first request to that route after the start, "second" the same request again):
+
+| | Before, first | After, first | Before, second | After, second | Before, first request's CPU | After |
+|---|---:|---:|---:|---:|---:|---:|
+| `/access`, signed out | 250 ms | **188 ms** | 6 ms | 7 ms | 290 ms | **200 ms** |
+| Properties (`/units`) | 762 ms | **544 ms** | 240 ms | 245 ms | 500 ms | **220 ms** |
+| A property (`/tenancy/<id>`) | 747 ms | 764 ms | 551 ms | 519 ms | 160 ms | 170 ms |
+| The three first requests together | 1,759 ms | **1,496 ms** | | | 950 ms | **590 ms** |
+
+The property page is third here, so it pays almost nothing of its own either way: Properties has already loaded the shell and the landlord modules. The number that carries to Render is the CPU: 950 ms of work for a judge's first three pages became 590 ms, 38 percent less. On a tenth of a CPU that is about 9.5 seconds of work against about 5.9.
+
+**One cold start per route**, which is what each page pays when it is the first one asked for (median of 5):
+
+| | Before, first | After, first | Warm, before | Warm, after | Before, first request's CPU | After |
+|---|---:|---:|---:|---:|---:|---:|
+| `/access`, signed out | 257 ms (232 to 405) | **202 ms** (201 to 204) | 6 ms | 7 ms | 300 ms | **220 ms** |
+| Properties (`/units`) | 996 ms (956 to 1,129) | **819 ms** (788 to 922) | 241 ms | 239 ms | 800 ms | **430 ms** |
+| A property (`/tenancy/<id>`) | 1,433 ms (1,298 to 1,674) | **1,103 ms** (1,066 to 1,307) | 548 ms | 518 ms | 860 ms | **500 ms** |
+
+A landlord page's first request costs 46 percent less CPU, a property's 42 percent. The warm numbers are unchanged, as they should be: nothing about a rendered page changed.
+
+**The start itself.** `next start` says it is ready in 60 to 63 ms and has used 210 to 220 ms of CPU by then, before and after. Next.js then loads every route's entry in the background (`experimental.preloadEntriesOnStart`, on by default), without waiting: its CPU stops rising about half a second after the start, at about 360 ms. That warming is real but partial, and the first requests race it. Asked again with 10 seconds of idle between the start and the first request, the same build answers `/access` in 81 ms, Properties in 686 ms and a property in 1,055 ms (CPU 80, 310 and 410 ms). So a judge whose first click lands a second after the deploy pays more than one who waits.
+
+Nothing here touches the access gate, the workspace scoping or the daily limits: the files that hold them (`proxy.ts`, `session.ts`, `session-server.ts`, `workspace.ts`, `limits.ts`) are unchanged.
+
+### What is left
+
+- **Next's own renderer is most of the floor.** `/access` loads none of the app's heavy code and still pays 220 ms of CPU on its first request against about 10 ms warm. Properties pays 430 ms. So about half of what a landlord page's first request still costs is Next and the Supabase client, which the app shares with every other route and cannot cut.
+- **The five states' rule packs** (244 kB, every pack on every page) are the app's own largest remaining piece. They are plain data and cheap to evaluate, and `packFor(state)` is read synchronously in dozens of places, so splitting them per state would cost more in churn than it would save.
+- **A warm-up of our own, at boot, was not added.** `src/instrumentation.ts` is bundled as its own entry, so a module it imports is a second copy: warming `db.ts` from there would make a second Supabase client and a second keep-alive pool, which is exactly what `scripts/cache-check.mjs` reasons about. Next's own preload already warms what can be warmed without that.
+- **The first use of a lazy path pays for it.** The first close-out of a server's life loads the Agent Toolkit then (about 3 MB, a run that calls a model anyway), the first evidence photo loads sharp, the first statement packet loads pdf-lib. None of these is on a page. A package that fails to load now fails at that call instead of at boot, so each of those three loads logs the failure before it goes back to its caller, which would otherwise show it as a photo or a packet that simply isn't there.
+- **The hosted demo isn't measured** for this work (2026-10-13) or for part 2 (2026-10-07). Render deploys `main`, and neither is pushed. After a deploy, step 11 of the ten-minute check in `docs/DEPLOY.md` covers it.
+
 ## On Render: the free plan and Starter
 
 Render's free plan gives the service a tenth of a CPU, Starter ($7 a month) half of one. The server's share of a page scales with that; the network share doesn't. Calibrated on the hosted demo before (its warm first bytes, 0.5 to 1.4 s, match about ten times the local CPU plus the database waits, within about 20 percent), the estimates:
@@ -281,6 +357,8 @@ Render's free plan gives the service a tenth of a CPU, Starter ($7 a month) half
 | The first page after 15 quiet minutes | 6 to 11 s (asleep) | the same | no sleep |
 
 A property's full load is the one place the free plan stays slow among the pages: it is the heaviest render (five tabs, the shell's bell), about a second of the free CPU. On Starter it is about a fifth of a second of server time, and the free plan's wake-up, the worst first impression a judge can get, goes away. The statement and the refund review stay about a second on Starter, because most of their wait is PayPal's (Common clicks, above). A sidebar page's full load can't show its content sooner than 0.3 s after its first paint on any plan (React's hold on a streamed skeleton).
+
+The first page after a start also costs the server less since 2026-10-13: a judge's first three pages are 590 ms of CPU instead of 950 on the mini, so about 5.9 s of work on the free plan's tenth of a CPU instead of about 9.5 (The first page after a start). The sleep itself is unchanged, which is why the table above still reads 6 to 11 s for it.
 
 ## Caching and isolation
 
@@ -302,5 +380,6 @@ Nothing is kept between requests that one workspace could read from another, and
 - **Move-out builds its grid on every visit** (75 to 95 ms at 4x on an inspected unit): AG Grid destroys its grid while the tab is hidden. Keeping it alive would mean keeping the tab out of `Activity`, which is what makes the other tabs instant.
 - **The statement and the refund review still wait on PayPal for their figures** (about a second on any plan); their own content comes first since part 2.
 - **Two streamed parts can still move the page a little.** On a demo copy with no sandbox deposit of its own (the day's pool used up, or the Texas unit), the refund review's notice saying so arrives with PayPal's answer and moves what is below it down: a layout shift of 0.012 at 1440 and 0.059 at 390, under the 0.1 counted as good. Holding its place would mean reading the pool before the first paint (two to four more database reads, on the judges' path too) or guessing. On the statement, a claim's standing (New York after day 14, a Florida claim the tenants objected to in time) arrives above the deductions with PayPal's answer, since the close-out's facts work it out with the rest (New York's turns on the deposit's live status too); reserving a line for every New York statement would move the common case, a statement before day 14, instead. The demo has no New York or Florida unit, so only the owner's own tenancies show it.
+- **No page loads an agent.** The model SDKs, PayPal's Agent Toolkit, the MCP SDK, the PDF writer and the image library are loaded where they are used, so the first use of each pays for it once, on a path that was going to be slow anyway (The first page after a start). `node scripts/page-weight-check.mjs` fails if a static import puts one back on a page's graph.
 - **Insights' charts** are still built in one 270 to 390 ms task at 4x, now after the grid has drawn.
-- **The hosted demo after** isn't measured yet: Render deploys `main`, and this round isn't pushed. After the deploy, step 11 of the ten-minute check in `docs/DEPLOY.md` covers it.
+- **The hosted demo after part 2** (2026-10-07) isn't measured yet: Render deploys `main`, and that work isn't pushed. After the deploy, step 11 of the ten-minute check in `docs/DEPLOY.md` covers it.

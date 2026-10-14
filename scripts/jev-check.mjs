@@ -25,8 +25,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const LIVE = process.argv.includes("--live");
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
-const [jev, states, clientStates, range, advocate, nego, sdk] = await Promise.all([
-  ...["jev", "states/server", "states/index", "lawful-range", "advocate", "negotiator"].map(lib),
+const [jev, states, clientStates, range, advocate, words, nego, sdk] = await Promise.all([
+  ...["jev", "states/server", "states/index", "lawful-range", "advocate", "agent-words", "negotiator"].map(lib),
   import("@typesafe-ai/sdk"),
 ]);
 const CA = states.packFor("CA"), NY = states.packFor("NY"), TX = clientStates.packFor("TX");
@@ -348,7 +348,7 @@ function fileFor(deductions, pack, o = {}) {
     state: pack.code, today: "2026-10-03", address: ADDRESS, otherAddresses: [FORWARDING], landlord: LANDLORD, tenants: TENANTS, moveOutDate: "2026-10-01",
     statementDue: "2026-10-22", delivery: { method: "mail", date: "2026-10-02" }, depositHeld: 4800, statementRefund: 4800 - ranges.totals.deducted, refunded: null,
     lines, wearNotCharged: [],
-    dispute: { message: o.message ?? null, evidence: (o.photos ?? []).map((id, k) => ({ ref: `p${k}.jpg`, label: advocate.tenantPhotoLabel(k), box: null, line: lineOf(id) })) },
+    dispute: { message: o.message ?? null, evidence: (o.photos ?? []).map((id, k) => ({ ref: `p${k}.jpg`, label: words.tenantPhotoLabel(k), box: null, line: lineOf(id) })) },
     ranges,
   };
 }

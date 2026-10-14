@@ -18,7 +18,7 @@
 // Not legal advice: it informs, computes and drafts, and the landlord approves the exact response.
 
 import { createHash } from "node:crypto";
-import { beyondInforming, cleanText } from "./advocate";
+import { beyondInforming, cleanText } from "./agent-words";
 import { usd } from "./deductions";
 
 const cents = (n: number) => Math.round(n * 100) / 100;

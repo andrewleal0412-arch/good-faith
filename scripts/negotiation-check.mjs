@@ -85,7 +85,7 @@ const model = (...answers) => new MockLanguageModelV4({ doGenerate: answers.map(
 const L = (line, move, keep, reason = "From the record.", citation = "Civ. Code 1950.5(b)(2)") => ({ line, move, keep, reason, citation });
 const turnOf = (lines, message = "Here is our answer.", reasoning = "The record supports part of it.") => ({ lines, message, reasoning });
 
-const CITES = (file, pack) => new Set(advocate.allowedCitations(pack, file.ranges));
+const CITES = (file, pack) => new Set(range.allowedCitations(pack, file.ranges));
 
 /* ---------- checkTurn ---------- */
 {

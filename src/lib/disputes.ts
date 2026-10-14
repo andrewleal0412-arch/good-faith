@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import sharp from "sharp";
-import { tenantPhotoLabel, type AdvocateCase, type CaseFile, type CaseLine, type CasePhoto, type LoadPhoto } from "./advocate";
+import type { AdvocateCase, CaseFile, CaseLine, CasePhoto, LoadPhoto } from "./advocate";
+import { tenantPhotoLabel } from "./agent-words";
 import { cleanBox, type Box } from "./boxes";
 import { dateIn, todayIn } from "./dates";
 import { db } from "./db";
@@ -285,6 +285,10 @@ export function caseFile(facts: DisputeFacts, d: DisputeRow): CaseFile {
 export const loadCasePhoto: LoadPhoto = async (p: CasePhoto) => {
   const { data, error } = await db.storage.from("photos").download(p.ref);
   if (error || !data) return null;
+  // sharp loads here, with the photo it resizes: every page reads this file for a dispute's facts, and none of them
+  // opens a photo for a model (docs/PERFORMANCE.md). The caller turns a null into "no photos on file", so a failure
+  // to load it is logged on its way out rather than read as a line with no photos.
+  const { default: sharp } = await import("sharp").catch((e) => { console.error("sharp failed to load", e); throw e; });
   const base = sharp(new Uint8Array(await data.arrayBuffer())).rotate().resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true });
   const { data: jpeg, info } = await base.jpeg({ quality: 80 }).toBuffer({ resolveWithObject: true });
   if (!p.box) return { data: new Uint8Array(jpeg), mediaType: "image/jpeg" };
