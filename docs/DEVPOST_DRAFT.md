@@ -93,4 +93,5 @@ https://good-faith.onrender.com, PayPal sandbox only. No real money moves.
    each page linking to each step. Start over, in the account menu, gives a fresh one.
 3. Open 1140 E. Juniper Hollow Ln and its Move-out tab for Claude's boxes. Review refund, Prepare refund, then Send
    refund: a real sandbox refund of $3,790.00 from your copy's own deposit.
-4. For the two agents: open the Statement, press Record delivery, then Open the tenant's view and dispute a charge.
+4. For the two agents: on the receipt, press Send statement, then Record delivery, then Open the tenant's view and
+   dispute a charge.
