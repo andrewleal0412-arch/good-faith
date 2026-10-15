@@ -27,7 +27,7 @@ Zillow Rental Manager's structure with Mercury's calm: a white canvas, neutral g
 | `line`, `line-2` | #E6E8EE, #EFF0F4 | Card borders; row dividers inside cards |
 | `surface`, `surface-2`, `surface-3` | #F7F8FA, #F1F2F6, #E8EAEF | Soft panels and hover; secondary buttons; their hover |
 | `green` / `green-bg` / `green-dot` | #1E7B45 / #E6F4EA / #2DA160 | Done, leased, paid, money in |
-| `amber` / `amber-bg` / `amber-dot` | #946200 / #FCF1D6 / #D99A1B | Waiting on you, cleaning, warnings |
+| `amber` / `amber-bg` / `amber-dot` | #946200 / #FCF1D6 / #D99A1B | Waiting for you, cleaning, warnings |
 | `red` / `red-bg` / `red-dot` | #B3261E / #FBEAE8 / #D64540 | Damage, overdue, violations, errors |
 
 PayPal's two-tone monogram (`PayPalMark`) is the only other color, always beside the word PayPal.

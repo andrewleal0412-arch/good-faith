@@ -804,7 +804,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
 
       {n?.status !== "no_agreement" && !settled && d.status !== "withdrawn" && (
         <p className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-3">
-          <InfoTip trigger={<TipLabel>If you can&apos;t agree</TipLabel>} title={view.forum.name} cite={view.forum.cite}>{view.forum.text}</InfoTip>
+          <InfoTip trigger={<TipLabel>If you can&apos;t agree</TipLabel>} title={view.forum.name} cite={view.forum.cite}>{view.forum.text} Not legal advice. This is the state&apos;s process as the law describes it, not a judgment of your case.</InfoTip>
           {withdrawable && (
             <button type="button" disabled={!!busy} onClick={withdraw} className="ml-auto font-medium text-ink-2 hover:text-ink hover:underline disabled:opacity-50">
               {busy === "withdraw" ? "Withdrawing..." : "Withdraw dispute"}

@@ -146,6 +146,6 @@ export function decisionError(o: { note: OutsideNote | null; payments: RecordRow
   if (o.note.status === "recorded") return { status: 409, error: "This refund is already recorded as this deposit's refund." };
   if (o.note.status === "dismissed") return { status: 409, error: "This refund is already marked not this deposit." };
   if (refundIdsOnRecord(o.payments).has(o.note.refund_id)) return { status: 409, error: "This refund is on record already, as one sent from here. Reload the page." };
-  if (!o.owns) return { status: 409, error: "This deposit payment isn't this workspace's own, so a refund of it can't be recorded here." };
+  if (!o.owns) return { status: 409, error: "This deposit payment isn't this account's own, so a refund of it can't be recorded here." };
   return null;
 }

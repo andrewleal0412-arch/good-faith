@@ -47,7 +47,7 @@ export const loadLedger = cache(async (details = false): Promise<Ledger | { erro
   ]);
   if (snap.error) {
     console.error("ledger: database read failed:", snap.error);
-    return { error: "The ledger could not be loaded from the database. Refresh the page; if it keeps happening, check the Supabase connection." };
+    return { error: "The payment records couldn't be loaded. Refresh the page; if it keeps happening, the app can't reach its database." };
   }
   const ts = snap.rows as unknown as (LedgerTenancy & { end_date: string | null; planned_move_out: string | null; notices: Notices | null })[];
   const ps = snap.rows.flatMap((t) => t.payments.map((p) => ({ ...p, tenancy_id: t.id }))) as unknown as (LedgerPayment & { tenancy_id: string })[];

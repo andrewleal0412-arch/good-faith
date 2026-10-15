@@ -43,7 +43,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const finding = ((t.move_out_findings ?? []) as { id?: string; room: string; item: string; classification: string;
     moveInPath: string; moveOutPath: string; status?: string | null }[]).find((f) => f.id === findingId);
-  if (!finding) return Response.json({ error: "That finding is from an older inspection. Refresh the page." }, { status: 400 });
+  if (!finding) return Response.json({ error: "That finding is from an older comparison. Refresh the page." }, { status: 400 });
   const locked = await deductionsLocked(id);
   if (locked) return locked;
   if (finding.status === "dismissed") return Response.json({ error: "That finding was dismissed. Reopen it first." }, { status: 400 });

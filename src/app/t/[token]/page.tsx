@@ -247,7 +247,7 @@ function disputeLine(d: TenantDisputeStatus, landlord: string, state: string): s
   const s = d.settlement;
   const dayOf = (ts: string) => dayFor(ts, state); // the day where the property is
   if (d.status === "settled") return s && s.amount > 0 ? `Settled: ${usdText(s.amount)} more back${s.sentAt ? ` ${shortDate(dayOf(s.sentAt))}` : ""}` : "Settled";
-  if (d.status === "agreed" && s) return s.accepted ? `You accepted ${usdText(s.amount)} back. Waiting for ${landlord}` : `Settlement offered: ${usdText(s.amount)} back. Waiting on you`;
+  if (d.status === "agreed" && s) return s.accepted ? `You accepted ${usdText(s.amount)} back. Waiting for ${landlord}` : `Settlement offered: ${usdText(s.amount)} back. Waiting for you`;
   if (d.status === "negotiating") return "Being negotiated";
   if (d.status === "no_agreement") return "No agreement yet";
   if (d.status === "withdrawn") return "Withdrawn. You can dispute it again";
@@ -375,7 +375,7 @@ function progress(v: TenantView): Step[] {
   const sent = st ? deliveredWord(st.delivery) : null;
   return [
     { key: "out", label: "Moved out", title: "Moved out", done: !!v.moveOutDate, date: v.moveOutDate },
-    { key: "inspect", label: "Inspected", title: v.inspectedAt ? "Inspection completed" : "Inspection", done: !!v.inspectedAt, date: v.inspectedAt ? dayOf(v.inspectedAt) : null },
+    { key: "inspect", label: "Compared", title: v.inspectedAt ? "Photos compared" : "Photo comparison", done: !!v.inspectedAt, date: v.inspectedAt ? dayOf(v.inspectedAt) : null },
     v.returned
       ? { key: "refund", label: "Refund sent", title: "Refund sent", done: true, date: dayOf(v.returned.at) }
       : noRefund

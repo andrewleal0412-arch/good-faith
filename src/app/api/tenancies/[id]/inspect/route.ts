@@ -65,7 +65,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   if (failed.length) {
     // When no room got an answer from Claude, the inspection cost nothing and goes back to today's allowance.
     if (results.every((r) => !r.spent)) await run.giveBack();
-    return Response.json({ error: `The inspection of the ${failed.join(" and the ")} didn't finish. Try again.` }, { status: 500 });
+    return Response.json({ error: `The comparison of the ${failed.join(" and the ")} didn't finish. Try again.` }, { status: 500 });
   }
   try {
     const findings: (Finding & { id: string; source: "inspection"; moveInPath: string; moveOutPath: string })[] = results.flatMap((r) => r.findings ?? []);
@@ -83,6 +83,6 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
     return Response.json({ findings });
   } catch (e) {
     console.error("inspection failed", e);
-    return Response.json({ error: "The inspection didn't finish. Try again." }, { status: 500 });
+    return Response.json({ error: "The comparison didn't finish. Try again." }, { status: 500 });
   }
 }

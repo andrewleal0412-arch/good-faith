@@ -144,7 +144,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
     : v.status === "agreed" ? <StatusChip live tone="amber">{s?.tenantAcceptedAt ? "Waiting for you" : "Agreed"}</StatusChip>
       : v.status === "no_agreement" ? <StatusChip live tone="red">No agreement</StatusChip>
         : v.running || polling ? <StatusChip live tone="amber">Negotiating</StatusChip>
-          : v.turns.length > 1 ? <StatusChip live tone="amber">Negotiating</StatusChip> : <StatusChip live tone="amber">Waiting on you</StatusChip>;
+          : v.turns.length > 1 ? <StatusChip live tone="amber">Negotiating</StatusChip> : <StatusChip live tone="amber">Waiting for you</StatusChip>;
   // While the run really goes on (the server says so, or this page's request for it is still open), the side whose
   // agent writes the next turn: the other side from the last turn's. Not while polling only waits to hear it ended.
   const working = v.running || busy === "run" ? (v.turns[v.turns.length - 1]?.side === "landlord" ? "tenant" : "landlord") : null;
@@ -234,7 +234,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
           </div>
           <p className="mt-3 flex items-center gap-1.5 text-sm text-ink-2">
             No agreement. Either side may still make an offer.
-            <InfoTip align="end" title={v.forum.name} cite={v.forum.cite}>{v.forum.text}</InfoTip>
+            <InfoTip align="end" title={v.forum.name} cite={v.forum.cite}>{v.forum.text} Not legal advice. This is the state&apos;s process as the law describes it, not a judgment of your case.</InfoTip>
           </p>
         </div>
       )}

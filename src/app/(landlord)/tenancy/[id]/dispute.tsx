@@ -18,7 +18,7 @@ const VERDICT: Record<string, { label: string; tone: "gray" | "amber" | "red" }>
 };
 const DISPUTE_STATUS: Record<DisputeStatus, { label: string; tone: "green" | "amber" | "red" | "gray" }> = {
   draft: { label: "Draft", tone: "gray" },
-  open: { label: "Waiting on you", tone: "amber" },
+  open: { label: "Waiting for you", tone: "amber" },
   negotiating: { label: "Negotiating", tone: "amber" },
   agreed: { label: "Agreed", tone: "amber" },
   settled: { label: "Settled", tone: "green" },

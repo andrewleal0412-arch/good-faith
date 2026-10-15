@@ -140,7 +140,7 @@ type RecheckPlan = { rail: SettlementRail; captureId?: string; email?: string } 
  *  it to); not what is left of the payment, since the first attempt may have used it. */
 async function recheckPlan(tenancyId: string, rail: SettlementRail | null): Promise<RecheckPlan> {
   if (!SANDBOX) return { blocked: "This build has no landlord sign-in, so it won't move live money." };
-  if (!rail) return { blocked: "The earlier attempt has no PayPal rail on record." };
+  if (!rail) return { blocked: "The earlier attempt has no record of how it was sent, so it can't be checked with PayPal." };
   let state: Awaited<ReturnType<typeof closeOutState>>;
   try {
     state = await closeOutState(tenancyId);

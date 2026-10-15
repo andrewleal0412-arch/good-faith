@@ -75,7 +75,7 @@ function TurnRow({ t, p, names, ref }: { t: TurnView; p: Perspective; names: { l
           <span className="font-medium">{who}</span>
           <StatusChip tone={agrees ? "green" : "gray"} dot={false} size="sm" className="gf-settle">{MOVE[t.move] ?? t.move}</StatusChip>
           {(t.adjustments.length > 0 || t.reasonsChecked) && (
-            <InfoTip title="Checked by the app" className="gf-settle">
+            <InfoTip title="How this was checked" className="gf-settle">
               The app held this turn to each charge&apos;s lawful range and to the negotiation&apos;s rules{t.adjustments.length ? `: ${t.adjustments.join(" ")}` : "."}
               {t.reasonsChecked ? ` ${CHECKED_NOTE}` : ""}
             </InfoTip>
