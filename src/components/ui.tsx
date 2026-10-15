@@ -198,7 +198,8 @@ export function ListRow({ title, sub, right, href, icon, hint }: { title: ReactN
   return href ? <Link href={href} title={hint} className={cx(cls, "transition-colors hover:text-ink")}>{body}</Link> : <div title={hint} className={cls}>{body}</div>;
 }
 
-/** Zillow's next-step box: a flat brand icon, a title, one sub line, a chevron. */
+/** Zillow's next-step box: a flat brand icon, a title, one sub line, a chevron. The sub line wraps: a date cut
+ *  in half reads worse than a box one line taller. */
 export function StepBox({ icon, title, sub, href, plain }: { icon: IconName; title: ReactNode; sub?: ReactNode; href: string; plain?: boolean }) {
   const cls = "flex items-center gap-3 rounded-md border border-line bg-canvas px-3.5 py-3 transition-colors hover:bg-surface active:bg-surface-2";
   const body = (
@@ -206,7 +207,7 @@ export function StepBox({ icon, title, sub, href, plain }: { icon: IconName; tit
       <Icon name={icon} className="size-4 text-brand" />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium">{title}</div>
-        {sub && <div className="truncate text-xs text-ink-3">{sub}</div>}
+        {sub && <div className="text-xs text-ink-3">{sub}</div>}
       </div>
       <Icon name="chev-right" className="size-3.5 text-ink-4" />
     </>

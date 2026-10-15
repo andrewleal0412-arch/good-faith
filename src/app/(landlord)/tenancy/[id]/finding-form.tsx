@@ -158,6 +158,8 @@ export function FindingForm({ tenancyId, state, room, like, reads = false, onDon
           value={observation} onChange={(e) => setObservation(e.target.value)} />
       </FormField>
       {error && <Notice>{error}</Notice>}
+      {/* Add finding is off until there are words to record, so the footer asks for them, as the deduction form does. */}
+      {!item.trim() && <p className="text-sm text-ink-3">Say what changed first.</p>}
       <div className={drawerFooter}>
         <Button type="submit" variant="primary" disabled={busy || !item.trim()}>{busy ? "Saving..." : "Add finding"}</Button>
         <Button onClick={onCancel}>Cancel</Button>

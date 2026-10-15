@@ -347,6 +347,8 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
       {error && <Notice id={fe.errorId} className="mt-4">{error}</Notice>}
 
       <div className="mt-6 border-t border-line pt-6">
+        {/* Both ways forward are off until a charge is picked, so the page says so rather than leaving two gray buttons. */}
+        {!picked.length && <p className="mb-3 text-center text-sm text-ink-3">Pick a charge above first.</p>}
         <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy || !picked.length} onClick={askAdvocate}>
           {advocate ? "Ask my advocate again" : "Ask my advocate"}
         </Button>

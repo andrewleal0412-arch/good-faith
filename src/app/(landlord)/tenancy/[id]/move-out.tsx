@@ -208,9 +208,13 @@ export function MoveOut(p: {
                 <Icon name="camera" />{busy === "photos" ? "Uploading..." : "Add photos"}
                 <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { const l = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ""; upload(l); }} />
               </label>
-              <Button variant={p.quiet ? "secondary" : "primary"} className="sm:ml-auto" onClick={() => inspect()} disabled={!p.moveOutPhotos.length || busy === "inspect"}>
-                <Icon name="image" />{busy === "inspect" ? "Comparing every room..." : p.inspectedAt ? "Compare again" : "Compare with move-in"}
-              </Button>
+              {/* With no move-out photo yet there is nothing to compare, so the row says what it needs first. */}
+              <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                {!p.moveOutPhotos.length && <span className="text-sm text-ink-3">Add move-out photos first.</span>}
+                <Button variant={p.quiet ? "secondary" : "primary"} onClick={() => inspect()} disabled={!p.moveOutPhotos.length || busy === "inspect"}>
+                  <Icon name="image" />{busy === "inspect" ? "Comparing every room..." : p.inspectedAt ? "Compare again" : "Compare with move-in"}
+                </Button>
+              </div>
             </div>
           )}
           {error && <Notice className="mx-5 mb-4">{error}</Notice>}

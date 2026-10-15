@@ -68,6 +68,13 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
     );
   }
 
+  // Exactly what the Send button waits for, so the line and the button never disagree.
+  const missing = [
+    !name ? "your name" : "",
+    !dateLocked && !date ? "the move-out date" : "",
+    !address ? "the forwarding address" : "",
+  ].filter(Boolean);
+
   return (
     <div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -92,6 +99,9 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
         </div>
       </div>
       {error && <Notice className="mt-3">{error}</Notice>}
+      {/* The button is off until the landlord has what the law asks for, so the form says what is still missing
+          rather than leaving a gray button with no reason (Civ. Code 1950.5(h)(6) and its kin). */}
+      {missing.length > 0 && <p className="mt-4 text-sm text-ink-3">Still needed: {missing.join(", ")}.</p>}
       <div className="mt-4 flex gap-2">
         <button type="button" onClick={send} disabled={busy || (!dateLocked && !date) || !address || !name} className={buttonClass(p.quiet ? "secondary" : "primary", "md", "max-sm:h-11 max-sm:flex-1")}>
           {busy ? "Sending..." : p.existing ? "Send the change" : "Send to your landlord"}

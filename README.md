@@ -298,23 +298,25 @@ node scripts/cache-check.mjs        # nothing kept between requests can carry on
 node scripts/thumbs-check.mjs       # the photo thumbnails made ahead for the templates match what the app would make
 node scripts/e2e-stubs-check.mjs    # the end-to-end test's stubs: on only for GOOD_FAITH_E2E_STUBS=1, never on Render, never with live PayPal; nothing leaves the process
 node scripts/page-weight-check.mjs  # no page loads an agent: the model SDKs, PayPal's Agent Toolkit, the MCP SDK, the PDF writer and the image library stay on the paths that use them, off every page, the proxy and instrumentation (docs/PERFORMANCE.md)
+python scripts/clipboard-check.py   # a copy the browser refuses: the Payments row menu's Copy PayPal ID still ends with the id on screen, selected, and one line saying to copy it by hand
 python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end on a production build (below)
 python scripts/a11y-check.py --worktree <a new dir> --shots <dir>  # WCAG 2.2 AA on every page at 1280 and 390 px (docs/ACCESSIBILITY.md)
 ```
 
 **The end-to-end test** ([`scripts/e2e-demo.py`](scripts/e2e-demo.py)) walks [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) the way a judge would, in Chromium, on a production build. It builds the code as it stands (uncommitted changes included) in a temporary git worktree, serves it on port 3211 with `GOOD_FAITH_E2E_STUBS=1` ([`e2e-switch.ts`](src/lib/e2e-switch.ts)), makes a fresh private demo copy, and goes through Properties, the lease check, the Move-out tab with Claude's boxes, the refund review and approval, the statement and its delivery, the tenants' page, the dispute and the advocate's case, the negotiation, the settlement and the amended statement, Payments and Insights, the demo lease checked again, which opens the tenancy the copy already has for it instead of starting a second one, and the demo guide (its eight steps against the beat table of `docs/DEMO_SCRIPT.md`, its ticks against the copy's own rows, the unit its beats run on held to the address that table names, and Hide and the way back). At each step it checks the words that matter and, on the money screens, that every dollar figure shown is one the test works out on its own from the copy's rows and the demo's story, and it saves a screenshot. With the switch on, every Claude job answers from a scripted stub ([`e2e-stubs.ts`](src/lib/e2e-stubs.ts)), Jev is off, and PayPal is a fake inside the server ([`e2e-paypal.ts`](src/lib/e2e-paypal.ts), with PayPal's own Agent Toolkit server in front of it, [`e2e-toolkit.ts`](src/lib/e2e-toolkit.ts)) that refunds only the test's own fake deposit. The switch is ignored on Render and with live PayPal, the server prints a banner when it is on, and the test refuses a server that doesn't say it is on. At the end it removes the copy, its rows, its files and its fake deposit, failed or not (`--leftovers --apply` finds any a crashed run left). `--prepare`, `--serve --hold` and `--base` run it in steps.
 
-The last runs, on 2026-10-13:
+The last runs, on 2026-10-15:
 
 | Check | Result |
 |---|---|
 | `tsc`, `eslint --max-warnings=0` | Clean |
 | `ca-snapshot.mjs` | Identical, 17 sections |
 | `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 284, `thumbs` 169, `e2e-stubs` 46, `page-weight` 164 | All passed |
+| `clipboard-check.py` on a production build | 8 of 8 |
 | `e2e-demo.py` on a production build | 105 of 105 |
 | `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation |
 
-`next build` needs `.env.local` (or the same variables in the environment). Build in a copy of the repo so it doesn't clobber a running dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; Turbopack refuses a symlinked `node_modules`) and `.env.local` copied over. The two Python tests do this for you.
+`next build` needs `.env.local` (or the same variables in the environment). Build in a copy of the repo so it doesn't clobber a running dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; Turbopack refuses a symlinked `node_modules`) and `.env.local` copied over. The three Python tests do this for you.
 
 ## Known limits
 
