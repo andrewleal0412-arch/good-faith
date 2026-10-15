@@ -1,26 +1,34 @@
 # Devpost submission draft
 
-Draft submission text for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/), field by field. Every
-claim is checked against this repository; the access code goes in the placeholder below.
+The text for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) submission, under Devpost's own field
+names and story headings, so it pastes in one to one. Every claim is checked against this repository. The access code
+and the video link go in the placeholders at the end. The GitHub link under Try it out works only once the repository
+is public.
 
 ---
 
-## Project name
-
-Good Faith
-
-## Elevator pitch
+## Tagline
 
 Claude reads the lease and the move-out photos, code computes every dollar from the state's deposit statute, and
 PayPal sends the refund after the landlord approves it.
 
-## The problem
+## Built with
+
+node.js, next.js, react, typescript, tailwind, paypal, paypal-agent-toolkit, mcp, claude, anthropic, ai-sdk,
+typesafe-jev, supabase, postgres, ag-grid, ag-charts, pdf-lib, sharp, zod, playwright, axe-core, render
+
+---
+
+# Project story
+
+## Inspiration
 
 California rewrote its security deposit law four times in three years: a new cap, mandatory move-in and pre-repair
-photos, electronic refunds when the rent or the deposit came in electronically, and no professional cleaning charge
+photos, electronic refunds when the deposit or the rent came in electronically, and no professional cleaning charge
 beyond what move-in condition requires. The landlords most likely to get this wrong own one condo and keep the
 tenancy in text messages, where bad faith costs up to twice the deposit. Their tenants get a number with no
-arithmetic behind it and nowhere to take it but small claims court.
+arithmetic behind it and nowhere to take it but small claims court. I wanted the lawful close-out to be the easy
+path for both of them, with the money going back as soon as the landlord approves.
 
 ## What it does
 
@@ -35,9 +43,9 @@ the landlord presses Send refund. If the tenants disagree, their own Claude agen
 with the landlord's agent for up to three exchanges; PayPal pays the settlement once the tenants accept and the
 landlord approves. If the tenants open a PayPal dispute instead, a defense agent drafts the response for the landlord
 to approve word for word. All of it runs on five rule packs: California, New York, Texas, Florida and Washington, each
-with its own deadline and time zone.
+with its own deadline and time zone. The app informs, computes and drafts. It does not give legal advice.
 
-## How I built it
+## How we built it
 
 One Next.js 16 app on Render, with Supabase for the data and the files.
 
@@ -57,7 +65,7 @@ Code decides: the cap, every deduction, the deadlines, the PayPal rail, and each
 an amount. Every money tool carries `needsApproval`, and on approval `guardRefund` reads the database and PayPal again
 and refuses any other amount, payment or account.
 
-## What was hard
+## Challenges we ran into
 
 PayPal's Invoicing API accepts `PayPal-Request-Id` and ignores it, so the deposit invoice is made once by its invoice
 number; the Disputes API does not declare it, so a resend is guarded by reading the dispute first. PayPal refused my
@@ -68,20 +76,56 @@ money is still owed back, accepting the claim is the only answer the rules allow
 The demo was the other hard part: each browser that enters the access code gets a private copy of the data with a
 pre-paid sandbox deposit of its own, so no judge's refund touches another's.
 
-## What I am proud of
+## Accomplishments that we're proud of
 
 Code computes each disputed charge's lawful range before either agent speaks, and checks every turn against it. Words
 planted in a dispute can change the wording of an answer at most, never the money.
 
-## What is next
+Four Claude agents work on the money and none of them can move it alone. The refund, the settlement and the response
+to a PayPal dispute are each claimed once in the database and recomputed from the database and PayPal at the moment of
+the call, so a double click cannot pay twice.
 
-Per-landlord PayPal sign-in, which live PayPal is waiting on. More states, from their statutes the way these
-five were. Venmo as a payout rail, which the sandbox refused.
+The path a judge takes through the demo is also an automated test. It builds the app, walks the demo script in a real
+browser on a production build, and works every dollar on screen out again from the demo copy's own rows: 105 checks. A
+second script holds every page to WCAG 2.2 AA at 1280 and 390 px, with the three things still open written down.
 
-## Built with
+## What we learned
 
-next.js, react, typescript, tailwind, paypal, paypal-agent-toolkit, mcp, claude, anthropic, ai-sdk, typesafe-jev,
-supabase, postgres, ag-grid, ag-charts, pdf-lib, sharp, zod, playwright, axe-core, render
+I learned to keep the split narrow and then to leave it alone. Claude reads, classifies and writes; code decides
+every amount; a person approves; PayPal moves the money. That line is what lets every dollar on the statement point
+back to a rule with a citation.
+
+PayPal's toolkit made the calls easy to hand to an agent, so what took my time was everything around them: an
+approval claimed once, a plan recomputed right before the call, and an idempotency key taken from the app's own
+records, because what PayPal tracks for you differs from one of its APIs to the next. The toolkit hands an agent the
+calls. It does not hand you the guards, and I had to write those.
+
+Writing each pack from its own state's text, with sources and rule ids, taught me that a new state is research and a
+pack, not a new engine. It also taught me that the wording needs the same care as the money: language that goes past
+informing, like telling someone to sue or predicting a court, is replaced in code with the app's own.
+
+## What's next for Good Faith
+
+Per-landlord PayPal sign-in, which live PayPal is waiting on. More states, from their statutes the way these five
+were. Venmo as a payout rail, which the sandbox refused. And the accessibility work still open: text-field borders at
+1.2:1 against white, a pass with a real screen reader, and a tagged PDF for the statement.
+
+---
+
+# The other Devpost fields
+
+## Project name
+
+Good Faith
+
+## Try it out links
+
+- https://good-faith.onrender.com
+- https://github.com/andrewleal0412-arch/good-faith
+
+## Video demo link
+
+`<VIDEO URL GOES HERE>`
 
 ## Testing instructions
 

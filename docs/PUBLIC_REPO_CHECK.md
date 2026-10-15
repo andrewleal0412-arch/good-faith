@@ -104,8 +104,8 @@ Every other variable the code reads is in the file, the demo scripts' and the en
 These are not repository findings, but they are on the same checklist and are not done yet.
 
 - The README's hero line still reads "Demo video: to be added before submission".
-- `docs/DEVPOST_DRAFT.md` has a placeholder where the access code goes, and the Devpost repository and video fields
-  are still empty.
+- `docs/DEVPOST_DRAFT.md` has placeholders where the access code and the video link go, and the repository it names
+  is still private.
 - `render.yaml` still says `plan: free`, which sleeps after 15 quiet minutes.
 - `npm audit --omit=dev`, run again today, lists 10 advisories (5 high, 2 moderate, 3 low), all inside
   `@paypal/agent-toolkit` 1.11.0's own dependencies. Dependabot will list them the moment the repository is public.
