@@ -651,7 +651,7 @@ function Deduction({ pack, d, urls }: { pack: StatePack; d: StatementDeduction; 
                   ) : (
                     <div className="flex aspect-[4/3] w-full items-center justify-center rounded-md bg-surface text-xs text-ink-3">Not available</div>
                   )}
-                  <figcaption className="mt-1 truncate text-xs text-ink-3">{p.label}</figcaption>
+                  <figcaption className="mt-1 text-xs text-ink-3">{p.label}</figcaption>
                 </figure>
               ))}
             </div>
