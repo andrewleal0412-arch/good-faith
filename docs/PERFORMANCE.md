@@ -1,6 +1,6 @@
 # Performance
 
-Andrew, 2026-10-05: "the site is slow, it takes forever to go from tab to tab; it should be responsive." This is what was measured, what changed, the numbers before and after for every route, and what Render's Starter plan would add. `README.md` has the architecture and `docs/DEPLOY.md` the hosting.
+Measured on 2026-10-05, after the site was reported slow between tabs. This is what changed, the numbers before and after for every route, and what Render's Starter plan would add. `README.md` has the architecture and `docs/DEPLOY.md` the hosting.
 
 ## The short version
 

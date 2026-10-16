@@ -1,4 +1,4 @@
-"""Render an HTML file to a Letter-size PDF with headless Chromium, the way demo/lease.pdf and the demo receipts were made.
+"""Render an HTML file to a Letter-size PDF with headless Chromium, the way demo/lease-single-owner.pdf and the demo receipts were made.
 
   python scripts/render_pdf.py demo/lease-single-owner.html demo/lease-single-owner.pdf
   python scripts/render_pdf.py demo/receipts/carpet_invoice.html out.pdf --replace "October 1, 2026=November 5, 2026"

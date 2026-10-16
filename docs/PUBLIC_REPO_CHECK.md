@@ -5,6 +5,8 @@ This is a report. Nothing was rewritten, re-authored or deleted to produce it, a
 Render deploys, so a history rewrite would change every hash and need a force push. Each finding below carries a
 recommended action instead.
 
+On 2026-10-16 the plain edits were made: findings 2, 7, 10, 12, 14, 15 and 16, which also removed the address finding 5 places in AUDIT.md. The others stand as written.
+
 The earlier pass is [AUDIT.md](AUDIT.md), section "Before the repository goes public", written on 2026-10-05 at 41
 commits. This one redoes that work at 58 commits and adds what has landed since.
 

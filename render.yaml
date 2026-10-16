@@ -8,8 +8,8 @@ services:
     # Region): a West US (North California) project pairs with oregon. Every page makes several database calls, so
     # the distance shows in every load.
     region: oregon
-    # Free for now: the Render workspace can't take a card at the moment. The free plan sleeps after 15 minutes
-    # without traffic, so a judge's first page waits about a minute. Switch to starter (stays awake) before judging.
+    # Free for now. The free plan sleeps after 15 minutes without traffic, so a judge's first page waits about a
+    # minute. Switch to starter (stays awake) before judging.
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
@@ -34,7 +34,7 @@ services:
         sync: false
       - key: GOOD_FAITH_ACCESS_CODE # the judges' code: each browser that enters it gets its own copy of the demo
         sync: false
-      - key: GOOD_FAITH_OWNER_CODE # your code: your own data
+      - key: GOOD_FAITH_OWNER_CODE # the owner's code: the owner's own data
         sync: false
       - key: GOOD_FAITH_SESSION_SECRET # 32+ random characters (openssl rand -base64 48)
         sync: false
@@ -84,7 +84,7 @@ services:
 
   # The daily sweep of demo copies older than 14 days (scripts/demo-sweep.mjs, docs/DEPLOY.md section 9). It needs
   # only the two Supabase variables, set by hand in the job's Environment after the sync (a Blueprint update doesn't
-  # ask for them). Paid like Starter: billed by the second it runs, at least $1 a month, so it needs the card too.
+  # ask for them). Paid like Starter: billed by the second it runs, at least $1 a month.
   - type: cron
     name: good-faith-sweep
     runtime: node

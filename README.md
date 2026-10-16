@@ -224,6 +224,10 @@ What each script checks, and how the end-to-end test builds and stubs: [docs/HOW
 
 The full list, with PayPal's tool gaps, accessibility's open items and the dependency advisories: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#known-limits).
 
+### Security
+
+`npm audit --omit=dev` (2026-10-16) lists 10 vulnerable packages (5 high, 2 moderate, 3 low), all inside `@paypal/agent-toolkit` 1.11.0's own dependencies. The app loads only the toolkit's MCP entry, `@paypal/agent-toolkit/mcp`. That entry never loads `@langchain/core`, `langsmith`, `uuid`, `jsondiffpatch` or the nested `ai` 4 packages; those belong to its LangChain and AI SDK entries. It loads `mathjs` only to round invoice totals. npm's only fix for most is a downgrade to the toolkit's 1.3.5, a breaking change, and the `mathjs` fix (15.2.0) is outside the toolkit's `^14` range. The app's own code has no advisory; the rest of `npm audit` is lint tooling. Dependabot will list the same advisories, plus one in the lint tooling.
+
 ## Setup
 
 `npm install`, the four `scripts/setup-*.sh` scripts, then `npm run dev -- -p 3210`. The variables, the migrations and the demo seed are in [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#setup); hosting is in [docs/DEPLOY.md](docs/DEPLOY.md).

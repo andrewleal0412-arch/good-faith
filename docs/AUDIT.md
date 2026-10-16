@@ -143,14 +143,14 @@ A review of the audit found these; each was checked against the code first. The 
 
 ## Before the repository goes public
 
-These are for Andrew; nothing in this list was changed.
+The counts in this section are as of 2026-10-05. The current ones are in the README. Nothing in this list was changed by the audit; the later pass is [PUBLIC_REPO_CHECK.md](PUBLIC_REPO_CHECK.md).
 
 1. **No secrets in the history.** No value from `.env.local` or `.env.render`, and no key or token pattern, appears in any commit or commit message, and no env, key or database file was ever committed. Nothing needs rotating because of the history.
    - The Supabase project's URL is in one old version of `scripts/setup-supabase.sh` (commit `347668a`). It is not a secret: the URL is public by design, and with row level security on and no policies, only the secret key reads anything.
    - Sandbox PayPal ids (invoices, captures, refunds, disputes, the webhook id) appear in the docs and fixtures. They are sandbox-only and not credentials.
    - The scan knew only today's values and the key patterns. If a PayPal or Anthropic key was rotated during the build, search the history once for the old value (a PayPal client secret has no prefix a pattern could catch).
-2. **Your email is the author on all 41 commits** (`andrewleal0412@gmail.com`) and becomes public with the repository. To hide it, set GitHub's noreply address for new commits. Rewriting the existing ones changes every hash and needs a force push to `main`, which Render deploys from. Or keep it as is.
-3. **`PLAN.md` is the internal plan from 2026-10-01.** It holds your schedule (midterms, filming in your apartment, another competition's close date), an Obsidian note path, and a stale stack (SQLite, the name still open). Delete it, or move it out of the repository, before going public. It stays in the history, which holds nothing sensitive.
+2. **Andrew's personal email address is the author on all 41 commits** and becomes public with the repository. To keep it off new commits, set GitHub's noreply address. Rewriting the existing ones changes every hash and needs a force push to `main`, which Render deploys from. Or keep it as is.
+3. **`PLAN.md` is the internal plan from 2026-10-01.** It holds Andrew's schedule (midterms, filming at home, another competition's close date), an Obsidian note path, and a stale stack (SQLite, the name still open). Delete it, or move it out of the repository, before going public. It stays in the history, which holds nothing sensitive.
 4. **Demo addresses use real street names.** The people, companies and 555 numbers are fictional (`demo/photos/CREDITS.md` says so). The streets are real ones in Orange, Santa Ana and Austin (E. Chapman Ave, N. Glassell St, W. Cedar St, Mesquite Bend Dr), so a house number could match a real building. This is optional to change; check it before filming if it matters.
 5. **README: "Demo video: [to be added before submission]".**
 6. **Before judging:**
