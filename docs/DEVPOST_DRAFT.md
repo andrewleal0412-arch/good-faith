@@ -58,8 +58,7 @@ request. **Webhooks** are checked with PayPal's verify-webhook-signature, so a r
 counted once.
 
 AI decides: Claude (Opus 5.5, through the AI SDK) reads the lease, classifies each change in the photos, and writes
-the agents' proposals and turns. Jev by TypeSafe reads a finding as the landlord types it and checks each agent's
-reasons against the record.
+the agents' proposals and turns.
 
 Code decides: the cap, every deduction, the deadlines, the PayPal rail, and each charge's lawful range. No model picks
 an amount. Every money tool carries `needsApproval`, and on approval `guardRefund` reads the database and PayPal again

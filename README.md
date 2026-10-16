@@ -82,7 +82,7 @@ Three things to check inside your copy, under a minute each.
 
 ## Architecture
 
-One Next.js 16 app (App Router, TypeScript, Tailwind 4) on Render, with Supabase for the data and the files. Indigo boxes propose (Claude and Jev), gray boxes decide (code), amber boxes are a person's approval, and green boxes are PayPal.
+One Next.js 16 app (App Router, TypeScript, Tailwind 4) on Render, with Supabase for the data and the files. Indigo boxes propose (Claude), gray boxes decide (code), amber boxes are a person's approval, and green boxes are PayPal.
 
 ```mermaid
 flowchart TB
@@ -99,7 +99,6 @@ flowchart TB
     ADV["Claude: tenants' advocate"]
     NEG["Claude: landlord's negotiator"]
     DEF["Claude: PayPal dispute<br/>defense agent"]
-    JEV["Jev by TypeSafe:<br/>quick read, reasons check"]
     H1{{"Landlord approves<br/>the refund"}}
     H2{{"Tenants accept, landlord<br/>approves the settlement"}}
     H3{{"Landlord approves the<br/>dispute response"}}
@@ -127,7 +126,6 @@ flowchart TB
   RANGE -->|bounds every figure| ADV & NEG & DEF
   TT -->|disputes a charge| ADV
   ADV <-->|up to 3 exchanges| NEG
-  JEV -.-> ADV & NEG
   CO --> H1
   NEG --> H2
   TT -->|accepts| H2
@@ -150,7 +148,7 @@ flowchart TB
   classDef human fill:#FCF1D6,stroke:#946200,color:#1B1D23
   classDef pay fill:#E6F4EA,stroke:#1E7B45,color:#1B1D23
   classDef who fill:#FFFFFF,stroke:#1B1D23,color:#1B1D23
-  class EX,IN,CO,ADV,NEG,DEF,JEV ai
+  class EX,IN,CO,ADV,NEG,DEF ai
   class PACK,MATH,RANGE,GUARD code
   class H1,H2,H3,H4 human
   class INV,CAP,TK,PO,DIS,WH pay
@@ -163,7 +161,7 @@ flowchart TB
 |---|---|
 | **Next.js 16** (App Router, TypeScript, Tailwind 4) | Server components read the database; route handlers under `src/app/api` do the writes and the money. The access gate is `src/proxy.ts`. |
 | **Claude** (Opus 5.5 through the AI SDK, `ai` v7 and `@ai-sdk/anthropic`) | Six jobs: lease extraction and photo inspection with `Output.object` and a Zod schema; the close-out agent with tools, a step limit and `needsApproval` on every money tool; the advocate and the negotiator held to the lawful range; the PayPal dispute's defense agent, which stops at its proposal ([`model.ts`](src/lib/model.ts)). |
-| **Jev by TypeSafe** (`@typesafe-ai/sdk` 0.6.0, `jev-1.13.0`) | Typed judgments with probabilities: the quick read on Add finding, and the check of the agents' reasons against the record. Optional; absent without its key ([details](docs/HOW_IT_WORKS.md#how-the-ai-is-split-up)). |
+| **Jev by TypeSafe** (`@typesafe-ai/sdk` 0.6.0) | Optional, and off without `TYPESAFE_API_KEY`. With the key, it reads a finding's words as the landlord types them and checks the agents' reasons against the record ([details](docs/HOW_IT_WORKS.md#jev-optional)). |
 | **PayPal** | Invoicing, the Agent Toolkit over MCP (`@paypal/agent-toolkit` 1.11.0 through `@ai-sdk/mcp`), Payouts, the Disputes API and webhooks, all in the sandbox ([`paypal.ts`](src/lib/paypal.ts), [`agent.ts`](src/lib/agent.ts), [`paypal-webhook.ts`](src/lib/paypal-webhook.ts)). |
 | **Supabase** | Postgres and three private Storage buckets. The server uses the secret key with row level security on and no policies, and every query is scoped in code to the session's workspace ([`workspace.ts`](src/lib/workspace.ts)). Row-locking functions make the concurrent writes atomic. |
 | **AG Grid and AG Charts Community** | The deductions, Payments and Insights grids and the four charts ([AG Grid](#ag-grid-sponsor-prize)). |

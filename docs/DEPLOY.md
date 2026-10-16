@@ -52,7 +52,7 @@ The steps, in order, to take the app from a laptop to a URL the judges can open,
 
 ## 3.5. TypeSafe (optional)
 
-Jev, TypeSafe's typed-judgment model, does two things when its key is set (`src/lib/jev.ts`, docs/HOW_IT_WORKS.md, "How the AI is split up"): the quick read on Add finding (the chip under Type, `POST /api/tenancies/[id]/findings/classify`) and the record-support check on the advocate's and the negotiator's reasons. Without the key both are absent and nothing else changes: the form never asks, and the agents' cases are exactly as before.
+Jev, TypeSafe's typed-judgment model, does two things when its key is set (`src/lib/jev.ts`, docs/HOW_IT_WORKS.md, "Jev, optional"): the quick read on Add finding (the chip under Type, `POST /api/tenancies/[id]/findings/classify`) and the record-support check on the advocate's and the negotiator's reasons. Without the key both are absent and nothing else changes: the form never asks, and the agents' cases are exactly as before.
 
 1. console.typesafe.ai > Keys > create one for the hosted app. That is `TYPESAFE_API_KEY`, set on Render (server only; it never reaches a browser, and the SDK refuses to run in one).
 2. Optional: `TYPESAFE_DEFAULT_MODEL` overrides `jev-1.13.0`, the version the thresholds were set against (a Type is picked at an average top probability of 0.7 with at least 0.6 in each of the four option orders; a reason gives way when the record contradicts one of its claims at 0.5 or more, unless the claim rests on the tenants' own photos or account; the tenants' text is called out above 0.8). Leave it unset unless TypeSafe retires that version; `jev-latest` would move under you.
@@ -80,7 +80,7 @@ Each read is one request of about 2,600 input tokens (the words, the state's rul
    - [ ] The pool at least 30 ready: `npm run demo:pool -- --min 30`, daily from the mini (section 9).
    - [ ] The cron job's `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, set by hand in `good-faith-sweep` > Environment on Render, the same values as the web service's. A Blueprint update doesn't ask for them (section 9).
    - [ ] The Anthropic console's spend limit set to match (section 3).
-   - [ ] `TYPESAFE_API_KEY` set, or the README's Jev lines removed (its row in the table and its box in the diagram), so nobody looks for a chip that isn't there.
+   - [ ] `TYPESAFE_API_KEY` set, or optional beat 3c left out of the video and the README's Jev row removed, so nobody looks for a chip that isn't there.
    - [ ] Each morning, `https://<host>/api/health?owner=1` in a browser signed in with the owner code: the pool, the day's copies and the day's Claude jobs against these numbers (section 8).
 7. What Render does not limit: there is no 4.5 MB body cap and no per-route time limit, so the `maxDuration` exports in the routes (written for Vercel) are ignored, and an inspection or a close-out run takes as long as Claude does (well under a minute each in testing). The app keeps its own 4 MB upload budget (section 8) whatever the host allows.
 8. The URL is `https://good-faith.onrender.com` (or the name Render gives if that one is taken). A custom domain is optional.
