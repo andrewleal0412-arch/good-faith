@@ -1,5 +1,7 @@
 # Good Faith
 
+[![Checks](https://github.com/andrewleal0412-arch/good-faith/actions/workflows/checks.yml/badge.svg)](https://github.com/andrewleal0412-arch/good-faith/actions/workflows/checks.yml)
+
 **Security deposits closed out the lawful way: Claude reads the lease and the photos, code computes every dollar from the state's statute, and PayPal returns the money only after a person approves.**
 
 For small landlords (one condo, a duplex, an ADU) and their tenants in California, New York, Texas, Florida and Washington. Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/). PayPal sandbox only; no real money moves. It informs, computes and drafts; it does not give legal advice.
@@ -249,6 +251,7 @@ src/lib/model.ts, e2e-*.ts        the model behind each Claude job, and the end-
 src/components/                   the design system, and grid.tsx for every AG Grid
 supabase/migrations/              the database schema, in order
 scripts/                          the checks, the end-to-end and accessibility tests, the demo seed, pool and sweep
+.github/workflows/                the checks that run on every push
 docs/                             design, legal rules, state specs, deploy, performance, accessibility, the demo script
 demo/                             the fictional leases, photos and receipts
 ```
@@ -305,16 +308,16 @@ python scripts/a11y-check.py --worktree <a new dir> --shots <dir>  # WCAG 2.2 AA
 
 **The end-to-end test** ([`scripts/e2e-demo.py`](scripts/e2e-demo.py)) walks [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) the way a judge would, in Chromium, on a production build. It builds the code as it stands (uncommitted changes included) in a temporary git worktree, serves it on port 3211 with `GOOD_FAITH_E2E_STUBS=1` ([`e2e-switch.ts`](src/lib/e2e-switch.ts)), makes a fresh private demo copy, and goes through Properties, the lease check, the Move-out tab with Claude's boxes, the refund review and approval, the statement and its delivery, the tenants' page, the dispute and the advocate's case, the negotiation, the settlement and the amended statement, Payments and Insights, the demo lease checked again, which opens the tenancy the copy already has for it instead of starting a second one, and the demo guide (its eight steps against the beat table of `docs/DEMO_SCRIPT.md`, its ticks against the copy's own rows, the unit its beats run on held to the address that table names, and Hide and the way back). At each step it checks the words that matter and, on the money screens, that every dollar figure shown is one the test works out on its own from the copy's rows and the demo's story, and it saves a screenshot. With the switch on, every Claude job answers from a scripted stub ([`e2e-stubs.ts`](src/lib/e2e-stubs.ts)), Jev is off, and PayPal is a fake inside the server ([`e2e-paypal.ts`](src/lib/e2e-paypal.ts), with PayPal's own Agent Toolkit server in front of it, [`e2e-toolkit.ts`](src/lib/e2e-toolkit.ts)) that refunds only the test's own fake deposit. The switch is ignored on Render and with live PayPal, the server prints a banner when it is on, and the test refuses a server that doesn't say it is on. At the end it removes the copy, its rows, its files and its fake deposit, failed or not (`--leftovers --apply` finds any a crashed run left). `--prepare`, `--serve --hold` and `--base` run it in steps.
 
-The last runs, on 2026-10-15:
+`tsc`, `eslint` and thirteen of the check scripts (1,992 assertions) run in GitHub Actions on every push and pull request ([`.github/workflows/checks.yml`](.github/workflows/checks.yml)). The badge at the top of this file is that run, and its log prints every count. `ca-snapshot.mjs` reads the template tenancies from Supabase and their invoices from PayPal. The three browser tests need a production build and Playwright. Those four are run by hand.
 
-| Check | Result |
-|---|---|
-| `tsc`, `eslint --max-warnings=0` | Clean |
-| `ca-snapshot.mjs` | Identical, 17 sections |
-| `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 284, `thumbs` 169, `e2e-stubs` 46, `page-weight` 164 | All passed |
-| `clipboard-check.py` on a production build | 8 of 8 |
-| `e2e-demo.py` on a production build | 105 of 105 |
-| `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation |
+| Check | Result | Run by |
+|---|---|---|
+| `tsc`, `eslint --max-warnings=0` | Clean | CI, every push |
+| `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 284, `thumbs` 169, `e2e-stubs` 46, `page-weight` 164 | All passed | CI, every push |
+| `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-15 |
+| `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
+| `e2e-demo.py` on a production build | 105 of 105 | By hand, 2026-10-15 |
+| `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation | By hand, 2026-10-15 |
 
 `next build` needs `.env.local` (or the same variables in the environment). Build in a copy of the repo so it doesn't clobber a running dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; Turbopack refuses a symlinked `node_modules`) and `.env.local` copied over. The three Python tests do this for you.
 

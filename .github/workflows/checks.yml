@@ -1,0 +1,84 @@
+# Every check that needs no secret and no network, on every push and pull request.
+#
+# Not here: ca-snapshot.mjs (reads the template tenancies from Supabase and the deposit invoices from PayPal),
+# clipboard-check.py, e2e-demo.py and a11y-check.py (a production build, which needs .env.local, and Playwright).
+# Those are run by hand; their counts are in the README's table of last runs.
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # next-env.d.ts and .next/types hold Next's own route and page types. They are generated, so they are not in
+      # git, and tsc cannot resolve PageProps or RouteContext without them. typegen writes them without a build.
+      - name: Route types
+        run: npx next typegen
+
+      - name: tsc
+        run: npx tsc --noEmit
+
+      - name: eslint
+        run: npx eslint src --max-warnings=0
+
+      - name: state-packs-check
+        run: node scripts/state-packs-check.mjs
+
+      - name: zone-check
+        run: node scripts/zone-check.mjs
+
+      - name: lawful-range-check
+        run: node scripts/lawful-range-check.mjs
+
+      - name: negotiation-check
+        run: node scripts/negotiation-check.mjs
+
+      - name: paypal-webhook-check
+        run: node scripts/paypal-webhook-check.mjs
+
+      - name: grid-check
+        run: node scripts/grid-check.mjs
+
+      - name: chargeback-check
+        run: node scripts/chargeback-check.mjs
+
+      - name: jev-check
+        run: node scripts/jev-check.mjs
+
+      - name: reconcile-check
+        run: node scripts/reconcile-check.mjs
+
+      - name: cache-check
+        run: node scripts/cache-check.mjs
+
+      - name: thumbs-check
+        run: node scripts/thumbs-check.mjs
+
+      - name: e2e-stubs-check
+        run: node scripts/e2e-stubs-check.mjs
+
+      - name: page-weight-check
+        run: node scripts/page-weight-check.mjs
