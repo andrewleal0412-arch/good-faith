@@ -1,7 +1,7 @@
 import "server-only";
 import type { Pending } from "./agent";
 import { timeline, type TimelineItem } from "./agent-timeline";
-import { closeOutFacts, guardWithFacts, paidAgo, type CloseOutFacts, type Rail } from "./closeout";
+import { closeOutFacts, guardWithFacts, paidAgo, REFUND_WINDOW_DAYS, type CloseOutFacts, type PayoutReason, type Rail } from "./closeout";
 import { dateIn, shortDate, whenText } from "./dates";
 import { db } from "./db";
 import { usd } from "./deductions";
@@ -73,6 +73,11 @@ export type RefundView = {
     waiting?: { count: number; amount: number; href: string };
     rail: Rail;
     why: string;
+    // The rail's numbers, for the line beside Method: how many days ago PayPal says the deposit was paid (null when
+    // PayPal gave no date), PayPal's refund window in days (refund-rail.ts), and for a Payout, railFor's reason.
+    paidDaysAgo: number | null;
+    windowDays: number;
+    payoutBecause?: PayoutReason;
     noteToPayer?: string; // what PayPal shows the tenants when the whole deposit goes back (closeout.ts); absent otherwise
     method: string | null; // how the tenants paid, PayPal's code
     blockers: string[];
@@ -175,7 +180,7 @@ function checksOf(f: CloseOutFacts, pendingAmount: number | null, demo: boolean,
     out.push({
       key: "rail", label: f.plan.rail === "payout" ? "Payout to the designated account" : "Refund to the original payment",
       value: f.plan.rail === "payout" ? "PayPal Payout"
-        : d?.daysSincePaid != null ? `Paid ${paidAgo(d.daysSincePaid)}` : "Inside 180 days",
+        : d?.daysSincePaid != null ? `Paid ${paidAgo(d.daysSincePaid)}` : `Inside ${REFUND_WINDOW_DAYS} days`,
       state: "ok",
       tip: { title: "How the money goes back", body: `${f.plan.why} ${RULES.refundWindow}` },
     });
@@ -307,6 +312,7 @@ async function reviewOf(
     ...(f.outsideOpen?.length ? { waiting: { count: f.outsideOpen.length, amount: Math.round(f.outsideOpen.reduce((t2, r) => t2 + r.amount, 0) * 100) / 100, href: tabHref(id, "payments", "outside-refunds") } } : {}),
     balanceClaimed: f.totals.balanceClaimed, ...(f.standing && !f.standing.forfeits ? { standing: f.standing.label } : {}), ...(f.standing?.forfeits ? { forfeited: true } : {}),
     rail: f.plan.rail, why: f.plan.why, ...(f.plan.noteToPayer ? { noteToPayer: f.plan.noteToPayer } : {}), method: f.deposit?.method ?? null,
+    paidDaysAgo: f.deposit?.daysSincePaid ?? null, windowDays: REFUND_WINDOW_DAYS, ...(f.plan.because ? { payoutBecause: f.plan.because } : {}),
     blockers: f.blockers.filter((b) => b !== demoBlock), warnings: f.warnings, poolEmpty: !!demoBlock, ...(demoBlock ? { demoBlock } : {}),
     checks: checksOf(f, pending?.amount ?? null, !!opts.demo, pack, words),
     run: await runView(run), pending,

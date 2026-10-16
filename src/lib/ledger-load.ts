@@ -6,6 +6,7 @@ import { packFor } from "./states/server";
 import type { StateCode } from "./states/types";
 import { db } from "./db";
 import { ledgerRows, streetLine, type LedgerDeduction, type LedgerPayment, type LedgerRow, type LedgerTenancy } from "./ledger";
+import type { RecordKind } from "./paypal-record";
 import { workspaceTenancies } from "./units";
 import { currentWorkspace } from "./workspace";
 
@@ -19,10 +20,12 @@ import { currentWorkspace } from "./workspace";
 export type LedgerUnit = { id: string; label: string; street: string; tenants: string; start: string | null; due: string | null; state: StateCode };
 
 /** What the Payments grid's details panel shows for a row beyond the row itself: every PayPal id behind it (to copy),
- *  where its status came from, and the PayPal webhook deliveries that touched it. Ids and the app's own notes only:
- *  no payload, no email, no address leaves the server. */
+ *  where its status came from, the PayPal webhook deliveries that touched it, and which PayPal record it can read live
+ *  ("PayPal's record": the row's refund, Payout batch or invoice, by id; null for a deduction, a demo example or a
+ *  PayPal dispute). Ids and the app's own notes only: no payload, no email, no address leaves the server. */
 export type LedgerDetail = {
   ids: { label: string; id: string }[];
+  record: { kind: RecordKind; id: string } | null;
   source: { text: string; at: string | null; paypal: boolean; event: { id: string; type: string } | null };
   events: { id: string; type: string; at: string; status: string; note: string | null }[];
 };
@@ -118,7 +121,11 @@ function ledgerDetails(rows: LedgerRow[], payments: (LedgerPayment & { tenancy_i
     const mine = new Set(ids.map((x) => x.id));
     const evs = events.filter((e) => e.tenancy_id === r.tenancyId && ((e.resource_id && mine.has(e.resource_id)) || e.id === from?.event_id))
       .slice(0, 10).map((e) => ({ id: e.id, type: eventWords(e.event_type), at: e.received_at, status: e.status, note: e.note }));
-    out[r.id] = { ids, source, events: evs };
+    const recordKind: RecordKind | null = r.example || !p?.paypal_id ? null
+      : r.kind === "deposit_invoice" || r.kind === "damage_invoice" || r.kind === "payment" ? "invoice"
+        : r.kind === "refund" || r.kind === "outside_refund" || (r.kind === "settlement" && p.kind === "settlement_refund") ? "refund"
+          : r.kind === "payout" || (r.kind === "settlement" && p.kind === "settlement_payout") ? "payout" : null;
+    out[r.id] = { ids, source, events: evs, record: recordKind ? { kind: recordKind, id: p!.paypal_id! } : null };
   }
   return out;
 }

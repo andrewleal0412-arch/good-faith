@@ -9,7 +9,9 @@
 //     turns on the demo's three charges (no adjustment by the code, agreed at $270 back);
 //   - the fake PayPal: no request leaves the process (fetch, http and https are trapped), a refund of any capture
 //     that isn't the test's own is refused, through the REST path and through the Agent Toolkit's MCP server, and
-//     the webhook check and dispute evidence never reach PayPal.
+//     the webhook check and dispute evidence never reach PayPal;
+//   - PayPal's record (src/lib/paypal-record.ts): the picks over PayPal's answers keep the fields the screens list and
+//     drop every email, name and address, and the reads behind them go to the fake.
 // Exit 1 if any fails.
 //
 //   node scripts/e2e-stubs-check.mjs
@@ -45,8 +47,8 @@ console.warn = (...a) => { if (String(a[0]).startsWith("[E2E STUBS ON]")) stubLi
 
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
-const [sw, model, stubs, fake, paypal, agent, extract, advocate, nego, range, states, leaseKeyLib] = await Promise.all(
-  ["e2e-switch", "model", "e2e-stubs", "e2e-paypal", "paypal", "agent", "extract", "advocate", "negotiator", "lawful-range", "states/server", "lease-key"].map(lib));
+const [sw, model, stubs, fake, paypal, agent, extract, advocate, nego, range, states, leaseKeyLib, record] = await Promise.all(
+  ["e2e-switch", "model", "e2e-stubs", "e2e-paypal", "paypal", "agent", "extract", "advocate", "negotiator", "lawful-range", "states/server", "lease-key", "paypal-record"].map(lib));
 const CA = states.packFor("CA");
 
 let pass = 0, fail = 0;
@@ -204,6 +206,70 @@ stubsOn(true);
   }
   stubsOn(false);
 }
+/* ---------- 5. PayPal's record ---------- */
+{
+  // PayPal's answers as its documentation shapes them, with every field the screens must never show planted in them.
+  const PII = ["tenant@example.com", "landlord@example.com", "Priya Raman", "Harbor View Rentals", "1140 E. Juniper Hollow Ln", "Orange, CA 92867", "receiver@example.com"];
+  const leaked = (r) => PII.filter((w) => JSON.stringify(r).includes(w));
+  const refund = {
+    id: "1JU08902781691411", status: "COMPLETED", amount: { currency_code: "USD", value: "3790.00" },
+    note_to_payer: "Your deposit, less itemized deductions. Priya Raman: 1140 E. Juniper Hollow Ln",
+    seller_payable_breakdown: { gross_amount: { value: "3790.00" }, paypal_fee: { value: "0.00" }, net_amount: { value: "3790.00" } },
+    payer: { email_address: "tenant@example.com", name: { given_name: "Priya", surname: "Raman" }, address: { address_line_1: "1140 E. Juniper Hollow Ln", admin_area_2: "Orange, CA 92867" } },
+    invoice_id: "GF-1", create_time: "2026-10-16T18:22:03Z", update_time: "2026-10-16T18:22:03Z",
+    links: [{ href: "https://api-m.sandbox.paypal.com/v2/payments/refunds/1JU08902781691411", rel: "self", method: "GET" }, { href: "https://api-m.sandbox.paypal.com/v2/payments/captures/9YF61788W2043700U", rel: "up", method: "GET" }],
+  };
+  eq("record: a refund keeps PayPal's id, status, amount, times and the capture it refunded, and nothing else",
+    record.pickRefund(refund),
+    { kind: "refund", id: "1JU08902781691411", status: "COMPLETED", amount: "3790.00 USD", createTime: "2026-10-16T18:22:03Z", updateTime: "2026-10-16T18:22:03Z", captureId: "9YF61788W2043700U" });
+  eq("record: the refund's payer, note and breakdown never come through", leaked(record.pickRefund(refund)), []);
+  const invoice = {
+    id: "INV2-ABCD-EFGH-IJKL-MNOP", status: "PARTIALLY_REFUNDED",
+    detail: { currency_code: "USD", invoice_number: "GF-0123456789abcdef0123", note: "Priya Raman, 1140 E. Juniper Hollow Ln", terms_and_conditions: "Held under Civil Code 1950.5.",
+      metadata: { create_time: "2026-10-13T17:00:00Z", last_update_time: "2026-10-16T18:22:03Z", recipient_view_url: "https://www.sandbox.paypal.com/invoice/p/#INV2" } },
+    invoicer: { business_name: "Harbor View Rentals", email_address: "landlord@example.com", address: { address_line_1: "1140 E. Juniper Hollow Ln" } },
+    primary_recipients: [{ billing_info: { email_address: "tenant@example.com", name: { given_name: "Priya", surname: "Raman" }, address: { address_line_1: "1140 E. Juniper Hollow Ln", admin_area_2: "Orange, CA 92867" } } }],
+    items: [{ name: "Security deposit: 1140 E. Juniper Hollow Ln, Orange, CA 92867", quantity: "1", unit_amount: { currency_code: "USD", value: "4800.00" } }],
+    amount: { currency_code: "USD", value: "4800.00", breakdown: { item_total: { value: "4800.00" } } },
+    payments: { paid_amount: { currency_code: "USD", value: "4800.00" }, transactions: [{ type: "PAYPAL", payment_id: "9YF61788W2043700U", payment_date: "2026-10-13", method: "PAYPAL", amount: { currency_code: "USD", value: "4800.00" } }] },
+    refunds: { refund_amount: { currency_code: "USD", value: "4060.00" }, transactions: [{ type: "PAYPAL", recipient_transaction_id: "1JU08902781691411", refund_date: "2026-10-16", amount: { currency_code: "USD", value: "3790.00" } }] },
+  };
+  eq("record: an invoice keeps its id, number, status, amounts, payment and times, and nothing else",
+    record.pickInvoice(invoice),
+    { kind: "invoice", id: "INV2-ABCD-EFGH-IJKL-MNOP", status: "PARTIALLY_REFUNDED", invoiceNumber: "GF-0123456789abcdef0123", amount: "4800.00 USD", paid: "4800.00 USD", refunded: "4060.00 USD",
+      paymentId: "9YF61788W2043700U", paymentDate: "2026-10-13", createTime: "2026-10-13T17:00:00Z", updateTime: "2026-10-16T18:22:03Z" });
+  eq("record: the invoice's recipients, invoicer, items and note never come through", leaked(record.pickInvoice(invoice)), []);
+  const payout = {
+    batch_header: { payout_batch_id: "5RB36725KN831551L", batch_status: "SUCCESS", time_created: "2026-10-16T18:22:03Z", time_completed: "2026-10-16T18:22:40Z",
+      sender_batch_header: { sender_batch_id: "deposit-1", email_subject: "Your security deposit refund", email_message: "Priya Raman" }, amount: { currency: "USD", value: "3790.00" }, fees: { currency: "USD", value: "0.25" } },
+    items: [{ payout_item_id: "G9", transaction_status: "SUCCESS", payout_item: { receiver: "receiver@example.com", note: "Priya Raman, 1140 E. Juniper Hollow Ln", amount: { value: "3790.00", currency: "USD" } } }],
+  };
+  eq("record: a Payout keeps the batch's id, status, amount and times, and nothing else",
+    record.pickPayout(payout), { kind: "payout", id: "5RB36725KN831551L", status: "SUCCESS", amount: "3790.00 USD", createTime: "2026-10-16T18:22:03Z", completedTime: "2026-10-16T18:22:40Z" });
+  eq("record: the Payout's items, receivers and messages never come through", leaked(record.pickPayout(payout)), []);
+  eq("record: an answer without an id or a status is no record", [record.pickRefund({}), record.pickInvoice({ id: "x" }), record.pickPayout({ batch_header: {} }), record.pickRefund("COMPLETED")], [null, null, null, null]);
+  // The rows the screens list: every label says whose value it is, a missing value is a word, and an invoice's times
+  // are listed only when PayPal gives them.
+  const rows = record.recordRows(record.pickRefund({ id: "R1", status: "PENDING" }));
+  check("record: every row is labelled as PayPal's", rows.every((r) => r.label.startsWith("PayPal's")), JSON.stringify(rows.map((r) => r.label)));
+  eq("record: a value PayPal didn't give reads \"Not given\"", rows.map((r) => r.value), ["R1", "PENDING", "Not given", "Not given", "Not given", "Not given"]);
+  eq("record: an invoice's times are listed only when PayPal gives them",
+    record.recordRows(record.pickInvoice({ id: "INV2-1", status: "PAID" })).map((r) => r.label).filter((l) => /time/.test(l)), []);
+  // The reads behind the section go to the fake, and an id that isn't PayPal's shape is refused before any call.
+  stubsOn(true);
+  let missing = null;
+  try { await paypal.getRefund("E2ENOSUCHREFUND01"); } catch (e) { missing = e; }
+  check("record: a refund the fake PayPal doesn't have is PayPal's 404, through the app's own read", missing instanceof paypal.PayPalRefused && missing.status === 404, String(missing));
+  let bad = null;
+  try { await paypal.getRefund("not a refund id"); } catch (e) { bad = e; }
+  check("record: an id that isn't a PayPal refund id is refused before any call", bad instanceof paypal.PayPalRefused && bad.status === 0, String(bad));
+  let batch = null;
+  try { await paypal.getPayoutBatch("5RB36725KN831551L"); } catch (e) { batch = e; }
+  check("record: a Payout batch isn't on the demo's path and the fake refuses it", batch instanceof paypal.PayPalRefused && batch.status === 501, String(batch));
+  eq("record: ids the screens take", ["INV2-ABCD-EFGH-IJKL-MNOP", "1JU08902781691411", "a", "../x", "x y"].map(record.isPayPalId), [true, true, false, false, false]);
+  stubsOn(false);
+}
+
 eq("nothing left the process (fetch, http, https)", leaks, []);
 check("every stubbed model call and fake PayPal answer said so in the log", ["a lease call", "a close_out call", "a advocate call", "a negotiator call", "refused a refund of capture", "Agent Toolkit create_refund -> 422"].every((w) => stubLines.some((l) => l.includes(w))), `${stubLines.length} lines`);
 

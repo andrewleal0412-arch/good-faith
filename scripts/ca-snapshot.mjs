@@ -256,6 +256,16 @@ const SUMMARY_ADDED = ["noticeGivenBy", "landlordUnits", "buildingUnits"];
 for (const [id, m] of Object.entries(snap.summaries ?? {})) {
   for (const k of SUMMARY_ADDED) if (m && typeof m === "object" && k in m) { delete m[k]; ADDED.push(`summaries.${id}.${k}`); }
 }
+// The refund review names the rail in words (the Method line on Review refund): the days since the deposit was paid,
+// PayPal's refund window, and on the Payout rail the reason. The window must be the constant the snapshot already
+// holds; the three are then dropped and counted the same way.
+const REVIEW_ADDED = ["paidDaysAgo", "windowDays", "payoutBecause"];
+for (const [id, v] of Object.entries(snap.refundView ?? {})) {
+  const m = v && typeof v === "object" ? v.review : null;
+  if (!m || typeof m !== "object") continue;
+  if ("windowDays" in m && m.windowDays !== closeout.REFUND_WINDOW_DAYS) { console.error(`refundView.${id}.review.windowDays is ${m.windowDays}, not ${closeout.REFUND_WINDOW_DAYS}.`); process.exit(1); }
+  for (const k of REVIEW_ADDED) if (k in m) { delete m[k]; ADDED.push(`refundView.${id}.review.${k}`); }
+}
 
 // Emails become a short hash; keys are sorted so the file diffs cleanly.
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
@@ -293,7 +303,7 @@ walk(want, out, "snapshot");
 const sections = Object.keys(want).filter((k) => JSON.stringify(want[k]) === JSON.stringify(out[k]));
 if (!diffs.length) {
   console.log(`California snapshot identical: ${sections.length} sections (${sections.join(", ")}), ${text.length} bytes.`);
-  if (ADDED.length) console.log(`Intended additions left out of the comparison (state = "CA", and the summary's notice giver and unit counts): ${ADDED.join(", ")}.`);
+  if (ADDED.length) console.log(`Intended additions left out of the comparison (state = "CA", the summary's notice giver and unit counts, the refund review's rail words): ${ADDED.join(", ")}.`);
   process.exit(0);
 }
 console.log(`California snapshot DIFFERS in ${diffs.length}${diffs.length > 60 ? "+" : ""} place(s):\n`);

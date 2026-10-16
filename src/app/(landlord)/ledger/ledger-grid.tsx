@@ -18,6 +18,7 @@ import { copyText } from "@/lib/clipboard";
 import { Icon, PayPalMark } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
+import { PayPalRecordSection } from "@/components/paypal-record";
 import { Tabs } from "@/components/tabs";
 import { RollMoney } from "@/components/roll-money";
 import { KV, Money, StatusChip, inlineInputClass } from "@/components/ui";
@@ -28,10 +29,10 @@ import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
 // two tiles (what is held, what is due back next), the views as tabs, filter chips and a quick filter, then one 48px
 // line per money event in AG Grid Community. Each view is a saved layout: its rows, its columns and its sort, and the
 // columns a landlord resizes, moves, sorts, hides or shows are remembered per view in this browser. A row opens its
-// details (every PayPal id with a copy button, where its status came from, PayPal's webhook deliveries) on a click or
-// Enter; the arrow keys move between cells. Past a screenful the grid renders only the rows in view, so a few hundred
-// rows scroll as fast as ten. No license key and nothing from Enterprise; the modules go in through the provider so
-// nothing runs on the server.
+// details (every PayPal id with a copy button, PayPal's own record read live, where its status came from, PayPal's
+// webhook deliveries) on a click or Enter; the arrow keys move between cells. Past a screenful the grid renders only
+// the rows in view, so a few hundred rows scroll as fast as ten. No license key and nothing from Enterprise; the
+// modules go in through the provider so nothing runs on the server.
 
 /** What this grid draws with, beyond what every grid shares (gridModules): the quick filter, the views' and the chips'
  *  filter, the row checkboxes, the CSV, saved column layouts, and the shown and selected counts. */
@@ -672,6 +673,13 @@ function Details({ r, d, status, at, selectId }: { r: LedgerRow; d: LedgerDetail
           <p className="mt-2 text-sm text-ink-3">None. {r.kind === "deduction" ? "A deduction is on the statement, not in PayPal." : "PayPal holds no record of this row."}</p>
         )}
       </div>
+
+      {/* PayPal's own answer for the row's refund, Payout batch or invoice, read when the section is opened. */}
+      {d?.record && (
+        <div className={section}>
+          <PayPalRecordSection tenancyId={r.tenancyId} kind={d.record.kind} id={d.record.id} />
+        </div>
+      )}
 
       <div className={section}>
         <h3 className="text-sm font-medium">Status from</h3>

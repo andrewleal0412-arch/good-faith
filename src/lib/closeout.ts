@@ -8,7 +8,7 @@ import type { Notices } from "./notices";
 import { loadOutsideRefunds, noteFromInvoice } from "./outside-refunds";
 import { getInvoice, type Invoice } from "./paypal";
 import { invoiceRefunded, openNotes, outsideReturnedAt, outsideReturns, unaccounted, type RecordRow } from "./reconcile";
-import { disputeReturns, railFor, refundOwed, REFUND_WINDOW_DAYS, wholeDepositOwed } from "./refund-rail";
+import { disputeReturns, railFor, refundOwed, REFUND_WINDOW_DAYS, wholeDepositOwed, type RailChoice } from "./refund-rail";
 import { packFor, zoneWarnings } from "./states/server";
 import type { Standing, StatePack } from "./states/types";
 import type { TenantMoveOut } from "./tenant";
@@ -27,6 +27,7 @@ import type { TenantMoveOut } from "./tenant";
 export { REFUND_WINDOW_DAYS };
 
 export type Rail = "refund_original_payment" | "payout" | "nothing_to_refund" | "blocked";
+export type PayoutReason = Extract<RailChoice, { rail: "payout" }>["because"];
 
 export type CloseOutFacts = {
   today: string;
@@ -39,7 +40,8 @@ export type CloseOutFacts = {
   alreadyReturned: { kind: string; amount: number; paypalId: string; at: string } | null;
   // noteToPayer: the note PayPal shows the tenants, in code's words, when the plan returns the whole deposit (no
   // deduction kept, or New York's forfeited ones); the money tools send it in place of the agent's. Absent otherwise.
-  plan: { rail: Rail; amount: number; captureId?: string; email?: string; why: string; noteToPayer?: string };
+  // because: for a Payout, railFor's reason (refund-rail.ts), so the review can say it in its own words. Absent otherwise.
+  plan: { rail: Rail; amount: number; captureId?: string; email?: string; why: string; noteToPayer?: string; because?: PayoutReason };
   blockers: string[];
   warnings: string[];
   rules: Record<string, string>;
@@ -379,7 +381,7 @@ function railPlan(f: CloseOutFacts, pack: StatePack, amount: number): CloseOutFa
       why: `Paid ${paidAgo(c.daysSincePaid)} through PayPal from the account the tenants designated, inside PayPal's ${REFUND_WINDOW_DAYS}-day refund window, so the refund goes back against that payment.` };
   }
   const because = c.rail === "payout" ? c.because : "past_window";
-  return { rail: "payout", amount, email,
+  return { rail: "payout", amount, email, because,
     why: because === "no_capture" ? "There's no PayPal payment to refund against, so the money goes out as a Payout to the designated account."
       : because === "other_account" ? `The deposit was billed to ${d.billedTo ?? "another address"}, not the account the tenants designated, so it goes out as a Payout to ${email}.`
         : because === "no_date" ? `PayPal has no payment date for the deposit, so it goes out as a Payout to ${email}.`

@@ -7,6 +7,7 @@ import { Icon, PayPalMark, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Money, Notice, StatusChip, Wordmark } from "@/components/ui";
 import { PAGE_PATH, runNotes, stripQuotes, type Step } from "@/lib/agent-notes";
+import { paidAgo } from "@/lib/closeout";
 import { atTextIn, shortDate, timeIn } from "@/lib/dates";
 import { usd } from "@/lib/deductions";
 import { db } from "@/lib/db";
@@ -17,6 +18,7 @@ import { Bone, Skeleton } from "@/components/skeletons";
 import { refundRecordWords } from "@/lib/states/server";
 import { tenancyPack } from "@/lib/tenancy-pack";
 import { CopyId } from "@/components/copy-id";
+import { PayPalRecordSection } from "@/components/paypal-record";
 import { Moment } from "@/components/motion";
 import { StepLine, StepMark } from "@/components/steps";
 import { ownedTenancy, pageTenancy } from "@/lib/workspace";
@@ -230,14 +232,25 @@ async function LiveTop({ v, live }: { v: RefundView; live: Live }) {
   );
 }
 
+/** The rail decision in words, under Method: the numbers are the rules' own (refund-rail.ts), never typed here. */
+function railWords(r: RefundReview, payout: boolean, who: string): string {
+  const named = `the account the ${who} named in writing`;
+  if (!payout) {
+    return `Original payment${r.paidDaysAgo != null ? `, paid ${paidAgo(r.paidDaysAgo)}` : ""}, inside PayPal's ${r.windowDays}-day refund window. After day ${r.windowDays} this goes as a Payout to ${named}.`;
+  }
+  if (r.payoutBecause === "past_window" && r.paidDaysAgo != null) {
+    return `Payout to ${named}: the deposit was paid ${paidAgo(r.paidDaysAgo)}, past PayPal's ${r.windowDays}-day refund window.`;
+  }
+  return `Payout to ${named}: the original payment can't take this refund.`;
+}
+
 /** Amount and how the money goes back, under To and From. */
 async function LiveAmountRows({ v, live }: { v: RefundView; live: Live }) {
   const r = await live;
   const { payout, nothing, blocked } = wordsOf(r);
   const method: [ReactNode, ReactNode, ReactNode?][] = blocked || nothing ? [] : [
     ["Method", withTip(payout ? "PayPal Payout" : "PayPal refund to the original payment", <InfoTip title="How the money goes back">{r.why}</InfoTip>),
-      payout ? `The PayPal account the ${v.tenants.length === 1 ? "tenant" : "tenants"} designated`
-        : `The ${v.tenants.length === 1 ? "tenant's" : "tenants'"} original PayPal payment`],
+      railWords(r, payout, v.tenants.length === 1 ? "tenant" : "tenants")],
     // A refund lands in the PayPal account that paid; anything paid another way is left without a promise.
     ...(payout || r.method === "PAYPAL" ? [["Arrival", "Today"] as [ReactNode, ReactNode]] : []),
     // The whole deposit goes back: the note PayPal shows the tenants says so, in code's words.
@@ -526,6 +539,13 @@ function Sent({ v, statute, zone }: { v: RefundView; statute: string; zone: stri
         ...(s.approvedAt && failed ? [["Approved by", "You", atTextIn(s.approvedAt, zone)] as [ReactNode, ReactNode, ReactNode]] : []),
       ]} />
       </div>
+
+      {/* PayPal's own answer for this refund or Payout, read when the section is opened: beside the receipt's figures. */}
+      {s.paypalId && (
+        <div data-moment="fade" data-delay="220" className="mt-6">
+          <PayPalRecordSection tenancyId={v.tenancyId} kind={s.kind === "payout" ? "payout" : "refund"} id={s.paypalId} />
+        </div>
+      )}
 
       <div data-moment="fade" data-delay="240" className="mt-7 rounded-lg border border-line-2 bg-surface px-5 py-4">
         {d ? (

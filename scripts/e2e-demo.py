@@ -9,14 +9,17 @@ the words that matter and every money figure against what the code computes, sav
    2. Check a lease: demo/lease-single-owner.pdf, its flags and the lawful deposit (beat 1)
    3. The move-out unit's Overview: the deposit paid through a PayPal invoice, the signed refund agreement (beat 2)
    4. Move-out: the move-in and move-out photo pairs with Claude's damage boxes, the three deductions (beat 3)
-   5. Review refund: the close-out agent's plan, its steps, the approval, the receipt (beat 4)
+   5. Review refund: the rail in words with PayPal's window from refund-rail.ts, the close-out agent's plan, its
+      steps, the approval, the receipt, and on it "PayPal's record": the refund read back from the fake PayPal, its
+      fields against what the fake answered when the refund was made, and Check again reading it again (beat 4)
    6. The itemized statement and its delivery, then the tenants' page (before beat 5)
    7. The tenants' dispute and their advocate's case (beat 5)
    8. The two agents' negotiation (beat 6)
    9. The settlement: the tenants accept, the landlord approves and pays, the amended statement (beat 7)
       In 8 and 9 the two pages stay open side by side, as in the demo: each shows what the other side did without a
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
-  10. Payments (the AG Grid ledger) and Insights (beat 3b)
+  10. Payments (the AG Grid ledger), with PayPal's record in the details of the refund, the settlement and the deposit
+      rows, each against what the fake PayPal holds, and Insights (beat 3b)
   11. The same lease twice: Start tenancy on a lease the copy already has opens that tenancy, and makes no second one
   12. The demo guide's own ground: a move-out date set on the Texas unit leaves every step where it was (the unit each
       beat runs on is the address the demo script names, not the copy's latest move-out); its route answers with the
@@ -289,6 +292,46 @@ def guide_units():
     return {int(n): u for n, u in re.findall(r"\{\s*n:\s*(\d+),.*?unit:\s*\"([^\"]+)\"", src)}
 
 
+def window_days():
+    """PayPal's refund window as src/lib/refund-rail.ts holds it: the one number the review's rail line may use, so it
+    is read from there rather than typed here."""
+    m = re.search(r"REFUND_WINDOW_DAYS = (\d+)", (REPO / "src/lib/refund-rail.ts").read_text())
+    return int(m.group(1))
+
+
+def days_since_paid(facts, mo):
+    """How many days ago the copy's deposit was paid, counted as src/lib/closeout.ts counts it: the payment's day where
+    the property is (Pacific), as PayPal dates it (dates.ts, paypalPaidAt), against today there."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    pacific = ZoneInfo("America/Los_Angeles")
+    txn = next(p for p in facts["payments"] if p["tenancy_id"] == mo and p["kind"] == "deposit_invoice")["raw"]["transactions"][0]
+    ts, day = txn.get("payment_date_time"), txn.get("payment_date")
+    if ts and day and ts[:10] == day:
+        paid = datetime.fromisoformat(day).date()
+    else:
+        paid = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(pacific).date()
+    return (datetime.now(pacific).date() - paid).days
+
+
+def paid_ago(n):
+    """closeout.ts, paidAgo: today, yesterday, or so many days ago."""
+    return "today" if n <= 0 else "yesterday" if n == 1 else f"{n} day{'' if n == 1 else 's'} ago"
+
+
+def money_words(amount):
+    """An amount as PayPal writes it in its own record: "3790.00 USD"."""
+    return f"{amount:.2f} USD"
+
+
+def record_want_refund(row, capture):
+    """PayPal's record of a refund as the screen must list it, from the fake PayPal's own answer when the refund was made
+    (the payments row's raw holds that answer verbatim, and the fake's read of the refund returns the same)."""
+    raw = row["raw"]
+    return {"PayPal's refund ID": row["paypal_id"], "PayPal's status": raw["status"], "PayPal's amount": f"{raw['amount']['value']} {raw['amount']['currency_code']}",
+            "PayPal's create time": raw["create_time"], "PayPal's update time": raw["update_time"], "PayPal's payment refunded": capture}
+
+
 def recompute(d):
     """A deduction's amount from its stored inputs, worked out here independently of src/lib/deductions.ts: the
     vendor's invoice, the landlord's hours times the rate, and a replacement prorated over its useful life."""
@@ -389,6 +432,32 @@ def walk(base, setup, shots, check, facts):
     def go(page, path):
         page.goto(base + path, wait_until="networkidle")
         page.wait_for_timeout(250)
+
+    # "PayPal's record" (components/paypal-record.tsx): a collapsed section that reads PayPal (here the fake) when it is
+    # opened and lists the fields PayPal returned, each labelled as PayPal's. `scope` is the page or the row's dialog.
+    def record_rows(scope):
+        det = scope.locator("details", has_text="PayPal's record").first
+        return dict(det.evaluate("d => [...d.querySelectorAll('dl > div')].map((x) => [x.querySelector('dt').innerText.trim(), x.querySelector('dd').innerText.trim()])"))
+
+    def open_record(scope):
+        scope.locator("summary", has_text="PayPal's record").first.click()
+        scope.get_by_text("Read from PayPal just now", exact=True).first.wait_for(timeout=30_000)
+        return record_rows(scope)
+
+    def ledger_record(view, has, name):
+        """A row's details on the Payments ledger (the view, the row by its words), its PayPal's record opened and read,
+        a screenshot, and the panel closed."""
+        go(page, f"/ledger?view={view}")
+        page.locator(".ag-row").first.wait_for()
+        row = page.locator(".ag-row[row-index]", has_text=has).first
+        row.locator(".ag-cell[col-id='date']").click()
+        dlg = page.get_by_role("dialog")
+        dlg.wait_for(timeout=10_000)
+        rec = open_record(dlg)
+        shot(page, name)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+        return rec
 
     # The two windows side by side (beats 6 and 7): a page left open shows what the other side did without a reload.
     # `stay` marks the page (a reload or a navigation would drop the mark); `arrives` waits for the change and says
@@ -538,6 +607,11 @@ def walk(base, setup, shots, check, facts):
         # 5. Review refund (beat 4): the agent's plan and steps, the approval, PayPal's (fake) refund.
         go(page, f"/tenancy/{mo}/refund")
         sees("Review refund", page, "Review refund", R, f"{D} deposit less {P} in deductions", "PayPal refund to the original payment", "Prepare refund")
+        # The rail in words beside Method: how long ago PayPal says the deposit was paid (the fake deposit, three days
+        # ago), and PayPal's window from refund-rail.ts, never typed into the test.
+        W = window_days()
+        sees("Review refund: the rail decision in words, with the window from refund-rail.ts", page,
+             f"Original payment, paid {paid_ago(days_since_paid(f0, mo))}, inside PayPal's {W}-day refund window. After day {W} this goes as a Payout to the account the tenants named in writing.")
         page.get_by_role("button", name="Prepare refund").click()
         page.get_by_role("button", name="Send refund").wait_for(timeout=90_000)
         t = sees("Refund prepared", page, "This refund will be sent today through PayPal.", "Done by the agent", "Read the lease and the move-out file",
@@ -579,6 +653,26 @@ def walk(base, setup, shots, check, facts):
               and refunds[0]["status"] == "COMPLETED" and rid.startswith("E2E"), json.dumps(refunds)[:400])
         t = sees("Refund sent", page, "Refund sent", R, "Prepared by the agent", "Approved by you", "Sent through PayPal", rid, "Completed")
         only_amounts("Refund sent", t, [E["refund"]])
+        # PayPal's record under the receipt: opened, it reads the refund back from the fake PayPal through the app's
+        # paypal-record route, and every field it lists is the one the fake returned (the row's raw holds that answer):
+        # PayPal's id, status, amount, times, and the capture it refunded, which is the copy's fake deposit.
+        rec = open_record(page)
+        want = record_want_refund(refunds[0], setup["pool"]["capture"]) if refunds else {}
+        check("Refund sent: PayPal's record lists the refund's fields as the fake PayPal returned them, a completed refund of the copy's own deposit",
+              rec == want and want.get("PayPal's status") == "COMPLETED" and want.get("PayPal's amount") == money_words(E["refund"]),
+              f"shown {json.dumps(rec)}, the fake returned {json.dumps(want)}")
+        # Check again asks the route again and shows the same record.
+        since = time.time()
+        page.get_by_role("button", name="Check again").click()
+        asked_again = []
+        until = time.time() + 10
+        while time.time() < until:
+            asked_again = [u for ts, u in asked_l if ts >= since and "/paypal-record?" in u]
+            if asked_again and page.get_by_text("Read from PayPal just now", exact=True).count() == 1:
+                break
+            page.wait_for_timeout(200)
+        check("Refund sent: Check again reads PayPal again and shows the same record", len(asked_again) >= 1 and record_rows(page) == want,
+              f"{len(asked_again)} reads since the click; shown {json.dumps(record_rows(page))}")
         shot(page, "refund-sent")
 
         # 6. The itemized statement, its delivery, and the tenants' page.
@@ -770,6 +864,24 @@ def walk(base, setup, shots, check, facts):
         for what, amt in (("the refund", E["refund"]), ("the settlement", E["settled"]), ("the deposit", E["deposit"])):
             check(f"Payments ledger: a grid row for {what}, {usd(amt)}", usd(amt) in rtext, rtext[:600])
         shot(page, "ledger")
+        # PayPal's record in a row's details, for the three money rows of the move-out unit. The refund and the
+        # settlement are read back from the fake PayPal and must be what it answered when each was made; the deposit is
+        # the fake's invoice as it stands now: paid, partly refunded by the two, its payment the copy's fake capture.
+        unit_row = lambda amount: re.compile(rf"1140 E\. Juniper Hollow Ln[\s\S]*{re.escape(usd(amount))}")
+        rec = ledger_record("refunds", unit_row(E["refund"]), "ledger-refund-record")
+        want = record_want_refund(refunds[0], setup["pool"]["capture"]) if refunds else {}
+        check("Payments ledger: the refund row's PayPal's record is the fake PayPal's answer for it", rec == want, f"shown {json.dumps(rec)}, the fake returned {json.dumps(want)}")
+        rec = ledger_record("settlements", unit_row(E["settled"]), "ledger-settlement-record")
+        want = record_want_refund(spay[0], setup["pool"]["capture"]) if spay else {}
+        check("Payments ledger: the settlement row's PayPal's record is the fake PayPal's answer for it", rec == want and want.get("PayPal's amount") == money_words(E["settled"]),
+              f"shown {json.dumps(rec)}, the fake returned {json.dumps(want)}")
+        rec = ledger_record("deposits", unit_row(E["deposit"]), "ledger-deposit-record")
+        txn = next(p for p in f3["payments"] if p["tenancy_id"] == mo and p["kind"] == "deposit_invoice")["raw"]["transactions"][0]
+        want = {"PayPal's invoice ID": setup["pool"]["invoice"], "PayPal's invoice number": "Not given", "PayPal's status": "PARTIALLY_REFUNDED",
+                "PayPal's amount": money_words(E["deposit"]), "PayPal's paid amount": money_words(E["deposit"]), "PayPal's refunded amount": money_words(E["returned"]),
+                "PayPal's payment ID": setup["pool"]["capture"], "PayPal's payment date": txn["payment_date"]}
+        check("Payments ledger: the deposit row's PayPal's record is the fake PayPal's invoice as it stands, partly refunded by the refund and the settlement",
+              rec == want, f"shown {json.dumps(rec)}, the fake holds {json.dumps(want)}")
         go(page, "/insights")
         page.locator(".ag-row").first.wait_for()
         page.wait_for_timeout(800)

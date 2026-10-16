@@ -43,7 +43,7 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 Three things to check inside your copy, under a minute each.
 
 - **The grid refuses 12 years.** Right after beat 3, before the refund is sent (once it is sent the deductions are final): on the Move-out tab, in Deductions (a window at least 1024 px wide), click the carpet's Life cell and type 12. The cell keeps a red border and a tip reads "Not saved", "Over the lawful range: the guidance uses a 10-year life for this item, so at 6 years old it comes to $720.00 at most.", then "DRE guide p. 84 (guidance, not statute)" and a line saying Escape keeps the saved value.
-- **One refund id in two places.** After beat 4, the receipt's "PayPal refund ID" row holds the id with a copy button. Open Payments in the sidebar and click the Refund row for 1140 E. Juniper Hollow Ln: its details panel lists the same id, labelled Refund, under PayPal, with "Status from" saying where its status came from.
+- **One refund id in two places.** After beat 4, the receipt's "PayPal refund ID" row holds the id with a copy button. Open Payments in the sidebar and click the Refund row for 1140 E. Juniper Hollow Ln: its details panel lists the same id, labelled Refund, under PayPal, with "Status from" saying where its status came from. On both screens, open "PayPal's record": PayPal's own answer for the refund, read from PayPal when you open it, with Check again.
 - **The range a turn was checked against.** After beat 6, open a turn's "Reasoning and figures": the agent's reasoning, then each charge with what it keeps of the charge's amount. Why? beside a charge's reason gives the most the law and the record support for it, with the citation, which is the ceiling the turn was held to.
 
 ## Against the judging criteria
@@ -196,7 +196,7 @@ City rules are shown as warnings only, never enforced. Sources, time zones and k
 
 ## Checks
 
-The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and thirteen check scripts (1,992 assertions) on every push. Two browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the eight beats of the demo script in Chromium and checks every dollar figure on the way, and `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px.
+The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and thirteen check scripts (2,009 assertions) on every push. Two browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the eight beats of the demo script in Chromium and checks every dollar figure on the way, and `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px.
 
 ```bash
 python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end
@@ -206,11 +206,11 @@ python scripts/a11y-check.py --worktree <a new dir> --shots <dir>  # WCAG 2.2 AA
 | Check | Result | Run by |
 |---|---|---|
 | `tsc`, `eslint --max-warnings=0` | Clean | CI, every push |
-| `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 284, `thumbs` 169, `e2e-stubs` 46, `page-weight` 164 | All passed | CI, every push |
-| `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-15 |
+| `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 287, `thumbs` 169, `e2e-stubs` 60, `page-weight` 164 | All passed | CI, every push |
+| `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
-| `e2e-demo.py` on a production build | 105 of 105 | By hand, 2026-10-15 |
-| `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation | By hand, 2026-10-15 |
+| `e2e-demo.py` on a production build | 111 of 111 | By hand, 2026-10-16 |
+| `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation | By hand, 2026-10-16 |
 
 What each script checks, and how the end-to-end test builds and stubs: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#checks-and-the-end-to-end-test).
 

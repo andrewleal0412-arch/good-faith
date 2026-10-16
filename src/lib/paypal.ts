@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { fakePayPal } from "./e2e-paypal";
 import { e2eStubs } from "./e2e-switch";
 import { keepAliveFetch } from "./http";
+import { isRefundId } from "./reconcile";
 
 // PayPal REST in the sandbox (PAYPAL_ENVIRONMENT=SANDBOX). Invoices collect the deposit; at move-out the agent returns
 // it through PayPal's Agent Toolkit (a refund of the original payment) or, past PayPal's refund window, a Payout.
@@ -161,6 +162,38 @@ export async function getInvoice(id: string, o: { timeoutMs?: number } = {}) {
 
 /** The webhook's read of an invoice: bounded, so a delivery can't outlive its claim (src/app/api/paypal/webhook). */
 export const getInvoiceForWebhook = (id: string) => getInvoice(id, { timeoutMs: TIMEOUT_MS });
+
+/** A refund as PayPal returns it (GET /v2/payments/refunds/{id}, the resource the Agent Toolkit's get_refund reads):
+ *  the fields the app reads. The rest (the payer, the note, the breakdown) is left where it is. */
+export type Refund = {
+  id: string; status: string; amount?: { value?: string; currency_code?: string }; create_time?: string; update_time?: string;
+  links?: { rel?: string; href?: string }[];
+};
+
+/** The invoice as PayPal has it now, bounded like the other reads behind PayPal's record. */
+export const getInvoiceRecord = (id: string) => getInvoice(id, { timeoutMs: TIMEOUT_MS });
+
+/** The refund as PayPal has it now, by its id. For PayPal's record on the receipt and in a Payments row's details
+ *  (src/app/api/tenancies/[id]/paypal-record). */
+export async function getRefund(id: string) {
+  if (!isRefundId(id)) throw new PayPalRefused(`Not a PayPal refund id: ${String(id).slice(0, 40)}`);
+  return paypal<Refund>("GET", `/v2/payments/refunds/${id}`, undefined, { timeoutMs: TIMEOUT_MS });
+}
+
+/** A Payout batch's header as PayPal returns it (GET /v1/payments/payouts/{batch id}?fields=batch_header): the batch
+ *  alone, never its items, which name the receivers. */
+export type PayoutBatch = {
+  batch_header?: { payout_batch_id?: string; batch_status?: string; time_created?: string; time_completed?: string; amount?: { value?: string; currency?: string } };
+};
+
+/** A PayPal Payout batch id: letters and digits. */
+export const isPayoutBatchId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9]{4,64}$/.test(v);
+
+/** The Payout batch as PayPal has it now, its header only. */
+export async function getPayoutBatch(id: string) {
+  if (!isPayoutBatchId(id)) throw new PayPalRefused(`Not a PayPal Payout batch id: ${String(id).slice(0, 40)}`);
+  return paypal<PayoutBatch>("GET", `/v1/payments/payouts/${id}?fields=batch_header`, undefined, { timeoutMs: TIMEOUT_MS });
+}
 
 /** Send money to a PayPal account by email (Payouts). Used when the deposit can't be refunded against its original
  *  payment, e.g. it was paid more than 180 days ago. The batch id is the idempotency key, twice over: PayPal refuses a
