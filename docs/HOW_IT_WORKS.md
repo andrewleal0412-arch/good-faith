@@ -1,6 +1,6 @@
 # How Good Faith works, in detail
 
-The README is the short version for a first read. This page is the long one: every step of a tenancy, how the AI is split between Claude, Jev and code, the disputes and the PayPal chargebacks with what ran against the sandbox, the AG Grid screens, the five states and the legal sources. Back to the [README](../README.md).
+The README is the short version for a first read. This page is the long one: every step of a tenancy, how the AI is split between Claude, Jev and code, the disputes and the PayPal chargebacks with what ran against the sandbox, the AG Grid screens, the architecture piece by piece, the five states and the legal sources, the hosted demo, the checks, the full list of known limits, setup and the demo scripts. Back to the [README](../README.md).
 
 ## The problem
 
@@ -36,6 +36,37 @@ California is the deepest pack and the one the demo walks through. New York, Tex
 16. **Insights** (`/insights`). The portfolio in numbers: what is held now, collected, returned and kept, four charts (deposits held and money returned over time, deductions by category, held by state) and every property in a grid grouped by state, from the same ledger rows as Payments, so the figures agree (`src/lib/insights.ts`, `src/app/(landlord)/insights/`).
 
 Every action, by whom and with what, is written to an audit log the tenancy page shows.
+
+
+<p>
+<img src="img/refund-review.png" width="56%" alt="Review refund: $3,790.00 back to the tenants' original PayPal payment, the eight checks code ran, the close-out agent's steps ending in Waiting for your approval, and the Send refund button">
+<img src="img/tenants-advocate.png" width="40%" alt="The tenants' page on a phone: their advocate proposes $360.00 back on the disputed carpet, charge by charge, marked Not legal advice">
+</p>
+
+<sub>Screenshots from the end-to-end test on a production build (2026-10-07); the live demo fills the same screens with real Claude and PayPal sandbox calls.</sub>
+
+## PayPal and AI, step by step
+
+AI proposes, code decides, a person approves, and PayPal moves the money. Each step of a tenancy:
+
+| Step | AI proposes | Code decides | A person approves | PayPal |
+|---|---|---|---|---|
+| Lease | Claude reads the deposit terms, with quotes ([`extract.ts`](../src/lib/extract.ts)) | The rule pack flags violations and computes the lawful deposit ([`rules.ts`](../src/lib/rules.ts), [`states/`](../src/lib/states/)) | The landlord confirms the state and starts the tenancy | Invoicing API: an invoice for the lawful amount only ([`paypal.ts`](../src/lib/paypal.ts)) |
+| Move-out | Claude boxes each change on the photos ([`inspect.ts`](../src/lib/inspect.ts)); Jev reads a finding as the landlord types it ([`jev.ts`](../src/lib/jev.ts)) | Every deduction, prorated, with the documentation rule ([`deductions.ts`](../src/lib/deductions.ts)) | The landlord accepts each finding and enters the costs | None |
+| Refund | The close-out agent proposes the refund with PayPal's tools ([`agent.ts`](../src/lib/agent.ts)) | The plan and the rail ([`closeout.ts`](../src/lib/closeout.ts), [`refund-rail.ts`](../src/lib/refund-rail.ts)); `guardRefund` recomputes it at the moment of the call | Send refund (`needsApproval` on every money tool) | Agent Toolkit over MCP: `get_invoice`, `create_refund`, `get_refund`; Payouts when the payment can't be refunded |
+| Statement dispute | The tenants' advocate and the landlord's negotiator negotiate ([`advocate.ts`](../src/lib/advocate.ts), [`negotiator.ts`](../src/lib/negotiator.ts)); Jev checks their reasons against the record | Each charge's lawful range, and every turn checked against it ([`lawful-range.ts`](../src/lib/lawful-range.ts)) | The tenants accept, then the landlord approves and pays | A partial refund of the deposit payment through the Agent Toolkit, or a Payout ([`settlement.ts`](../src/lib/settlement.ts)) |
+| PayPal dispute | The defense agent reads the dispute through the Agent Toolkit and proposes one response ([`chargeback-agent.ts`](../src/lib/chargeback-agent.ts)) | What is still owed back, so which responses are allowed ([`chargeback.ts`](../src/lib/chargeback.ts)) | The landlord approves that exact response | Disputes API: evidence with the statement and photos, accept claim, or offer ([`chargeback-store.ts`](../src/lib/chargeback-store.ts)) |
+| PayPal's own events | None | Verify, record once, match to one tenancy ([`paypal-webhook.ts`](../src/lib/paypal-webhook.ts), [`reconcile.ts`](../src/lib/reconcile.ts)) | The landlord records a refund made in PayPal as this deposit's, or sets it aside | Webhooks: invoice paid, capture completed, refunded or reversed, Payouts, disputes |
+
+**The safety rules, in full.** The model never decides an amount and never moves money on its own.
+
+- **No legal advice.** The app informs, computes, drafts and asks people to approve. Citations come only from the rule pack, never from a model's memory, and wording in an agent's case, turn or dispute response that goes past informing (telling someone to sue, predicting a court) is replaced in code with the app's own. The state's disclaimer is in Help, on the statement, its PDF and the notices, and the tenants' pages say "Not legal advice" ([Legal sources and the disclaimer](#legal-sources-and-the-disclaimer)).
+- **Deterministic money math.** The cap, each deduction, the refund plan, the deadlines in the property's own time zone, and each charge's lawful range are plain code ([`rules.ts`](../src/lib/rules.ts), [`deductions.ts`](../src/lib/deductions.ts), [`closeout.ts`](../src/lib/closeout.ts), [`lawful-range.ts`](../src/lib/lawful-range.ts)). The agents are told these facts are authoritative, and every figure an agent proposes is checked against them before anyone sees it.
+- **State rule packs with sources.** One engine, five packs ([`src/lib/states/`](../src/lib/states/)), each written from a spec with its sources and rule ids ([California](LEGAL_RULES.md), [the others](rules/README.md)). Any other state is refused by name. California's output is pinned by a snapshot that must stay identical.
+- **A person approves before money moves.** The landlord approves the close-out refund; the tenants accept and the landlord approves a settlement; the landlord approves the exact response to a PayPal dispute; and a refund made in PayPal counts only once the landlord records it. The refund, the settlement payment and the dispute response are each claimed once in the database, so a double click pays or sends once.
+- **Guards at the moment of the call.** `guardRefund` recomputes the facts from the database and PayPal when the money tool runs and blocks any rail, amount, payment or account that doesn't match. The settlement and the dispute response have their own guards of the same kind. Every refund and Payout carries an idempotency key from the app's own records, so a retry after a lost answer gets PayPal's first result back rather than paying twice; the deposit invoice is made once by its invoice number.
+- **Sandbox only.** The close-out, the settlement and the dispute response refuse a `LIVE` PayPal environment until the app has a landlord sign-in; the hosted demo's access code is not one ([DEPLOY.md](DEPLOY.md), sections 8 and 9). The app never holds funds: the landlord's PayPal business account does.
+- **Isolation.** Each demo visitor works in a private copy, every read and write is scoped to the session's workspace, nothing kept between requests can carry one workspace's data to another, and a copy refunds only a deposit it owns ([`workspace.ts`](../src/lib/workspace.ts), [`demo-pool.ts`](../src/lib/demo-pool.ts), `scripts/cache-check.mjs`). Every action is written to an audit log with who did it.
 
 ## How the AI is split up
 
@@ -134,6 +165,68 @@ Three grids and four charts, all from the free Community builds (`ag-grid-commun
 | **Browser uploads** (`src/lib/uploads.ts`) | Photos are downscaled on a canvas before they leave the phone, with the EXIF orientation applied, and sent in requests under the host's 4.5 MB body limit. |
 
 
+
+One refund, step by step (the close-out, [`agent.ts`](../src/lib/agent.ts) and [`closeout.ts`](../src/lib/closeout.ts)):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor L as Landlord
+  participant A as Close-out agent (Claude)
+  participant C as Code: closeOutFacts, guardRefund
+  participant T as Agent Toolkit (MCP, in process)
+  participant P as PayPal sandbox
+  L->>A: Prepare refund
+  A->>C: get_close_out_facts
+  C-->>A: amounts, deadline, rail and capture id, from the rule pack and the deduction math
+  A->>T: get_invoice
+  T->>P: read the deposit invoice
+  P-->>A: paid, with its capture id
+  A-->>L: create_refund for the plan's amount waits (needsApproval)
+  L->>A: Send refund (the approval is claimed once)
+  A->>C: guardRefund recomputes from the database and PayPal
+  C->>T: create_refund with a PayPal-Request-Id from the tenancy and the amount
+  T->>P: refund the capture
+  P-->>A: refund id, completed
+  A->>T: get_refund to confirm
+  A->>C: get_statement_checklist
+  A-->>L: Refund sent, and what the statement still needs
+```
+
+Where things live:
+
+```
+src/app/(landlord)/units/         Properties, the landlord's home
+src/app/(landlord)/lease/         Check a lease
+src/app/(landlord)/tenancy/[id]/  one property: header, five tabs, the deductions grid, the dispute and negotiation
+src/app/(flow)/tenancy/[id]/refund/   Review refund: the close-out agent's proposal and the approval
+src/app/(landlord)/ledger/        Payments, the AG Grid ledger
+src/app/(landlord)/insights/      Insights: the charts and the grid by state
+src/app/t/[token]/                the tenants' private page and their dispute
+src/app/api/                      route handlers, PayPal's webhook among them
+src/proxy.ts                      the demo access gate
+src/lib/extract.ts, inspect.ts    Claude reads the lease; Claude compares the photos
+src/lib/states/                   the five state rule packs
+src/lib/rules.ts, deductions.ts   the lease rules; the deduction math
+src/lib/closeout.ts, refund-rail.ts   the close-out facts, the refund plan, guardRefund; which PayPal rail
+src/lib/agent.ts                  the close-out agent and PayPal's Agent Toolkit over MCP
+src/lib/lawful-range.ts           each charge's lawful range
+src/lib/advocate.ts, negotiator.ts, negotiation.ts, settlement.ts   the dispute: the agents, the turns, the payment
+src/lib/chargeback.ts, chargeback-agent.ts, chargeback-store.ts      PayPal disputes: the bounds, the agent, the guarded send
+src/lib/paypal.ts, paypal-webhook.ts, reconcile.ts   PayPal's REST calls, its webhooks, refunds made in PayPal
+src/lib/jev.ts                    Jev's typed judgments
+src/lib/statement.ts, statement-pdf.ts   the itemized statement and its PDF packet
+src/lib/ledger.ts, insights.ts    the ledger rows and the figures every money screen shares
+src/lib/workspace.ts, limits.ts, demo-pool.ts   workspaces, daily limits, the pre-paid sandbox deposits
+src/lib/model.ts, e2e-*.ts        the model behind each Claude job, and the end-to-end test's stubs
+src/components/                   the design system, and grid.tsx for every AG Grid
+supabase/migrations/              the database schema, in order
+scripts/                          the checks, the end-to-end and accessibility tests, the demo seed, pool and sweep
+.github/workflows/                the checks that run on every push
+docs/                             design, legal rules, state specs, deploy, performance, accessibility, the demo script
+demo/                             the fictional leases, photos and receipts
+```
+
 ## States
 
 Good Faith runs California, New York, Texas, Florida and Washington. The property's state picks its rule pack (`src/lib/states/`), and every number, deadline, notice, document rule, refund-method rule, penalty and citation comes from that pack; the engine, the PayPal rails and `guardRefund` are the same for all five. The lease check reads the state from the lease and always shows it in a State picker, California leases included, so a misread state is corrected before the tenancy starts; any other state is refused with a plain message naming the five.
@@ -155,3 +248,158 @@ City rules (New York City, Seattle, Austin and others) are shown as warnings onl
 The rules come from the current text of Civil Code 1950.5 on [leginfo.legislature.ca.gov](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=1950.5), as amended by AB 12 (2023), AB 2801 (2024), SB 611 (2024) and AB 414 (2025), the DRE's California Tenants guide (2026 edition), the Courts' self-help guide and the Attorney General's fact sheet. [LEGAL_RULES.md](LEGAL_RULES.md) lists every source, each rule with its subsection, the statement checklist, the wear-and-tear guide, the edge cases, and the guardrails. Useful-life proration and the paint schedule are DRE guidance, not statute, and the app says so wherever it uses them.
 
 The other four states' sources are in their specs under [rules/](rules/README.md). The disclaimer the app shows on a California property (each state's pack names its own statute and its own attorney): "This tool organizes your records and fills in templates based on California Civil Code 1950.5 and published state guidance. It does not give legal advice, does not evaluate your specific situation, and is not a substitute for a California attorney."
+
+
+## The hosted demo
+
+[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. It is on Render, and the first page after a quiet spell can take up to a minute while the server wakes.
+
+![Properties: two California units and one in Texas, each with its status and the next step its state's law asks for, the deposits held, and the nearest statement deadline](img/properties.png)
+
+1. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, made the moment you enter the code and dated to that day. Nobody else sees your copy, and you see nobody else's. Your copy opens with a short **demo guide** above each page: the eight beats of the [demo script](DEMO_SCRIPT.md) in order, one line each, each a link to where that beat happens in your copy, each ticked off by what your copy already holds. Hide puts it away; Demo guide in the account menu brings it back.
+2. Properties shows three units. 482 N. Glassell St, Unit B closed out a few days ago: deposit refunded through PayPal, statement delivered, the tenants' dispute settled. 1140 E. Juniper Hollow Ln (owned by Elena Marquez, whose name is on its lease and its refund) moved out yesterday, with 20 days left to send the statement and the refund. Each deposit is a real sandbox payment made for the demo, so PayPal dates it recently rather than at move-in a year ago.
+3. 2317 Mesquite Bend Dr, Unit 3 is in Austin, so the same engine applies Texas law to it (the "Rules: Tex. Prop. Code ch. 92" chip): the tenants gave notice, the next step is their forwarding address in writing, and the chip's tip names the Texas bad-faith penalty. Its deposit is one sandbox payment every copy shares, so its refund stays off.
+4. Open 1140 E. Juniper Hollow Ln, then its Move-out tab: the photo pairs, Claude's boxes and the three deductions computed in code. Add finding, under a room, reads what you type as damage, cleaning or wear and tear while you type, when the host has a TypeSafe key; Cancel leaves the copy as it was.
+5. Review refund, then Prepare refund. The close-out agent reads the file, checks the deposit with PayPal and proposes $3,790.00 back to the tenants' original payment. Send refund approves it, and PayPal's Agent Toolkit sends a real sandbox refund against your copy's own pre-paid sandbox deposit. The receipt shows PayPal's refund id.
+6. Dispute it as the tenants. On the receipt, press Send statement, then Record delivery (any method), then Open the tenant's view: the tenants' private page opens in a new tab. Under Deductions, Dispute it: pick the carpet or the range cleaning, say why in a few words, pick your name, and Ask my advocate (about a minute). Send it to the landlord.
+7. Back on the property's Move-out tab, press Let my negotiator answer: the two agents take turns, up to three exchanges, each turn checked by code against the law before it is shown on both pages.
+8. When they agree, Accept settlement on the tenants' page, then Approve and pay on the property: PayPal refunds the agreed amount against the same deposit payment, the statement becomes the amended statement, and Payments shows a Settlement row.
+9. To see a finished one without waiting, open 482 N. Glassell St, Unit B and its Move-out tab: a dispute settled at $270.00 back in two exchanges. It is a recorded example (its turns passed the same checks as a live run, and no PayPal money moved for it), so every page that shows it says "Demo example".
+10. Everything else works too: check a lease (`demo/lease-single-owner.pdf`, or `demo/lease-texas.pdf` for Texas), start a tenancy, add photos and deductions. Start over, in the account menu, gives your browser a fresh copy.
+
+The demo has daily limits on the Claude jobs (the advocate three times a day per unit, the negotiator three times a day per browser) and on new copies per network. If the day's pre-paid sandbox deposits run out, the Review refund page says so and the rest of the copy still works. Copies are removed after two weeks.
+
+**The private copies.** The hosted demo doesn't show one shared tenancy. Each browser that enters the judges' code gets a copy of three template tenancies made by the seed (in California one closed out and one stopped before the close-out; in Texas one stopped at the tenants' notice), copied in one Postgres function with every date moved to the day of the copy. The California move-out unit's copy comes with a sandbox deposit paid ahead of time (`npm run demo:pool`), so its refund, and later its settlement, are real sandbox refunds of its own payment. The closed unit's copy comes with a settled dispute as history (`npm run demo:history`): the dispute, every turn, the settlement and the amended statement, marked as the demo's example, with no PayPal money behind it, since its deposit is a payment every copy shares. The Texas unit takes no deposit either: its copies show the template's deposit and never refund it. In a copy, one person plays both sides, so its tenant links can be opened again from the landlord's pages ("Open the tenant's view"). Each copy already has a tenancy for each demo lease, so checking one of those leases again and pressing Start tenancy opens that tenancy rather than making a second one of it, with one line saying why. Each copy also opens with the demo guide: the eight beats of the demo script as a checklist above each page, read off the copy's own rows and kept nowhere but the browser ([`demo-guide.ts`](../src/lib/demo-guide.ts)); the owner's workspace never shows it. [DEPLOY.md](DEPLOY.md), section 9, covers the templates, the history, the pool, Start over and the sweep.
+
+## Checks and the end-to-end test
+
+```bash
+npx tsc --noEmit
+npx eslint src --max-warnings=0
+node scripts/ca-snapshot.mjs        # California's output is exactly the recorded baseline
+node scripts/state-packs-check.mjs  # the per-state rule checks
+node scripts/zone-check.mjs         # each state's time zone: an evening that is tomorrow in New York, daylight saving, day 14, the ledger, a delivery recorded later
+node scripts/lawful-range-check.mjs # disputes: the lawful range in five states and the advocate against a stubbed model
+node scripts/negotiation-check.mjs  # the negotiation: turn checks, offers and the loop's stops, both agents stubbed
+node scripts/paypal-webhook-check.mjs  # PayPal's webhooks: a sample of every event through the handler, replays, forgeries, other workspaces (add --db to run them against Supabase with throwaway rows)
+node scripts/grid-check.mjs         # the grids: deduction edits against the lawful range in three states, the grid and the route agreeing on every edit, when the deductions are final, Insights against the ledger
+node scripts/chargeback-check.mjs   # PayPal disputes: a real sandbox dispute read, the bounds, the agent's checks, the evidence request, the agent stubbed (add --db for prepare, approve and send with throwaway rows and a stubbed PayPal)
+node scripts/jev-check.mjs          # Jev stubbed: the quick read's request and thresholds, failures, the read's seal, the reasons check, no personal data in any request (add --live to ask the real Jev)
+node scripts/reconcile-check.mjs    # refunds made in PayPal, PayPal stubbed: noted and announced once, never on a capture the tenancy doesn't own, counted once everywhere (add --db for the same against Supabase with throwaway rows)
+node scripts/cache-check.mjs        # nothing kept between requests can carry one workspace's data to another (add --live <base> to check two throwaway copies on a running build)
+node scripts/thumbs-check.mjs       # the photo thumbnails made ahead for the templates match what the app would make
+node scripts/e2e-stubs-check.mjs    # the end-to-end test's stubs: on only for GOOD_FAITH_E2E_STUBS=1, never on Render, never with live PayPal; nothing leaves the process
+node scripts/page-weight-check.mjs  # no page loads an agent: the model SDKs, PayPal's Agent Toolkit, the MCP SDK, the PDF writer and the image library stay on the paths that use them, off every page, the proxy and instrumentation (docs/PERFORMANCE.md)
+python scripts/clipboard-check.py   # a copy the browser refuses: the Payments row menu's Copy PayPal ID still ends with the id on screen, selected, and one line saying to copy it by hand
+python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end on a production build (below)
+python scripts/a11y-check.py --worktree <a new dir> --shots <dir>  # WCAG 2.2 AA on every page at 1280 and 390 px (docs/ACCESSIBILITY.md)
+```
+
+**The end-to-end test** ([`scripts/e2e-demo.py`](../scripts/e2e-demo.py)) walks [DEMO_SCRIPT.md](DEMO_SCRIPT.md) the way a judge would, in Chromium, on a production build. It builds the code as it stands (uncommitted changes included) in a temporary git worktree, serves it on port 3211 with `GOOD_FAITH_E2E_STUBS=1` ([`e2e-switch.ts`](../src/lib/e2e-switch.ts)), makes a fresh private demo copy, and goes through Properties, the lease check, the Move-out tab with Claude's boxes, the refund review and approval, the statement and its delivery, the tenants' page, the dispute and the advocate's case, the negotiation, the settlement and the amended statement, Payments and Insights, the demo lease checked again, which opens the tenancy the copy already has for it instead of starting a second one, and the demo guide (its eight steps against the beat table of `docs/DEMO_SCRIPT.md`, its ticks against the copy's own rows, the unit its beats run on held to the address that table names, and Hide and the way back). At each step it checks the words that matter and, on the money screens, that every dollar figure shown is one the test works out on its own from the copy's rows and the demo's story, and it saves a screenshot. With the switch on, every Claude job answers from a scripted stub ([`e2e-stubs.ts`](../src/lib/e2e-stubs.ts)), Jev is off, and PayPal is a fake inside the server ([`e2e-paypal.ts`](../src/lib/e2e-paypal.ts), with PayPal's own Agent Toolkit server in front of it, [`e2e-toolkit.ts`](../src/lib/e2e-toolkit.ts)) that refunds only the test's own fake deposit. The switch is ignored on Render and with live PayPal, the server prints a banner when it is on, and the test refuses a server that doesn't say it is on. At the end it removes the copy, its rows, its files and its fake deposit, failed or not (`--leftovers --apply` finds any a crashed run left). `--prepare`, `--serve --hold` and `--base` run it in steps.
+
+`tsc`, `eslint` and thirteen of the check scripts (1,992 assertions) run in GitHub Actions on every push and pull request ([`.github/workflows/checks.yml`](../.github/workflows/checks.yml)). The badge at the top of the README is that run, and its log prints every count. `ca-snapshot.mjs` reads the template tenancies from Supabase and their invoices from PayPal. The three browser tests need a production build and Playwright. Those four are run by hand; the README's table of last runs has their counts and dates.
+
+`next build` needs `.env.local` (or the same variables in the environment). Build in a copy of the repo so it doesn't clobber a running dev server's `.next`: a `git worktree` with `node_modules` cloned in (`cp -Rc node_modules <copy>/`; Turbopack refuses a symlinked `node_modules`) and `.env.local` copied over. The three Python tests do this for you.
+
+## Known limits
+
+- **Sandbox only.** Live PayPal is refused until there is a per-landlord sign-in; the hosted demo's shared access code is not one.
+- **Five states, statutes only.** Other states are refused. City rules are warnings, never enforced, and some rules in the verified state specs are not in code yet ([known gaps](rules/README.md#known-gaps)). Not legal advice.
+- **The end-to-end test stubs every Claude job and PayPal,** so it proves the app's own code, not Claude's or PayPal's answers. The PayPal dispute runs against the sandbox are written up under [Chargebacks](#chargebacks); a make-offer and a partial accept-claim have run only against a stubbed PayPal.
+- **Gaps in PayPal's tools.** The Agent Toolkit (1.11.0) has no evidence or offer tool, so the dispute writes call PayPal's Disputes API directly. The Invoicing API ignores `PayPal-Request-Id`, so the deposit invoice is made once by its invoice number instead; the Disputes API doesn't declare the header, so a resend is guarded by reading the dispute first.
+- **No Venmo.** Refunds and Payouts go to PayPal accounts; the sandbox refused Venmo payout recipients when tried on 2026-10-01.
+- **A refund made in the PayPal dashboard** shows on the property when PayPal's webhook reports it, or at the property's next read of PayPal, up to a minute later; the refund review and every money route read PayPal themselves.
+- **The hosted demo is on Render's free plan,** which sleeps after 15 quiet minutes ([PERFORMANCE.md](PERFORMANCE.md)).
+- **Daily limits** on the Claude jobs, on new copies per network and on the pool of pre-paid sandbox deposits ([The hosted demo](#the-hosted-demo)).
+- **Accessibility, still open:** text-field borders are 1.2:1 against white, under WCAG's 3:1; no real screen reader was used; the statement's PDF is not a tagged PDF ([ACCESSIBILITY.md](ACCESSIBILITY.md#open)).
+- **Dependency advisories.** `npm audit --omit=dev` lists 10 (5 high), all inside `@paypal/agent-toolkit` 1.11.0's own dependencies (`@langchain/core`, `langsmith`, `jsondiffpatch`, its nested `ai` and AI SDK packages, `mathjs`, `uuid`); the rest of `npm audit` is in the lint tooling. npm's fix for most is downgrading the toolkit, a breaking change. `npm audit fix` changes nothing for `mathjs`: the toolkit asks for `^14.0.1` and the first fixed release is 15.2.0.
+- **Demo data:** two tenants share the one sandbox buyer account's email; the Texas deposit is dated after its notice, since PayPal dates the sandbox payment the day the demo was built; the closed unit's settled dispute is a recorded example with no PayPal money behind it.
+- **Sessions:** signing out doesn't revoke a session (a signed cookie, valid up to seven days); rotating `GOOD_FAITH_SESSION_SECRET` signs everyone out.
+
+## Setup
+
+### Environment variables
+
+All of them live in `.env.local`, which is gitignored. The setup scripts below write it; nothing else should. No values here, ever. `.env.example` lists every name with a placeholder.
+
+| Variable | Used for | Set by |
+|---|---|---|
+| `SUPABASE_URL` | The Supabase project URL | `scripts/setup-supabase.sh` |
+| `SUPABASE_SECRET_KEY` | The project's secret key (`sb_secret_...`); server only, bypasses RLS | `scripts/setup-supabase.sh` |
+| `PAYPAL_ENVIRONMENT` | `SANDBOX` (the default) or `LIVE`. The close-out routes refuse `LIVE` until a landlord sign-in exists | `scripts/setup-sandbox.sh` |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | The PayPal app's credentials | `scripts/setup-sandbox.sh` |
+| `PAYPAL_WEBHOOK_ID` | The sandbox webhook the app listens as: every delivery to `/api/paypal/webhook` is checked with PayPal against it. Unset, deliveries get a 503 and PayPal retries them. See [DEPLOY.md](DEPLOY.md), section 2.5 | `node scripts/paypal-webhook.mjs --register`, then on the host |
+| `ANTHROPIC_API_KEY` | The app's own Claude calls | `scripts/setup-anthropic.sh` |
+| `ANTHROPIC_MODEL` | Optional. Overrides `claude-opus-5-5` for every Claude job | by hand |
+| `TYPESAFE_API_KEY` | Optional. TypeSafe's key for Jev; without it the quick read and the reasons check are absent | by hand (console.typesafe.ai) |
+| `TYPESAFE_DEFAULT_MODEL` | Optional. Overrides `jev-1.13.0`, the version the thresholds were set against | by hand |
+| `GOOD_FAITH_ACCOUNT` | Optional. The owner workspace's account name in the app's sidebar and PayPal card; without it, the owner of the oldest tenancy. Demo copies always show Harbor View Rentals | by hand |
+| `PAYPAL_SANDBOX_BUYER_EMAIL`, `PAYPAL_SANDBOX_BUYER_PASSWORD` | Optional. The sandbox personal account that pays the demo invoice | `scripts/setup-sandbox-tenant.sh` |
+| `PLAYWRIGHT_PYTHON` | Optional. The Python with Playwright the demo seed uses | by hand |
+| `DEMO_BASE_URL` | Optional. Where the demo seed sends its requests (default `http://localhost:3210`) | by hand |
+| `DEMO_ACCESS_CODE` | Optional. The code the demo seed enters when the site it seeds is behind the access gate (use the owner code) | by hand |
+| `GOOD_FAITH_ACCESS_CODE`, `GOOD_FAITH_OWNER_CODE`, `GOOD_FAITH_SESSION_SECRET` | The hosted demo's access gate: the judges' code (each browser that enters it gets a private copy of the demo), the owner's code (your own data), and the secret (32+ characters) that signs the session cookie. Leave them unset for local dev, where the gate is off; a production host without them shows "This demo is not configured". See [DEPLOY.md](DEPLOY.md), section 8 | on the host |
+| `GOOD_FAITH_DAILY_*`, `GOOD_FAITH_INSPECT_ROOMS`, `GOOD_FAITH_INSPECT_PHOTOS` | Optional. The daily limits on Claude jobs, Jev reads, sandbox invoices, new tenancies, stored uploads and new demo copies, and the inspection's size; defaults in [DEPLOY.md](DEPLOY.md), section 8 | on the host |
+| `GOOD_FAITH_CLIENT_IP_HEADER` | Optional, and not on Render. The header with the caller's real address, for the wrong-code limit; see [DEPLOY.md](DEPLOY.md), section 8 | on the host |
+| `GOOD_FAITH_E2E_STUBS` | Test only, never on a host. `1` turns on the end-to-end test's stubs (every Claude job scripted, Jev off, a fake PayPal in the process); ignored on Render and with `PAYPAL_ENVIRONMENT=LIVE`. See [Checks](#checks-and-the-end-to-end-test) | `scripts/e2e-demo.py`, on its server's command line |
+
+### Run it locally
+
+```bash
+npm install
+scripts/setup-supabase.sh        # SUPABASE_URL and SUPABASE_SECRET_KEY
+scripts/setup-sandbox.sh         # PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (sandbox)
+scripts/setup-sandbox-tenant.sh  # the sandbox personal account that plays the tenant (demo seed only)
+scripts/setup-anthropic.sh       # ANTHROPIC_API_KEY
+npm run dev -- -p 3210
+```
+
+Each script asks for its values with the secrets hidden, writes them to `.env.local` with mode 600, and checks them against the service before it says saved.
+
+The database schema is in `supabase/migrations`, one file per change, in order. Run them in the Supabase SQL editor from the first to the last. The migrations also create the three private buckets (leases, photos, receipts). Hosting, including what to set in Supabase, PayPal and Render, is in [DEPLOY.md](DEPLOY.md).
+
+## Demo data and scripts
+
+One command builds a complete demo tenancy by driving the app's own APIs, so every step is the real one: the lease check, the tenancy, the tenants' written agreement to a PayPal refund (AB 414), the deposit invoice paid in the PayPal sandbox, move-in photos, the tenants' notice with the written notice it calls for, the move-out date, move-out photos, Claude's room-by-room inspection, three deductions with their receipts and after-repair photos, and the private tenant link. It stops before the close-out, so the agent and the approval happen live.
+
+```bash
+npm run demo:seed
+```
+
+It prints the tenancy's URL and the tenant's page. What it needs:
+
+- the dev server on `http://localhost:3210` (or set `DEMO_BASE_URL`; a hosted copy behind the access gate also needs `DEMO_ACCESS_CODE`, the owner code);
+- `.env.local` from the setup scripts above, including the sandbox tenant's login. The seed refuses to run when `PAYPAL_ENVIRONMENT` is `LIVE`;
+- a Python with Playwright and Chromium (`pip install playwright && playwright install chromium`), which pays the invoice as the sandbox tenant and dates the receipt exhibits. If that Python is in a virtualenv, set `PLAYWRIGHT_PYTHON` to it in `.env.local` or the shell. The seed checks for the browser before it spends a Claude call.
+
+The seed takes about three minutes. The sandbox checkout is driven by a headless browser; if PayPal's login page times out, the seed prints the invoice link: pay it in a browser as the sandbox tenant and run the same command again, and it continues from there.
+
+What it costs: two Claude steps (reading the lease, then the inspection with one call per room) and one PayPal sandbox payment from the test tenant's fake balance. Everything else is deterministic code.
+
+Dates: the records read like a tenancy that ran for a year. The move-in steps are dated the lease start, the notice the day it was given, and the move-out steps the move-out date. One date is PayPal's: it dates the sandbox payment the day the seed runs, so the statement says the deposit was paid that day. The move-out date defaults to that same day, so the 21-day clock starts then. With `--move-out` set to an earlier day, the statement shows the deposit paid after the tenants left; say so on camera, or seed on the day of the move-out.
+
+| Command | What it does |
+|---|---|
+| `npm run demo:seed` | Builds the demo tenancy, or continues an unfinished one at the demo address (each finished step is skipped) |
+| `npm run demo:seed -- --fresh` | Starts another demo tenancy even if an unfinished one exists |
+| `npm run demo:seed -- --tenancy <id>` | Continues that tenancy |
+| `npm run demo:seed -- --until inspect` | Stops before a step, to show it live. Steps: `lease`, `agreement`, `invoice`, `pay`, `move_in_photos`, `notice`, `move_out_date`, `move_out_photos`, `inspect`, `deductions`, `tenant_link` |
+| `npm run demo:seed -- --move-out 2026-09-28` | Sets the move-out date (not in the future). Default: the day the seed runs |
+| `npm run demo:seed -- --state TX` | Builds the Texas demo tenancy from `demo/lease-texas.pdf` (2317 Mesquite Bend Dr, Unit 3, Austin): the lease check, the tenants' PayPal account, the deposit paid in the sandbox, move-in photos, and the tenants' notice to leave at the lease end with the tenant link. It stops there, before the forwarding address; a demo copy dates the notice 20 days back, so its tenants move out in 10. One Claude call and one sandbox payment |
+| `npm run demo:reset -- <tenancyId>` | Removes one tenancy: its rows and its photos, receipts and lease PDF in storage. It refuses the templates the hosted demo's copies are made from. PayPal sandbox records stay |
+| `npm run demo:pool -- --status` / `--fill 4` | The hosted demo's pre-paid sandbox deposits: what is ready, or top it up to 4 (one invoice paid as the sandbox tenant each) |
+| `npm run demo:sweep` / `-- --apply` | Lists, then removes, the hosted demo's private copies older than 14 days, with their uploads |
+| `npm run demo:history` / `-- --apply` | Builds the settled dispute every copy's closed unit shows (the agents' recorded turns, put through the app's own checks), then stores it for the copies. No Claude call, no PayPal call |
+
+### The demo leases and photos
+
+`demo/lease-single-owner.pdf` (rendered from `demo/lease-single-owner.html` with `scripts/render_pdf.py`) is a fictional lease by one person who owns one rental, which is what makes the two-month cap apply:
+
+- Rent $2,400, so the small-landlord cap is $4,800 (Civ. Code 1950.5(c)(5)).
+- The lease asks a $4,800 deposit plus a $300 "nonrefundable" cleaning fee that "covers professional cleaning at the end of the tenancy". Everything charged at move-in counts as security, so the $5,100 total is $300 over the cap; no part of a deposit may be called nonrefundable (1950.5(n)); and professional cleaning can't be charged regardless of condition (1950.5(e)(2)(C)). The agent flags all three and invoices $4,800.
+- A $120 late fee the lease lets the landlord take from the deposit, which gets a warning.
+- The deposit is paid through PayPal, so the refund has to go back electronically, and by PayPal only with the tenants' written agreement (1950.5(h)(1)(A)). The tenants sign that agreement at move-in, so the written notice of the right to an electronic refund is not owed later, and the page says so.
+
+`demo/lease-texas.pdf` (from `demo/lease-texas.html`) is the Texas unit's lease, by Harbor View Rentals LLC: rent and deposit $1,850, a $300 "nonrefundable" pet fee that secures against pet damage (flagged: it may be a deposit, Tex. Prop. Code 92.102, and stays off the invoice) and a $90 late fee (checked against the 92.019 safe harbor).
+
+The photos in `demo/photos` show a stained carpet and a few nail holes in the bedroom, a hole in the living room wall, and a grimy range and counter in the kitchen (credits in `demo/photos/CREDITS.md`). The inspection sorts what it sees into damage, cleaning and wear and tear; the nail holes come back as wear and tear and are never charged. The seed then deducts the carpet replacement prorated over its useful life ($1,800 invoice, 6 of 10 years used: $720), the drywall repair ($140) and three hours of the landlord's own cleaning of the range ($150), leaving $3,790 to return. Claude's reading varies a little from run to run: on the carpet it may say to try cleaning first, and the deduction then carries a note that spot cleaning did not lift the stain, which goes on the statement with the cost. A planned deduction whose finding the inspection did not make, or marked unclear, is skipped and named in the output, to add by hand. The receipts in `demo/receipts` are made up.

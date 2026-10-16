@@ -103,7 +103,7 @@ The statute never defines "ordinary wear and tear"; it only bars charging for it
 
 ## E. Demo scenario (Orange, CA)
 
-This is the scenario `npm run demo:seed` builds (README.md, "Demo"): a fictional lease, landlord, tenants and address. Its dates run from the day the seed is run.
+This is the scenario `npm run demo:seed` builds (HOW_IT_WORKS.md, "Demo data and scripts"): a fictional lease, landlord, tenants and address. Its dates run from the day the seed is run.
 
 **The setup:**
 - Single-family house in the City of Orange. The owner is one natural person with one rental, so the two-month cap applies (D4, (c)(5)(A)).
