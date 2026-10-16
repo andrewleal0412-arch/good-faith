@@ -47,7 +47,7 @@ services:
         sync: false
       - key: GOOD_FAITH_ACCOUNT # the owner workspace's account name; demo copies always show Harbor View Rentals
         sync: false
-      - key: GOOD_FAITH_DAILY_AI_TOTAL # set it to what a day of judging needs, for example 40
+      - key: GOOD_FAITH_DAILY_AI_TOTAL # 80 for the judging window (docs/DEPLOY.md, section 4, step 6)
         sync: false
       - key: GOOD_FAITH_DAILY_LEASE
         sync: false
@@ -71,9 +71,9 @@ services:
         sync: false
       - key: GOOD_FAITH_DAILY_JEV_TOTAL
         sync: false
-      - key: GOOD_FAITH_DAILY_COPIES # new demo copies per caller address a day; set 15 to 20 for judging (judges may share one network)
+      - key: GOOD_FAITH_DAILY_COPIES # new demo copies per caller address a day; 20 for judging (judges may share one network)
         sync: false
-      - key: GOOD_FAITH_DAILY_COPIES_TOTAL # new demo copies a day across everyone
+      - key: GOOD_FAITH_DAILY_COPIES_TOTAL # new demo copies a day across everyone; 200 for judging
         sync: false
       - key: GOOD_FAITH_INSPECT_ROOMS
         sync: false
@@ -82,19 +82,19 @@ services:
       # Not on Render: GOOD_FAITH_CLIENT_IP_HEADER (Render's CF-Connecting-IP is found by itself), and the laptop-only
       # PAYPAL_SANDBOX_BUYER_*, PLAYWRIGHT_PYTHON, DEMO_BASE_URL and DEMO_ACCESS_CODE.
 
-# Later, the daily sweep of demo copies older than 14 days (scripts/demo-sweep.mjs, docs/DEPLOY.md section 9) can run
-# as a Render cron job. It needs only the two Supabase variables. Uncomment, then set them in the dashboard:
-#
-#  - type: cron
-#    name: good-faith-sweep
-#    runtime: node
-#    region: oregon
-#    plan: starter
-#    schedule: "15 11 * * *" # 11:15 UTC, early morning in California
-#    buildCommand: npm ci
-#    startCommand: npm run demo:sweep -- --apply
-#    envVars:
-#      - key: SUPABASE_URL
-#        sync: false
-#      - key: SUPABASE_SECRET_KEY
-#        sync: false
+  # The daily sweep of demo copies older than 14 days (scripts/demo-sweep.mjs, docs/DEPLOY.md section 9). It needs
+  # only the two Supabase variables, set by hand in the job's Environment after the sync (a Blueprint update doesn't
+  # ask for them). Paid like Starter: billed by the second it runs, at least $1 a month, so it needs the card too.
+  - type: cron
+    name: good-faith-sweep
+    runtime: node
+    region: oregon
+    plan: starter
+    schedule: "15 11 * * *" # 11:15 UTC, early morning in California
+    buildCommand: npm ci
+    startCommand: npm run demo:sweep -- --apply
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false

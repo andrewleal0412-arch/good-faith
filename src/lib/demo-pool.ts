@@ -7,6 +7,10 @@ import { db } from "./db";
 // to the template (and to every other copy that points at it). The Texas unit is copied before its move-out and never
 // takes a pool deposit, so its copy always points at its template's deposit and never refunds it either.
 
+/** PayPal refunds a payment against itself for 180 days; a copy claims only a deposit younger than this (clone_demo_templates in
+ *  supabase/migrations, and scripts/demo-pool.mjs, which carry the same number). */
+export const POOL_FRESH_DAYS = 170;
+
 /** The plain sentence a demo copy shows, and the close-out facts carry as a blocker, when it has no deposit of its own. */
 export const POOL_EMPTY = "Today's sandbox deposits for the demo are used up, so this copy can't send a refund. Everything else works.";
 

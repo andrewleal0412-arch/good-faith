@@ -387,7 +387,7 @@ Dates: the records read like a tenancy that ran for a year. The move-in steps ar
 | `npm run demo:seed -- --move-out 2026-09-28` | Sets the move-out date (not in the future). Default: the day the seed runs |
 | `npm run demo:seed -- --state TX` | Builds the Texas demo tenancy from `demo/lease-texas.pdf` (2317 Mesquite Bend Dr, Unit 3, Austin): the lease check, the tenants' PayPal account, the deposit paid in the sandbox, move-in photos, and the tenants' notice to leave at the lease end with the tenant link. It stops there, before the forwarding address; a demo copy dates the notice 20 days back, so its tenants move out in 10. One Claude call and one sandbox payment |
 | `npm run demo:reset -- <tenancyId>` | Removes one tenancy: its rows and its photos, receipts and lease PDF in storage. It refuses the templates the hosted demo's copies are made from. PayPal sandbox records stay |
-| `npm run demo:pool -- --status` / `--fill 4` | The hosted demo's pre-paid sandbox deposits: what is ready, or top it up to 4 (one invoice paid as the sandbox tenant each) |
+| `npm run demo:pool -- --status` / `--fill 4` / `--min 30` | The hosted demo's pre-paid sandbox deposits: what is ready, top it up to 4, or top it up only when fewer than 30 are ready (one invoice paid as the sandbox tenant each) |
 | `npm run demo:sweep` / `-- --apply` | Lists, then removes, the hosted demo's private copies older than 14 days, with their uploads |
 | `npm run demo:history` / `-- --apply` | Builds the settled dispute every copy's closed unit shows (the agents' recorded turns, put through the app's own checks), then stores it for the copies. No Claude call, no PayPal call |
 

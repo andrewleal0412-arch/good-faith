@@ -6,6 +6,8 @@
 //
 //   npm run demo:pool -- --status          what the pool holds: ready, claimed, and too old to refund
 //   npm run demo:pool -- --fill 4          top the ready deposits up to 4 (about a minute and one sandbox payment each)
+//   npm run demo:pool -- --min 30          the same only when fewer than 30 are ready, then one line and exit 0: for a
+//                                         daily launchd or cron job (docs/DEPLOY.md, section 9)
 //   npm run demo:pool -- --adopt <INV2-…>  add an invoice already paid by hand as the sandbox tenant
 //
 // Sandbox only: the app's PayPal credentials from .env.local, with PAYPAL_ENVIRONMENT=SANDBOX; it refuses LIVE. Each
@@ -17,6 +19,8 @@ import {
 
 /** PayPal refunds a payment against itself for 180 days; the app claims only deposits younger than 170. */
 const FRESH_DAYS = 170;
+/** The most ready deposits one run fills to: each is $4,800 of the sandbox tenant's fake balance. */
+const MOST = 50;
 const PAID = ["PAID", "MARKED_AS_PAID"];
 
 const args = parseArgs(process.argv.slice(2));
@@ -27,25 +31,28 @@ const db = dbClient(env);
 if (args.status) await status();
 else if (args.adopt) await adopt(args.adopt);
 else if (args.fill != null) await fill(args.fill);
+else if (args.min != null) await min(args.min);
 
 function parseArgs(argv) {
-  const a = { status: false, fill: null, adopt: null };
+  const a = { status: false, fill: null, min: null, adopt: null };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i], v = argv[i + 1];
     if (k === "--status") a.status = true;
     else if (k === "--fill") { a.fill = Number(v); i++; }
+    else if (k === "--min") { a.min = Number(v); i++; }
     else if (k === "--adopt") { a.adopt = v ?? null; i++; }
     else if (k === "--help" || k === "-h") { console.log(usage()); process.exit(0); }
     else fail(`Unknown option ${k}.\n${usage()}`);
   }
-  if (a.fill != null && (!Number.isInteger(a.fill) || a.fill < 1 || a.fill > 20)) fail("--fill needs a number of deposits from 1 to 20.");
+  if (a.fill != null && (!Number.isInteger(a.fill) || a.fill < 1 || a.fill > MOST)) fail(`--fill needs a number of deposits from 1 to ${MOST}.`);
+  if (a.min != null && (!Number.isInteger(a.min) || a.min < 1 || a.min > MOST)) fail(`--min needs a number of deposits from 1 to ${MOST}.`);
   if (a.adopt != null && !/^INV2-[A-Z0-9-]{10,40}$/.test(a.adopt)) fail("--adopt needs a PayPal invoice id (INV2-...).");
-  if ([a.status, a.fill != null, a.adopt != null].filter(Boolean).length !== 1) fail(usage());
+  if ([a.status, a.fill != null, a.min != null, a.adopt != null].filter(Boolean).length !== 1) fail(usage());
   return a;
 }
 
 function usage() {
-  return "Usage: npm run demo:pool -- --status | --fill <N> | --adopt <invoice id>";
+  return "Usage: npm run demo:pool -- --status | --fill <N> | --min <N> | --adopt <invoice id>";
 }
 
 /** The move-out template the copies are made from, and the deposit invoice it was sent: the pool's deposits match it. */
@@ -155,7 +162,21 @@ async function adopt(invoiceId) {
   await status();
 }
 
-async function fill(target) {
+/** For a daily job: fills to `target` only when fewer are ready, and ends with one line either way. Exit 0 when the
+ *  pool holds at least `target`; a payment that didn't go through stops it with exit 1, as --fill does, so the job's
+ *  log shows which invoice to pay by hand. Nothing is sent, and no Python is looked for, when there is nothing to do. */
+async function min(target) {
+  const p = await rows();
+  if (p.ready.length >= target) {
+    console.log(`Demo deposit pool: ${p.ready.length} ready, at least ${target} wanted. Nothing to do.`);
+    return;
+  }
+  const had = p.ready.length;
+  const now = await fill(target, { summary: false });
+  console.log(`Demo deposit pool: ${now} ready, at least ${target} wanted; ${now - had} added.`);
+}
+
+async function fill(target, { summary = true } = {}) {
   const template = await moveOutTemplate();
   const payer = payerFor(template);
   const py = pythonBin(env);
@@ -202,5 +223,6 @@ async function fill(target) {
     p = await rows();
   }
   console.log("");
-  await status();
+  if (summary) await status();
+  return p.ready.length;
 }

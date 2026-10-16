@@ -37,6 +37,8 @@ function envInt(name: string, fallback: number): number {
 export function dailyLimits() {
   const aiTotal = envInt("GOOD_FAITH_DAILY_AI_TOTAL", 150);
   return {
+    /** The day's total of Claude jobs across every session, which the four Claude kinds below share. */
+    aiTotal,
     perSession: {
       lease: envInt("GOOD_FAITH_DAILY_LEASE", 5),
       inspect: envInt("GOOD_FAITH_DAILY_INSPECT", 3),
