@@ -8,9 +8,9 @@ services:
     # Region): a West US (North California) project pairs with oregon. Every page makes several database calls, so
     # the distance shows in every load.
     region: oregon
-    # Free for now. The free plan sleeps after 15 minutes without traffic, so a judge's first page waits about a
-    # minute. Switch to starter (stays awake) before judging.
-    plan: free
+    # Render's $7 plan (formerly Starter), since 2026-10-22: it stays awake, so a judge's first page doesn't wait
+    # the free plan's minute. The plan names are Render's current ones (0.5c-512mb, not starter).
+    plan: 0.5c-512mb
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
@@ -89,7 +89,7 @@ services:
     name: good-faith-sweep
     runtime: node
     region: oregon
-    plan: starter
+    plan: 0.5c-512mb
     schedule: "15 11 * * *" # 11:15 UTC, early morning in California
     buildCommand: npm ci
     startCommand: npm run demo:sweep -- --apply
