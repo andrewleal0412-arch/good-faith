@@ -25,7 +25,7 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 
 ## Try it
 
-[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, dated that day, with a demo guide above each page that lists these eight beats and ticks them off. The first page after a quiet spell can take up to a minute while Render wakes.
+[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, dated that day, with a welcome card and a short tour of Properties on the first visit, and a demo guide above each page that lists these eight beats and ticks them off. The first page after a quiet spell can take up to a minute while Render wakes.
 
 1. **Lease check.** Check a lease, upload `demo/lease-single-owner.pdf` (about 20 seconds): a deposit over the cap, a "nonrefundable" fee, and the lawful amount to collect.
 2. **Deposit by PayPal.** Properties, then 1140 E. Juniper Hollow Ln, Overview: the signed refund agreement and the deposit paid through a PayPal invoice.

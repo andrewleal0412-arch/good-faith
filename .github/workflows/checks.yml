@@ -62,6 +62,9 @@ jobs:
       - name: grid-check
         run: node scripts/grid-check.mjs
 
+      - name: demo-welcome-check
+        run: node scripts/demo-welcome-check.mjs
+
       - name: chargeback-check
         run: node scripts/chargeback-check.mjs
 

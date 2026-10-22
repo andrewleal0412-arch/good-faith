@@ -1,9 +1,14 @@
 import "server-only";
+import { displayName } from "./copy";
 import { db } from "./db";
 import { guideSteps, type GuideStep, type GuideTenancy } from "./demo-guide";
+import { heldNow, welcomeOf, type DemoWelcome } from "./demo-welcome";
+import { streetLine } from "./ledger";
+import { closedOut, dueOf } from "./next-step";
+import { SANDBOX } from "./paypal";
 import { packFor } from "./states/server";
-import { workspaceTenancies } from "./units";
-import { currentWorkspace } from "./workspace";
+import { loadUnits, workspaceTenancies } from "./units";
+import { currentWorkspace, DEMO_ACCOUNT } from "./workspace";
 
 // The demo guide's eight steps for the session's own workspace, read from the copy's own rows: where each beat of
 // docs/DEMO_SCRIPT.md happens in this copy, and which of them already happened (src/lib/demo-guide.ts does the
@@ -43,4 +48,27 @@ export async function demoGuideSteps(): Promise<GuideStep[] | null> {
     payments: (t.payments ?? []).map((p) => ({ kind: p.kind, status: p.status })),
     disputesSent: sent.get(t.id) ?? [],
   })));
+}
+
+/** The welcome's words for this copy (src/lib/demo-welcome.ts), from the units Properties reads anyway (React cache,
+ *  one request), or null for a copy with no tenancy. */
+export async function demoWelcome(): Promise<DemoWelcome | null> {
+  const { today, units } = await loadUnits();
+  return welcomeOf({
+    account: displayName(DEMO_ACCOUNT), today, sandbox: SANDBOX,
+    units: units.map(({ summary: s }) => ({
+      id: s.id,
+      address: s.address,
+      street: streetLine(s.address),
+      city: s.city,
+      state: s.state,
+      tenants: s.tenants,
+      deposit: s.deposit?.amount ?? null,
+      held: heldNow(s),
+      moveOutDate: s.moveOutDate,
+      inspected: !!s.moveOutInspectedAt,
+      due: closedOut(s) ? null : dueOf(s),
+      closed: closedOut(s),
+    })),
+  });
 }

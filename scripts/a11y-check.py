@@ -22,7 +22,9 @@ are listed under the run, and the checks below cover what axe can't see:
   - Errors: on the tenants' dispute form a refused value is an alert, and the field it names is aria-invalid,
     described by it and focused.
   - Dialogs: the confirm dialog, a drawer and the phone navigation take focus in, keep Tab inside, close on Escape
-    and give focus back to what opened them.
+    and give focus back to what opened them. A demo copy's welcome card and the card of its tour take focus on their
+    main button and keep Tab inside, at 1280 and 390 px, and Escape ends the tour with focus on the page; on a phone,
+    Welcome tour in the drawer's account menu closes the drawer before the card opens.
   - Reduced motion: with prefers-reduced-motion, no animation is running after a page loads, after a tab is switched
     and after a dialog or a menu opens, and nothing waits hidden for a moment to play.
   - Phones: at 390 px no page scrolls sideways (every target meets WCAG 2.5.8 through axe's target-size rule, which
@@ -524,11 +526,14 @@ def audit(base, setup, shots):
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
 
-        def context(width, reduce=True, cookie=True):
+        def context(width, reduce=True, cookie=True, welcome=False):
             ctx = browser.new_context(viewport=WIDTHS[width], reduced_motion="reduce" if reduce else "no-preference",
                                       is_mobile=width != "1280", has_touch=width != "1280", device_scale_factor=1)
             if cookie:
                 ctx.add_cookies([{"name": setup["cookie"]["name"], "value": setup["cookie"]["value"], "url": base}])
+            # A browser that has seen the welcome card (components/demo-welcome.tsx), unless the check is of the card.
+            if cookie and not welcome:
+                ctx.add_cookies([{"name": "gf_welcome", "value": "seen", "url": base}])
             ctx.add_init_script(HELPERS)
             return ctx
 
@@ -710,6 +715,56 @@ def audit(base, setup, shots):
         back = p.evaluate("() => document.activeElement?.getAttribute('aria-label') === 'Account'")
         check("dialog Start over: focus starts on Cancel, Tab and Shift+Tab stay inside, Escape closes it and focus is back on the account button",
               ok_open and on_cancel and trapped and back and dlg.count() == 0, json.dumps({"open": ok_open, "cancel": on_cancel, "trapped": trapped, "back": back}))
+
+        # The welcome card and its tour (components/demo-welcome.tsx), in a browser that hasn't seen them, at both widths:
+        # the card takes focus on its main button and keeps Tab inside, the tour's card takes it on Next and keeps it
+        # there too, both pass axe and stand still under reduced motion, and Escape ends the tour with focus on the page.
+        for width in ("1280", "390"):
+            wctx = context(width, welcome=True)
+            wp = open_page(wctx)
+            go(wp, "/units")
+            within = lambda sel: wp.evaluate("(s) => !!document.activeElement && !!document.activeElement.closest(s)", sel)
+            on = lambda: wp.evaluate("() => document.activeElement?.textContent?.trim()")
+            card = wp.locator("[data-welcome]")
+            ok_card = card.count() == 1 and card.is_visible() and on() == "Show me around"
+            card_trap = True
+            for key in ["Tab"] * 4 + ["Shift+Tab"] * 3:
+                wp.keyboard.press(key)
+                card_trap = card_trap and within("[data-welcome]")
+            axe(wp, shots, "dialog-welcome", width)
+            motion_still(wp, f"the welcome card open at {width} px")
+            wp.screenshot(path=str(shots / f"dialog-welcome-{width}.png"))
+            wp.get_by_role("button", name="Show me around").click()
+            wp.locator("[data-tour-stop]").wait_for()
+            wp.wait_for_timeout(300)
+            ok_tour = on() == "Next" and within("[data-tour-stop]")
+            tour_trap = True
+            for key in ["Tab"] * 4 + ["Shift+Tab"] * 3:
+                wp.keyboard.press(key)
+                tour_trap = tour_trap and within("[data-tour-stop]")
+            axe(wp, shots, "tour-stop", width)
+            motion_still(wp, f"the tour's first stop at {width} px")
+            wp.screenshot(path=str(shots / f"tour-stop-{width}.png"))
+            wp.keyboard.press("Escape")
+            wp.wait_for_timeout(200)
+            ended = wp.locator("[data-tour-stop]").count() == 0 and wp.evaluate("() => document.activeElement?.id") == "main"
+            check(f"dialog welcome, {width} px: the card opens on Show me around and keeps Tab inside; the tour's card takes focus on Next and keeps it; Escape ends the tour with focus on the page",
+                  ok_card and card_trap and ok_tour and tour_trap and ended,
+                  json.dumps({"card": ok_card, "card trap": card_trap, "tour": ok_tour, "tour trap": tour_trap, "ended": ended}))
+            if width == "390":
+                # On a phone the account menu is inside the navigation drawer: Welcome tour there closes the drawer, so
+                # the card opens over the page and not under the drawer.
+                wp.get_by_role("button", name="Open navigation").click()
+                wp.wait_for_timeout(150)
+                wp.locator("[aria-label=Navigation]").get_by_role("button", name=re.compile("Harbor View Rentals")).click()
+                wp.get_by_role("button", name="Welcome tour").click()
+                wp.locator("[data-welcome]").wait_for()
+                wp.wait_for_timeout(300)
+                over = {"drawer": wp.locator("[aria-label=Navigation][aria-modal=true]").count(), "card": wp.locator("[data-welcome]").is_visible(),
+                        "focus": on()}
+                check("dialog welcome, 390 px: Welcome tour in the drawer's account menu closes the drawer and opens the card with focus on Show me around",
+                      over == {"drawer": 0, "card": True, "focus": "Show me around"}, json.dumps(over))
+            wctx.close()
 
         # An info tip: the Texas unit's Rules chip.
         go(p, f"/tenancy/{tx}")

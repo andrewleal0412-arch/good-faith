@@ -179,7 +179,9 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
                     {shown.map((r) => {
                       const s = r.summary;
                       return (
-                        <tr key={s.id} className={trClass}>
+                        // data-tour-unit (here, on the phone cards) and data-tour (the Next steps card) are where a demo
+                        // copy's welcome tour rings this page (components/demo-welcome.tsx).
+                        <tr key={s.id} data-tour-unit={s.id} className={trClass}>
                           <Td first>
                             <Link href={`/tenancy/${s.id}`} className="flex items-center gap-3">
                               <Thumb src={thumbs.get(s.id) ?? null} />
@@ -215,7 +217,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
               {shown.map((r) => {
                 const s = r.summary;
                 return (
-                  <Card key={s.id} className="flex items-start gap-3 p-3.5">
+                  <Card key={s.id} data-tour-unit={s.id} className="flex items-start gap-3 p-3.5">
                     <Link href={`/tenancy/${s.id}`} aria-label={r.addr.street} tabIndex={-1}><Thumb src={thumbs.get(s.id) ?? null} size={48} /></Link>
                     <div className="min-w-0 flex-1">
                       <Link href={`/tenancy/${s.id}`} className="block font-medium"><Street street={r.addr.street} state={s.state} /></Link>
@@ -246,7 +248,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
 
           {/* Beside the table from 1280px; above it before, two cards to a row on a tablet. */}
           <div className="flex flex-col gap-4 max-xl:order-first md:max-xl:grid md:max-xl:grid-cols-2 md:max-xl:items-start">
-            <Card>
+            <Card data-tour="next-steps">
               <CardHead title="Next steps" />
               <div className="flex flex-col gap-2 p-4">
                 {steps.length ? steps.map((r) => (

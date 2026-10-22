@@ -73,7 +73,7 @@ const beat = (n: number) => BEATS.find((b) => b.n === n);
  *  guide to the Texas unit the moment a judge set a move-out date on it (the Texas unit's own page offers one, and
  *  beat 8 sends them there), and the live beats would un-tick. The most recent move-out is the fallback, for a copy
  *  whose addresses are not the demo's. */
-export function liveUnit(units: GuideTenancy[]): GuideTenancy | null {
+export function liveUnit<T extends Pick<GuideTenancy, "address" | "moveOutDate">>(units: T[]): T | null {
   const named = units.find((u) => isUnit(u.address, beat(2)?.unit));
   if (named) return named;
   const moved = units.filter((u) => u.moveOutDate);
@@ -83,7 +83,7 @@ export function liveUnit(units: GuideTenancy[]): GuideTenancy | null {
 
 /** The unit under another state's rule pack, for the multi-state beat: the one beat 8 names, else any unit whose pack
  *  is not the live unit's, else none (a copy with one state only). */
-function otherState(units: GuideTenancy[], live: GuideTenancy): GuideTenancy | null {
+export function otherState<T extends Pick<GuideTenancy, "address" | "state">>(units: T[], live: T): T | null {
   return units.find((u) => isUnit(u.address, beat(8)?.unit)) ?? units.find((u) => u.state !== live.state) ?? null;
 }
 
@@ -139,3 +139,7 @@ export function guideSteps(units: GuideTenancy[]): GuideStep[] | null {
 export const GUIDE_COOKIE = "gf_guide";
 export type GuideState = "open" | "shut" | "off";
 export const guideState = (v: string | undefined): GuideState => (v === "off" ? "off" : v === "shut" ? "shut" : "open");
+
+/** The cookie that says this browser has seen the welcome (src/lib/demo-welcome.ts): "seen", or absent. The card opens
+ *  once per browser, on Properties; "Welcome tour" in the account menu opens it again. */
+export const WELCOME_COOKIE = "gf_welcome";

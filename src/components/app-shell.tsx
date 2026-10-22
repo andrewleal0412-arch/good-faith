@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, use, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type Ref } from "react";
 import { ConfirmDialog } from "./confirm";
 import { DemoGuide } from "./demo-guide";
+import { DemoWelcome } from "./demo-welcome";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { InfoTip } from "./info-tip";
 import { Menu } from "./menu";
@@ -12,6 +13,7 @@ import { arriveAgain, PresenceList, usePresence } from "./motion";
 import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
 import { Avatar, Notice, Wordmark } from "./ui";
 import type { GuideState, GuideStep } from "@/lib/demo-guide";
+import type { DemoWelcome as Welcome } from "@/lib/demo-welcome";
 import { sectionOf } from "@/lib/tenancy-tabs";
 
 // The landlord's app chrome: a 232px sidebar (Properties, Tenants, Payments, Insights, Documents, then the Workflows group),
@@ -38,6 +40,9 @@ type ShellProps = {
   // The demo guide at the top of every page, in a private demo copy only (null in the owner's workspace): what this
   // browser last chose to do with it, and the eight beats of this copy, which stream in with the rest of the chrome.
   guide: { state: GuideState; steps: Promise<GuideStep[] | null> } | null;
+  // The welcome card and tour, in a private demo copy only: whether this browser has yet to see it, and its words,
+  // which stream in with the rest of the chrome (components/demo-welcome.tsx).
+  welcome: { show: boolean; data: Promise<Welcome | null> } | null;
   children: ReactNode;
 };
 
@@ -52,7 +57,7 @@ const NAV: ({ href: string; icon: IconName; label: string; match: (p: string) =>
   { href: "/move-outs", icon: "key", label: "Move-outs", match: (p) => p.startsWith("/move-outs") },
 ];
 
-export function AppShell({ sandbox, signOut, startOver, account, chrome, guide, children }: ShellProps) {
+export function AppShell({ sandbox, signOut, startOver, account, chrome, guide, welcome, children }: ShellProps) {
   const path = usePathname();
   const [drawer, setDrawer] = useState(false);
   const nav = usePresence(drawer);
@@ -195,6 +200,7 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, guide, 
         </main>
       </div>
       {startOver && <StartOver />}
+      {welcome && <DemoWelcome {...welcome} />}
       {/* A focused flow (the refund review) has no shell: its skeleton covers the page until it arrives. */}
       {flow && <div className="fixed inset-0 z-50 overflow-y-auto bg-canvas">{flow}</div>}
     </div>
@@ -375,7 +381,9 @@ function Sidebar({ onNavigate, ...p }: SideProps & { onNavigate?: () => void }) 
             </span>
             <Icon name="updown" className="size-3.5 text-ink-4" />
           </>}>
-          {(close) => <AccountCard {...p} close={close} />}
+          {/* In the phone drawer, an item that shows something on the page (the welcome, the guide, Start over's
+              dialog) closes the drawer as well, or it would open under it. */}
+          {(close) => <AccountCard {...p} close={() => { close(); onNavigate?.(); }} />}
         </Menu>
       </div>
     </>
@@ -400,10 +408,14 @@ function AccountCard(p: SideProps & { close: () => void }) {
       <Suspense fallback={null}><Owners chrome={p.chrome} /></Suspense>
       {p.signOut && (
         <form method="post" action="/api/access/sign-out" className="mt-1.5 border-t border-line-2 pt-1.5">
-          {/* A private copy of the demo: the way back to a guide this browser hid (components/demo-guide.tsx), and a
-              fresh copy. Neither is in the owner's workspace. */}
+          {/* A private copy of the demo: the welcome again (components/demo-welcome.tsx), the way back to a guide this
+              browser hid (components/demo-guide.tsx), and a fresh copy. None is in the owner's workspace. */}
           {p.startOver && (
             <>
+              <button type="button" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:demo-welcome")); }}
+                className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
+                <Icon name="info" className="size-[15px] text-ink-3" />Welcome tour
+              </button>
               <button type="button" onClick={() => { p.close(); window.dispatchEvent(new Event("gf:demo-guide")); }}
                 className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-surface hover:text-ink">
                 <Icon name="check" className="size-[15px] text-ink-3" />Demo guide

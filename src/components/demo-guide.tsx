@@ -76,7 +76,8 @@ export function DemoGuide({ state, steps }: { state: GuideState; steps: Promise<
   };
 
   return (
-    <section aria-label="Demo guide" className="mb-5 md:mb-6 print:hidden">
+    // data-tour is where the welcome tour's last stop rings the guide (components/demo-welcome.tsx).
+    <section aria-label="Demo guide" data-tour="guide" className="mb-5 md:mb-6 print:hidden">
       <Card soft className="px-3 py-1.5">
         <div className="flex items-center gap-2">
           <button type="button" aria-expanded={open} aria-controls={list} onClick={() => pick(open ? "shut" : "open")}

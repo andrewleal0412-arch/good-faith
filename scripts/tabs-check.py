@@ -25,6 +25,8 @@ from playwright.sync_api import sync_playwright
 
 BASE = os.environ["GF_BASE"].rstrip("/")
 NAME, _, VALUE = os.environ["GF_COOKIE"].partition("=")
+# This browser has seen the welcome card (components/demo-welcome.tsx), so Properties opens without it.
+SEEN = {"name": "gf_welcome", "value": "seen", "url": BASE}
 UNIT = os.environ["GF_UNIT"]
 PROPERTY = f"/tenancy/{UNIT}"
 failed = 0
@@ -111,7 +113,7 @@ def main():
 
         # 1440: the tabs, a change, and every way back to it.
         ctx = browser.new_context(viewport={"width": 1440, "height": 900})
-        ctx.add_cookies([{"name": NAME, "value": VALUE, "url": BASE}])
+        ctx.add_cookies([{"name": NAME, "value": VALUE, "url": BASE}, SEEN])
         page = ctx.new_page()
         page.on("pageerror", lambda e: problems.append(f"page error: {str(e)[:160]}"))
         page.on("console", lambda m: problems.append(f"console {m.type}: {m.text[:160]}") if m.type == "error" or "AG Grid" in m.text else None)
@@ -191,7 +193,7 @@ def main():
 
         # 390: the grid's narrow columns survive a trip to another tab.
         ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
-        ctx.add_cookies([{"name": NAME, "value": VALUE, "url": BASE}])
+        ctx.add_cookies([{"name": NAME, "value": VALUE, "url": BASE}, SEEN])
         page = ctx.new_page()
         page.on("pageerror", lambda e: problems.append(f"page error (390): {str(e)[:160]}"))
         page.on("console", lambda m: problems.append(f"console {m.type} (390): {m.text[:160]}") if m.type == "error" or "AG Grid" in m.text else None)

@@ -4,6 +4,10 @@
 It walks docs/DEMO_SCRIPT.md in a real browser on a fresh private demo copy, as a judge would, and checks at each step
 the words that matter and every money figure against what the code computes, saving a screenshot of each step:
 
+   0. The welcome card on a first visit to Properties, in the copy's own words; its four-stop tour, each stop's ring
+      around its own part of the page, at computer and phone width; its last button to the move-out photos; seen
+      once (Back from the refund review included), then again from the menu; a page change under the tour ends it.
+      At the end (12d) it is opened again and says the deposit is closed out
    1. Properties: the three units, the Texas unit's Rules chip (beat 8), and the demo guide's eight beats, each
       ticked off this copy's own rows and linking to where that beat happens in it
    2. Check a lease: demo/lease-single-owner.pdf, its flags and the lawful deposit (beat 1)
@@ -523,6 +527,98 @@ def walk(base, setup, shots, check, facts):
         page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text[:200]}") if m.type == "error" else None)
         page.set_default_timeout(30_000)
 
+        # 0. The welcome (components/demo-welcome.tsx): a browser that hasn't seen it meets the card on Properties, in
+        # words read off the copy's own units; its tour rings the live unit, the next steps, the Texas unit and the
+        # guide, in that order, each ring around its own part of the page; its last button opens the move-out photos;
+        # the browser then keeps "seen", so Properties opens without it, and Welcome tour in the account menu opens it
+        # again.
+        go(page, "/units")
+        card = page.locator("[data-welcome]")
+        dep = f"${E['deposit']:,.0f}" if abs(E["deposit"] - round(E["deposit"])) < 0.005 else usd(E["deposit"])
+        words = re.sub(r"\s+", " ", card.inner_text()) if card.count() else ""
+        want = ["Your private copy of the demo", "You're the landlord at Harbor View Rentals",
+                f"Priya Raman and Daniel Okafor moved out of 1140 E. Juniper Hollow Ln. Close out their {dep} deposit. California gives you 21 days.",
+                "PayPal runs in its sandbox", "8 steps, ticked off in the checklist"]
+        check("Welcome: the card opens on Properties, with the copy's own tenants, unit, deposit and clock",
+              card.count() == 1 and all(w.lower() in words.lower() for w in want), f"wanted {want}; the card reads {words[:500]!r}")
+        shot(page, "welcome")
+        page.get_by_role("button", name="Show me around").click()
+        RING = """(sel) => {
+          const part = [...document.querySelectorAll(sel)].find((e) => e.checkVisibility());
+          const ring = document.querySelector('[data-tour-ring]');
+          if (!part || !ring) return null;
+          const a = part.getBoundingClientRect(), b = ring.getBoundingClientRect();
+          return { around: b.left <= a.left + 1 && b.top <= a.top + 1 && b.right >= Math.min(a.right, innerWidth) - 1 && b.bottom >= a.bottom - 1
+                     && b.width - a.width < 24 && b.height - a.height < 24,
+                   seen: b.top >= 0 && b.top < innerHeight };
+        }"""
+        stops = []
+        for anchor in (f'[data-tour-unit="{mo}"]', '[data-tour="next-steps"]', f'[data-tour-unit="{tx}"]', '[data-tour="guide"]'):
+            page.locator("[data-tour-stop]").wait_for()
+            page.wait_for_timeout(300)
+            pop = page.locator("[data-tour-stop]")
+            stops.append({"stop": pop.get_attribute("data-tour-stop"), "title": pop.locator("h2").inner_text(),
+                          "count": pop.inner_text().split("\n")[0], "ring": page.evaluate(RING, anchor)})
+            shot(page, f"tour-{len(stops)}")
+            if len(stops) == 1:
+                # A unit is a table row on a computer and a card on a phone: a window that crosses between the two (a
+                # tablet turned, a window resized) moves the ring to the part now on screen, and back.
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.wait_for_timeout(400)
+                narrow = page.evaluate(RING, anchor)
+                page.screenshot(path=str(shots / "tour-1-phone.png"))  # the screen as it is, not shot()'s full page from the top
+                page.set_viewport_size({"width": 1440, "height": 1000})
+                page.wait_for_timeout(400)
+                wide = page.evaluate(RING, anchor)
+                check("Welcome tour: a window that crosses to phone width and back keeps the ring on the unit, card then row",
+                      bool(narrow and narrow["around"] and narrow["seen"] and wide and wide["around"] and wide["seen"]),
+                      json.dumps({"phone": narrow, "wide": wide}))
+            if len(stops) < 4:
+                pop.get_by_role("button", name="Next").click()
+        check("Welcome tour: four stops, in order, each ringing its own part of Properties on screen",
+              [s["title"] for s in stops] == ["Your move-out", "What the law needs next", "A second state", "Your 8 steps"]
+              and [s["count"] for s in stops] == ["1 of 4", "2 of 4", "3 of 4", "4 of 4"]
+              and all(s["ring"] and s["ring"]["around"] and s["ring"]["seen"] for s in stops), json.dumps(stops))
+        page.get_by_role("link", name="Start with the move-out").click()
+        page.wait_for_url(re.compile(rf"/tenancy/{mo}\?tab=move-out#photos$"))
+        seen = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_welcome"]
+        check("Welcome tour: its last button opens the move-out photos, and the browser keeps that it has seen the welcome",
+              seen == ["seen"], f"the cookie: {seen}")
+        # The refund review has its own layout, and Back from it brings the landlord pages back from the browser's
+        # history as they were first drawn, before the welcome was seen: Properties still opens without it.
+        page.evaluate(f"() => document.querySelector('a[href=\"/tenancy/{mo}/refund\"]').click()")
+        page.wait_for_url(re.compile(rf"/tenancy/{mo}/refund$"))
+        page.go_back()
+        page.wait_for_url(re.compile(rf"/tenancy/{mo}\?tab=move-out"))
+        page.wait_for_timeout(300)
+        page.get_by_role("navigation", name="Main").get_by_role("link", name="Properties").click()
+        page.wait_for_url(re.compile(r"/units$"))
+        page.wait_for_timeout(800)
+        check("Welcome: back from the refund review, Properties still opens without it", page.locator("[data-welcome]").count() == 0)
+        go(page, "/units")
+        check("Welcome: seen once, Properties opens without it", page.locator("[data-welcome]").count() == 0)
+        page.locator("header").get_by_role("button", name="Account", exact=True).first.click()
+        page.get_by_role("button", name="Welcome tour").click()
+        page.locator("[data-welcome]").wait_for()
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        check("Welcome: Welcome tour in the account menu opens it again, and Escape closes it", page.locator("[data-welcome]").count() == 0)
+        # A page change under the tour (Back, a swipe, a link pressed past it) ends it: Properties, opened again, has
+        # no tour and no locked page.
+        page.locator("header").get_by_role("button", name="Account", exact=True).first.click()
+        page.get_by_role("button", name="Welcome tour").click()
+        page.get_by_role("button", name="Show me around").click()
+        page.locator("[data-tour-stop]").wait_for()
+        page.evaluate("() => document.querySelector('aside a[href=\"/move-outs\"]').click()")
+        page.wait_for_url(re.compile(r"/move-outs$"))
+        page.evaluate("() => document.querySelector('aside a[href=\"/units\"]').click()")
+        page.wait_for_url(re.compile(r"/units$"))
+        page.wait_for_timeout(2500)
+        left = {"stop": page.locator("[data-tour-stop]").count(), "card": page.locator("[data-welcome]").count(),
+                "overflow": page.evaluate("() => getComputedStyle(document.body).overflow")}
+        check("Welcome tour: a page change under it ends it, and Properties opens again without it",
+              left == {"stop": 0, "card": 0, "overflow": "visible"}, json.dumps(left))
+
         # 1. Properties (and beat 8: the Texas unit under its own rules).
         go(page, "/units")
         t = sees("Properties", page, "Properties", "1140 E. Juniper Hollow Ln", "482 N. Glassell St, Unit B", "2317 Mesquite Bend Dr, Unit 3",
@@ -967,6 +1063,24 @@ def walk(base, setup, shots, check, facts):
         page.locator("[data-guide-step]").first.wait_for(timeout=10_000)
         check("Demo guide: Demo guide in the account menu brings it back, open", page.locator("[data-guide-step]").count() == 8)
         shot(page, "demo-guide")
+
+        # 12d. The welcome, opened again from the account menu after the whole demo: it reads the copy again, as the
+        # guide does, so it says what is true now (the deposit closed out, no longer held).
+        since = time.time()
+        page.get_by_role("button", name="Account").first.click()
+        page.get_by_role("button", name="Welcome tour").click()
+        page.locator("[data-welcome]").wait_for(timeout=10_000)
+        words = re.sub(r"\s+", " ", page.locator("[data-welcome]").inner_text())
+        asked_w = [u for t, u in asked_l if t >= since and "/api/demo/welcome" in u]
+        check("Welcome: opened again after the close-out, it reads the copy again and says the deposit is closed out",
+              len(asked_w) >= 1 and f"Their {dep} deposit is closed out." in words and "Close out their" not in words,
+              f"{len(asked_w)} requests to its route; the card reads {words[:400]!r}")
+        page.get_by_role("button", name="Show me around").click()
+        page.locator("[data-tour-stop]").wait_for()
+        page.wait_for_timeout(300)
+        body = page.locator("[data-tour-stop] p").first.inner_text()
+        check("Welcome tour: after the close-out, the move-out stop no longer calls the deposit held", "is held" not in body, body)
+        page.keyboard.press("Escape")
 
         check("no page error or console error on the way", not errors, "; ".join(errors[:8]))
         browser.close()
