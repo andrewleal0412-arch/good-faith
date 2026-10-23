@@ -4,7 +4,7 @@ import type { TurnLineView, TurnView } from "@/lib/negotiation";
 import { Icon } from "./icons";
 import { InfoTip } from "./info-tip";
 import { PresenceList, WorkingDots } from "./motion";
-import { Money, StatusChip } from "./ui";
+import { LineMark, Money, StatusChip } from "./ui";
 
 // The negotiation as both sides see it: every turn, who made it (an agent or a person), the move, what it gives back,
 // the message to the other side, and behind a disclosure the reasoning and the charge-by-charge figures with each
@@ -56,7 +56,7 @@ export function NegotiationThread({ turns, perspective, names, working }: {
 
 function Avatar({ side, agent }: { side: "landlord" | "tenant"; agent: boolean }) {
   return (
-    <span aria-hidden className={`mt-px flex size-6 items-center justify-center rounded-full text-xs font-semibold ${side === "landlord" ? "bg-surface-2 text-ink-2" : "bg-brand-50 text-brand-700"}`}>
+    <span aria-hidden className={`flex size-6 items-center justify-center rounded-full text-xs font-semibold ${side === "landlord" ? "bg-surface-2 text-ink-2" : "bg-brand-50 text-brand-700"}`}>
       {agent ? <span className="text-[10px] tracking-tight">AI</span> : <Icon name="users" className="size-3" />}
     </span>
   );
@@ -69,7 +69,7 @@ function TurnRow({ t, p, names, ref }: { t: TurnView; p: Perspective; names: { l
   const moved = t.lines.filter((l) => l.move && l.move !== "agreed");
   return (
     <li ref={ref} className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-x-3 border-t border-line-2 py-3.5 first:border-t-0">
-      <Avatar side={t.side} agent={t.actor === "agent"} />
+      <LineMark><Avatar side={t.side} agent={t.actor === "agent"} /></LineMark>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium">{who}</span>
@@ -110,7 +110,7 @@ function TurnRow({ t, p, names, ref }: { t: TurnView; p: Perspective; names: { l
 function LineRow({ l }: { l: TurnLineView }) {
   return (
     <li className="flex gap-3 text-sm">
-      <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-xs bg-surface-2 text-xs font-medium tabular-nums text-ink-3">{l.n}</span>
+      <LineMark><span className="flex size-5 items-center justify-center rounded-xs bg-surface-2 text-xs font-medium tabular-nums text-ink-3">{l.n}</span></LineMark>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2">
           <span className="font-medium">{l.title}</span>

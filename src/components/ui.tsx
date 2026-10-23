@@ -46,6 +46,16 @@ function textOf(n: ReactNode): string {
   return "";
 }
 
+/* ---------- A mark beside text ---------- */
+
+/** Holds a mark (an icon, a status dot, a numbered tile, a checkbox) at the start of a row of text, centered on the
+ *  text's first line whatever the mark's size: a box one line tall (1lh, the line height it inherits) with the mark
+ *  centered in it, so no mark needs a margin to nudge it down. A mark taller than the line overhangs it evenly. Give it
+ *  the first line's text size when the row's own differs. scripts/align-check.py holds every mark to this. */
+export function LineMark({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={cx("flex h-[1lh] shrink-0 items-center", className)}>{children}</span>;
+}
+
 /* ---------- Money ---------- */
 
 // One number formatter for every amount on a page (toLocaleString with options builds a new one on each call).

@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Icon } from "./icons";
 import { usePresence } from "./motion";
+import { LineMark } from "./ui";
 
 // A side drawer for a form that belongs to one thing on the page (a deduction for a finding, a finding for a room):
 // 480px from the right on a computer, the full screen on a phone. It is a modal: focus moves in and stays in, Escape
@@ -73,10 +74,12 @@ export function Drawer({ open, onClose, title, sub, children }: {
             <h2 id={titleId} className="text-lg font-medium">{shown.title}</h2>
             {shown.sub && <p className="mt-0.5 truncate text-sm text-ink-3">{shown.sub}</p>}
           </div>
-          <button type="button" aria-label="Close" onClick={onClose}
-            className="-mr-1.5 -mt-0.5 inline-flex size-[34px] shrink-0 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface">
-            <Icon name="x" />
-          </button>
+          <LineMark className="text-lg">
+            <button type="button" aria-label="Close" onClick={onClose}
+              className="-mr-1.5 inline-flex size-[34px] shrink-0 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface">
+              <Icon name="x" />
+            </button>
+          </LineMark>
         </div>
         {/* A field scrolled to by Tab stops clear of the footer held to the drawer's foot (WCAG 2.4.11). */}
         <div ref={body} className="min-h-0 flex-1 scroll-pb-24 overflow-y-auto px-5 py-5">{shown.children}</div>

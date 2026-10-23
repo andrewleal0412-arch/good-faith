@@ -9,7 +9,7 @@ import { Button } from "@/components/button";
 import { Drawer, drawerFooter } from "@/components/drawer";
 import { InfoTip } from "@/components/info-tip";
 import { FormField } from "@/components/field";
-import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
+import { Card, CardHead, LineMark, Notice, StatusChip, inputClass } from "@/components/ui";
 
 const input = inputClass;
 
@@ -148,7 +148,7 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
 
         {method === "email" && needsAgreement && (
           <label className="flex items-start gap-2 text-sm text-ink-2">
-            <input type="checkbox" className="mt-0.5 size-[15px]" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+            <LineMark><input type="checkbox" className="size-[15px]" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} /></LineMark>
             {to || "The tenant"} {rules.emailLabel}
           </label>
         )}

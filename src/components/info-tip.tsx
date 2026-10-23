@@ -105,8 +105,10 @@ export function InfoTip({ title, children, cite, label = "More information", tri
   const name = trigger === "icon" ? (label === "More information" && about ? `${about}, more information` : label)
     : trigger === "why" && about ? `Why? ${about}` : undefined;
 
+  // The icon sits on the middle of the line; a word (a Why?, a dotted label) sits on its baseline like the words around
+  // it, so its line keeps its height and a mark beside it stays centered on it.
   return (
-    <span ref={host} className={`relative inline-flex align-middle ${className ?? ""}`} onPointerEnter={enter} onPointerLeave={exit}>
+    <span ref={host} className={`relative inline-flex ${trigger === "icon" ? "align-middle" : "align-baseline"} ${className ?? ""}`} onPointerEnter={enter} onPointerLeave={exit}>
       <button ref={button} type="button" data-tip="" aria-label={name} aria-describedby={open ? id : undefined}
         onClick={(e) => {
           e.preventDefault();

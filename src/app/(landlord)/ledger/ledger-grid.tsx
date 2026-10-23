@@ -21,7 +21,7 @@ import { Menu, type MenuItem } from "@/components/menu";
 import { PayPalRecordSection } from "@/components/paypal-record";
 import { Tabs } from "@/components/tabs";
 import { RollMoney } from "@/components/roll-money";
-import { KV, Money, StatusChip, inlineInputClass } from "@/components/ui";
+import { KV, LineMark, Money, StatusChip, inlineInputClass } from "@/components/ui";
 import { BACK_KINDS, ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
 import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
 
@@ -695,7 +695,7 @@ function Details({ r, d, status, at, selectId }: { r: LedgerRow; d: LedgerDetail
           <ul className="mt-2">
             {d.events.map((e) => (
               <li key={e.id} className="flex items-start gap-3 border-b border-line-2 py-2.5 last:border-b-0">
-                <span className={`mt-1.5 size-2 shrink-0 rounded-full ${e.status === "failed" ? "bg-red-dot" : e.status === "applied" ? "bg-green-dot" : "bg-amber-dot"}`} aria-hidden />
+                <LineMark className="text-sm"><span className={`size-2 rounded-full ${e.status === "failed" ? "bg-red-dot" : e.status === "applied" ? "bg-green-dot" : "bg-amber-dot"}`} aria-hidden /></LineMark>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">{e.type}</div>
                   <div className="text-xs text-ink-3">{e.note ?? cap(e.status)}</div>

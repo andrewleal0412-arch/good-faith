@@ -1,5 +1,5 @@
 import { InfoTip } from "@/components/info-tip";
-import { Card, CardHead, Money, StatusChip } from "@/components/ui";
+import { Card, CardHead, LineMark, Money, StatusChip } from "@/components/ui";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { DisputeStatus, LandlordDisputeView } from "@/lib/disputes";
 import { CHECKED_NOTE } from "@/lib/jev-notes";
@@ -77,7 +77,7 @@ export function DisputeCard({ v, photoUrl, thumbUrl, tenantsLabel, zone = PACIFI
           const photos = v.evidence.filter((e) => e.deductionId === l.id);
           return (
             <li key={l.id} className="flex gap-3 border-b border-line-2 px-5 py-3.5 last:border-b-0">
-              <span className="mt-px flex size-6 shrink-0 items-center justify-center rounded-sm bg-surface-2 text-xs font-semibold tabular-nums text-ink-3">{l.n}</span>
+              <LineMark className="text-sm"><span className="flex size-6 items-center justify-center rounded-sm bg-surface-2 text-xs font-semibold tabular-nums text-ink-3">{l.n}</span></LineMark>
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
                   {l.title}

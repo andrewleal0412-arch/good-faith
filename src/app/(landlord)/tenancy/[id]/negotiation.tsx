@@ -9,7 +9,7 @@ import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
-import { Card, CardHead, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
+import { Card, CardHead, LineMark, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import { useWatch } from "@/components/watch";
 import { DEMO_EXAMPLE } from "@/lib/copy";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
@@ -260,7 +260,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
           <p className="text-sm font-medium">{v.turns.length > 1 ? "Let your negotiator go on" : "Let your negotiator answer"}</p>
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
             <label className="flex flex-1 cursor-pointer items-start gap-2.5 text-sm">
-              <input type="checkbox" className="mt-[3px] size-4 shrink-0 accent-brand" checked={autoConcede} onChange={(e) => setAutoConcede(e.target.checked)} />
+              <LineMark><input type="checkbox" className="size-4 accent-brand" checked={autoConcede} onChange={(e) => setAutoConcede(e.target.checked)} /></LineMark>
               <span>
                 <span className="block">Concede what the law and your records don&apos;t support</span>
                 <span className="block text-xs text-ink-3">{v.minBack > 0 ? `${usd(v.minBack)} on this statement, even above your limit` : "Nothing on this statement as it stands"}</span>

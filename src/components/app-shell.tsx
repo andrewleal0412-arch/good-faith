@@ -11,7 +11,7 @@ import { InfoTip } from "./info-tip";
 import { Menu } from "./menu";
 import { arriveAgain, PresenceList, usePresence } from "./motion";
 import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
-import { Avatar, Notice, Wordmark } from "./ui";
+import { Avatar, LineMark, Notice, Wordmark } from "./ui";
 import type { GuideState, GuideStep } from "@/lib/demo-guide";
 import type { DemoWelcome as Welcome } from "@/lib/demo-welcome";
 import { sectionOf } from "@/lib/tenancy-tabs";
@@ -301,7 +301,7 @@ function lineKeys(xs: ShellAlert[]): string[] {
 function AlertRow({ a, ref, onPick }: { a: ShellAlert; ref?: Ref<HTMLAnchorElement>; onPick: (e: MouseEvent<HTMLAnchorElement>) => void }) {
   return (
     <Link ref={ref} href={a.href} onClick={onPick} className="flex items-start gap-2.5 rounded-sm px-2.5 py-2 transition-colors hover:bg-surface">
-      <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${a.tone === "red" ? "bg-red-dot" : a.tone === "green" ? "bg-green-dot" : "bg-amber-dot"}`} />
+      <LineMark className="text-sm"><span className={`size-1.5 rounded-full ${a.tone === "red" ? "bg-red-dot" : a.tone === "green" ? "bg-green-dot" : "bg-amber-dot"}`} /></LineMark>
       <span className="min-w-0">
         <span className="block text-sm font-medium text-ink">{a.title}</span>
         <span className="block truncate text-xs text-ink-3">{a.sub}</span>

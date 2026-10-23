@@ -11,7 +11,7 @@ import { loadUnit } from "@/lib/units";
 import { pageTenancy } from "@/lib/workspace";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
-import { Card, CardHead, StatusChip } from "@/components/ui";
+import { Card, CardHead, LineMark, StatusChip } from "@/components/ui";
 import { streetLine } from "@/lib/ledger";
 import { NoticeGivenForm } from "../../notice-given-form";
 import { PrintButton } from "./print-button";
@@ -310,7 +310,7 @@ async function PackRecordPage({ id, t, pack, def, today }: { id: string; t: NonN
               </p>
               {status && (
                 <p className="flex items-start gap-1.5 text-sm text-ink-2">
-                  <span className={`mt-1.5 size-2 shrink-0 rounded-full ${status.tone === "green" ? "bg-green-dot" : status.tone === "red" ? "bg-red-dot" : "bg-amber-dot"}`} />
+                  <LineMark><span className={`size-2 rounded-full ${status.tone === "green" ? "bg-green-dot" : status.tone === "red" ? "bg-red-dot" : "bg-amber-dot"}`} /></LineMark>
                   {status.text}
                 </p>
               )}

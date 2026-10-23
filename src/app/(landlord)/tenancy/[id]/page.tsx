@@ -9,7 +9,7 @@ import { Menu, type MenuItem } from "@/components/menu";
 import { PresenceList } from "@/components/motion";
 import { RollMoney } from "@/components/roll-money";
 import { RulesChip } from "@/components/rules-chip";
-import { Card, CardHead, Fact, FactStrip, KV, ListRow, Money, Notice, StatusChip, StepBox, Table, Td, Th, Thumb, trClass } from "@/components/ui";
+import { Card, CardHead, Fact, FactStrip, KV, LineMark, ListRow, Money, Notice, StatusChip, StepBox, Table, Td, Th, Thumb, trClass } from "@/components/ui";
 import { describe, foldActivity, QUIET_ON_RECORD } from "@/lib/activity";
 import type { Pending } from "@/lib/agent";
 import { returnFailed, wasPaid } from "@/lib/invoice-status";
@@ -365,15 +365,19 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     ...(pack.records.some((r) => r.menu) ? [{ divider: true } as MenuItem] : []),
     ...pack.records.filter((r) => r.menu).map((r) => ({ label: r.menu!, href: `/tenancy/${id}/notices/${NOTICE_SLUG[r.kind]}`, icon: "doc" as const })),
   ];
-  const actions = (primary: { label: string; href: string } | null) => (
-    <div className={`flex items-center gap-2 ${primary ? "max-sm:w-full" : "max-sm:self-start"}`}>
-      {hasStatement && (
-        <ButtonLink href={`/tenancy/${id}/statement`} className="max-sm:hidden"><Icon name="doc" />{statementLabel}</ButtonLink>
-      )}
-      {primary && <ButtonLink variant="primary" href={primary.href} className="max-sm:flex-1">{primary.label}</ButtonLink>}
-      <Menu label="More actions" items={more} buttonClass="inline-flex size-[34px] items-center justify-center rounded-md bg-surface-2 text-ink transition-colors hover:bg-surface-3" />
-    </div>
-  );
+  const actions = (primary: { label: string; href: string } | null) => {
+    const row = (
+      <div className={`flex items-center gap-2 ${primary ? "max-sm:w-full" : ""}`}>
+        {hasStatement && (
+          <ButtonLink href={`/tenancy/${id}/statement`} className="max-sm:hidden"><Icon name="doc" />{statementLabel}</ButtonLink>
+        )}
+        {primary && <ButtonLink variant="primary" href={primary.href} className="max-sm:flex-1">{primary.label}</ButtonLink>}
+        <Menu label="More actions" items={more} buttonClass="inline-flex size-[34px] items-center justify-center rounded-md bg-surface-2 text-ink transition-colors hover:bg-surface-3" />
+      </div>
+    );
+    // With a main action the buttons take their own row on a phone; with none, the menu stays beside the address.
+    return primary ? row : <LineMark className="text-xl max-sm:self-start">{row}</LineMark>;
+  };
   const tenantsLabel = summary.tenants.join(" and ") || "The tenants";
 
   // The notice and its dates: first on the tab before the comparison, last after it.
@@ -474,7 +478,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             )}
             {next.also.length > 0 && (
               <ul className="mt-1 flex flex-col gap-1.5 text-xs text-ink-3">
-                {next.also.map((a) => <li key={a} className="flex items-start gap-2"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-dot" />{a.charAt(0).toUpperCase() + a.slice(1)}</li>)}
+                {next.also.map((a) => <li key={a} className="flex items-start gap-2"><LineMark><span className="size-1.5 rounded-full bg-amber-dot" /></LineMark>{a.charAt(0).toUpperCase() + a.slice(1)}</li>)}
               </ul>
             )}
           </div>
@@ -646,10 +650,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     <TabState id={id}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         {/* On a phone the back button and the menu sit level with the address's first line, not centered on the block. */}
-        <Link href="/units" aria-label="Back to Properties"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface max-sm:self-start">
-          <Icon name="arrow-left" className="size-[15px]" />
-        </Link>
+        <LineMark className="text-xl max-sm:self-start">
+          <Link href="/units" aria-label="Back to Properties"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 transition-colors hover:bg-surface">
+            <Icon name="arrow-left" className="size-[15px]" />
+          </Link>
+        </LineMark>
         <Thumb src={thumb} size={64} className="rounded-md max-sm:hidden" />
         {/* A 16rem basis, so on a narrow window the buttons wrap below the address instead of squeezing it word by word. */}
         <div className="min-w-0 flex-[1_1_16rem]">

@@ -11,7 +11,7 @@ import { describeTenantMoveOut, tenantMoveOutSentOn, type TenantMoveOut } from "
 import { Button, ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
-import { Card, CardHead, KV, Notice, inlineInputClass } from "@/components/ui";
+import { Card, CardHead, KV, LineMark, Notice, inlineInputClass } from "@/components/ui";
 import { MoveOutDate } from "./move-out-date";
 import { NoticeGivenForm } from "./notice-given-form";
 
@@ -157,7 +157,7 @@ export function NoticeSection(p: {
         <div className="px-5 py-3.5">
           {p.tenantMoveOut && (
             <div className="mb-3.5 flex items-start gap-2.5 rounded-md bg-surface px-3.5 py-2.5 text-sm">
-              <Icon name="mail" className="mt-0.5 size-[15px] text-ink-3" />
+              <LineMark><Icon name="mail" className="size-[15px] text-ink-3" /></LineMark>
               <div className="min-w-0">
                 <div className="font-medium">From the tenant link</div>
                 <div className="text-xs text-ink-3">{describeTenantMoveOut(p.tenantMoveOut, pack.timeZone.id)}. Forwarding address: {p.tenantMoveOut.forwarding_address}</div>

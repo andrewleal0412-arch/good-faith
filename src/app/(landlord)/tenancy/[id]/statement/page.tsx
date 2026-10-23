@@ -6,7 +6,7 @@ import { ButtonLink } from "@/components/button";
 import { Icon, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Bone, Skeleton } from "@/components/skeletons";
-import { Card, CardHead, Fact, FactStrip, Money, StatusChip, type Tone } from "@/components/ui";
+import { Card, CardHead, Fact, FactStrip, LineMark, Money, StatusChip, type Tone } from "@/components/ui";
 import { closeOutFacts } from "@/lib/closeout";
 import { dayLabel, shortDate, whenText } from "@/lib/dates";
 import { DEMO_EXAMPLE, TENANT_VIEW_TIP } from "@/lib/copy";
@@ -620,7 +620,7 @@ function Deduction({ pack, d, urls }: { pack: StatePack; d: StatementDeduction; 
   return (
     <li className="print-block py-5 first:pt-0">
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-xs bg-surface-2 text-xs font-medium tabular-nums text-ink-2">{d.n}</span>
+        <LineMark><span className="flex size-5 items-center justify-center rounded-xs bg-surface-2 text-xs font-medium tabular-nums text-ink-2">{d.n}</span></LineMark>
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
             <p className="min-w-0 flex-1 font-medium">{d.item}</p>

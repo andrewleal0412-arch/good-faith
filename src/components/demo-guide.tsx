@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Suspense, use, useEffect, useId, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { StepMark } from "./steps";
-import { Card } from "./ui";
+import { Card, LineMark } from "./ui";
 import { BEATS, GUIDE_COOKIE, type GuideState, type GuideStep } from "@/lib/demo-guide";
 
 // The demo guide, at the top of every page of a private demo copy: the eight beats of docs/DEMO_SCRIPT.md in order,
@@ -129,15 +129,15 @@ function Rows({ list }: { list: GuideStep[] | null }) {
         const state = s?.done ? "done" : s && s.n === next?.n ? "now" : "todo";
         const body = (
           <>
-            <StepMark small state={state} />
+            <LineMark className="text-sm"><StepMark small state={state} /></LineMark>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">{b.n}. {b.title}</span>
               <span className="block text-xs text-ink-3">{b.line}</span>
             </span>
-            <span className="mt-px flex shrink-0 items-center gap-1 text-xs text-ink-3">
-              <span className="max-sm:hidden">{s?.where ?? b.where}</span>
+            <LineMark className="gap-1 text-sm">
+              <span className="text-xs text-ink-3 max-sm:hidden">{s?.where ?? b.where}</span>
               <Icon name="chev-right" className="size-3 text-ink-4" />
-            </span>
+            </LineMark>
             {/* Last, so a list of links reads the beat's own name first and its state after it. */}
             <span className="sr-only">{state === "done" ? "Done." : state === "now" ? "Next." : "To do."}</span>
           </>

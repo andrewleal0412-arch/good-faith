@@ -7,7 +7,7 @@ import { CopyId } from "@/components/copy-id";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { StepLine, StepMark } from "@/components/steps";
-import { Money } from "@/components/ui";
+import { LineMark, Money } from "@/components/ui";
 import { DEMO_EXAMPLE, displayName, maskEmail } from "@/lib/copy";
 import { draftAction, isClosed, reopens, tenantDisputeStatus, type TenantDisputeStatus } from "@/lib/disputes";
 import { dayLabel, longDate, shortDate } from "@/lib/dates";
@@ -514,7 +514,7 @@ function DeductionRow({ d, pack }: { d: TenantDeduction; pack: StatePack }) {
   const tag = pack.tags[d.category];
   return (
     <li className="flex gap-3 border-t border-line-2 py-3 first:border-t-0 first:pt-0 last:pb-0">
-      <span className={`mt-px flex size-6 shrink-0 items-center justify-center rounded-sm text-xs font-semibold tabular-nums ${tone}`}>{d.n}</span>
+      <LineMark><span className={`flex size-6 items-center justify-center rounded-sm text-xs font-semibold tabular-nums ${tone}`}>{d.n}</span></LineMark>
       <div className="min-w-0 flex-1">
         {/* The thing and what was done to it; where it was and the basis under it. The item as the statement prints it
             heads the Why? tip, with the math. */}

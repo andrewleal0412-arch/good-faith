@@ -9,7 +9,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { WorkingDots } from "@/components/motion";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
-import { Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
+import { LineMark, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import { useWatch } from "@/components/watch";
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
 import { DEMO_EXAMPLE } from "@/lib/copy";
@@ -297,14 +297,16 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
             return (
               <li key={l.id} className="border-t border-line-2 px-4 py-3.5 first:border-t-0">
                 <label className="flex cursor-pointer items-start gap-3">
-                  <input type="checkbox" className="mt-[3px] size-[18px] shrink-0 accent-brand" checked={on}
-                    onChange={(e) => {
-                      const now = e.target.checked;
-                      setPicked((x) => (now ? [...x, l.id] : x.filter((id) => id !== l.id)));
-                      // Photos picked for a charge no longer disputed aren't sent, so they go now, not silently later.
-                      if (!now) setFiles((x) => ({ ...x, [l.id]: [] }));
-                      change();
-                    }} />
+                  <LineMark>
+                    <input type="checkbox" className="size-[18px] accent-brand" checked={on}
+                      onChange={(e) => {
+                        const now = e.target.checked;
+                        setPicked((x) => (now ? [...x, l.id] : x.filter((id) => id !== l.id)));
+                        // Photos picked for a charge no longer disputed aren't sent, so they go now, not silently later.
+                        if (!now) setFiles((x) => ({ ...x, [l.id]: [] }));
+                        change();
+                      }} />
+                  </LineMark>
                   <span className="min-w-0 flex-1">
                     <span className="block font-medium">{l.n}. {l.title}</span>
                     <span className="block text-sm text-ink-3">{[l.room, l.basis].filter(Boolean).join(". ")}.</span>
@@ -440,7 +442,7 @@ function CaseLines({ c, view }: { c: AdvocateCase; view: TenantDisputeView }) {
         const r = view.lines.find((x) => x.id === l.id);
         return (
           <li key={l.id} className="flex gap-3 border-t border-line-2 py-3 first:border-t-0 first:pt-0 last:pb-0">
-            <span className="mt-px flex size-6 shrink-0 items-center justify-center rounded-sm bg-surface-2 text-xs font-semibold tabular-nums text-ink-3">{l.n}</span>
+            <LineMark><span className="flex size-6 items-center justify-center rounded-sm bg-surface-2 text-xs font-semibold tabular-nums text-ink-3">{l.n}</span></LineMark>
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
                 {l.title}

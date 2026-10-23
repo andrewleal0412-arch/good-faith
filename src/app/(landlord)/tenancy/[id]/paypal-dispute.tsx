@@ -7,7 +7,7 @@ import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { WorkingDots } from "@/components/motion";
-import { Card, CardHead, Money, Notice, StatusChip } from "@/components/ui";
+import { Card, CardHead, LineMark, Money, Notice, StatusChip } from "@/components/ui";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { PayPalDisputeView } from "@/lib/chargeback-store";
 
@@ -153,7 +153,7 @@ export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { ten
 
       {stateDue && (
         <div className="flex items-start gap-2 border-b border-line-2 px-5 py-3 text-sm text-ink-2">
-          <Icon name="calendar" className="mt-0.5 size-3.5 shrink-0 text-ink-4" />
+          <LineMark><Icon name="calendar" className="size-3.5 text-ink-4" /></LineMark>
           <p className="min-w-0 flex-1">
             Your statement and refund are due {shortDate(stateDue.date)} under the state&apos;s rules. PayPal&apos;s hold doesn&apos;t pause that deadline.
             <span className="ml-1.5 inline-flex align-[-2px]"><InfoTip align="end" title={stateDue.title} cite={stateDue.cite ?? undefined}>{stateDue.text} Accepting the claim ends PayPal&apos;s hold now; evidence leaves the money with PayPal until it decides.</InfoTip></span>
@@ -268,7 +268,7 @@ function Prepared({ v }: { v: PayPalDisputeView }) {
           <p className="text-xs text-ink-3">Evidence attached</p>
           <ul className="mt-1 flex flex-col gap-1">
             {r.evidence.map((e) => (
-              <li key={e.key} className="flex items-start gap-2 text-sm text-ink-2"><Icon name="doc" className="mt-0.5 size-3.5 shrink-0 text-ink-4" />{e.label}</li>
+              <li key={e.key} className="flex items-start gap-2 text-sm text-ink-2"><LineMark><Icon name="doc" className="size-3.5 text-ink-4" /></LineMark>{e.label}</li>
             ))}
           </ul>
         </div>

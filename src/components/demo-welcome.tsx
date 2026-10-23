@@ -109,9 +109,9 @@ function Card({ w, open, onSkip, onTour }: { w: Welcome; open: boolean; onSkip: 
         <p className="mt-2 text-sm text-ink-2">{w.lead}</p>
         <ul className="mt-5 flex flex-col gap-3">
           {w.lines.map((line, i) => (
-            <li key={line} className="flex items-start gap-3 text-sm text-ink-2">
+            <li key={line} className="flex items-center gap-3 text-sm text-ink-2">
               <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand [&_svg]:size-[15px]">{marks[i]}</span>
-              <span className="pt-1.5">{line}</span>
+              <span>{line}</span>
             </li>
           ))}
         </ul>
@@ -246,7 +246,7 @@ function Stops({ shown, start, onEnd }: { shown: TourStop[]; start: string; onEn
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-ink-3">{i + 1} of {shown.length}</span>
           <button type="button" aria-label="Close the tour" onClick={onEnd}
-            className="-mr-1.5 -mt-1 inline-flex size-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-surface hover:text-ink">
+            className="-my-0.5 -mr-1.5 inline-flex size-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-surface hover:text-ink">
             <Icon name="x" className="size-3.5" />
           </button>
         </div>
