@@ -1065,7 +1065,7 @@ def audit(base, setup, shots):
               marked["focus"] == "textarea" and marked["invalid"] == "true" and marked["described"], json.dumps(marked))
         shot(p, "tenants-dispute-form-error", "390")
         p.get_by_placeholder("What's wrong with this charge, in your words").fill("The stain was one small spot, and nobody asked us about cleaning it first.")
-        p.get_by_label("Your name").select_option(label="Priya Raman")
+        p.get_by_label("Your name").select_option(label="Luke Jones")
         p.get_by_role("button", name="Ask my advocate").click()
         p.get_by_role("region", name="Your advocate's case").wait_for(timeout=90_000)
         p.wait_for_timeout(300)

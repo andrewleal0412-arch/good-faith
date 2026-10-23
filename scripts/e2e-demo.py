@@ -537,7 +537,7 @@ def walk(base, setup, shots, check, facts):
         dep = f"${E['deposit']:,.0f}" if abs(E["deposit"] - round(E["deposit"])) < 0.005 else usd(E["deposit"])
         words = re.sub(r"\s+", " ", card.inner_text()) if card.count() else ""
         want = ["Your private copy of the demo", "You're the landlord at Harbor View Rentals",
-                f"Priya Raman and Daniel Okafor moved out of 1140 E. Juniper Hollow Ln. Close out their {dep} deposit. California gives you 21 days.",
+                f"Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln. Close out their {dep} deposit. California gives you 21 days.",
                 "PayPal runs in its sandbox", "8 steps, ticked off in the checklist"]
         check("Welcome: the card opens on Properties, with the copy's own tenants, unit, deposit and clock",
               card.count() == 1 and all(w.lower() in words.lower() for w in want), f"wanted {want}; the card reads {words[:500]!r}")
@@ -680,7 +680,7 @@ def walk(base, setup, shots, check, facts):
         page.get_by_text("Photo comparison").first.wait_for()
         page.wait_for_load_state("networkidle")
         t = sees("Move-out", page, f"Deposit held\n{D}", f"Deductions\n{P}", f"Refund due\n{R}", "Large carpet stain, center", "Three small wall holes",
-                 "Wear and tear", "Wall hole with cracks", "Grease spots on range", "Prorated, 4 of 10 years left", f"{R} to Priya Raman and Daniel Okafor",
+                 "Wear and tear", "Wall hole with cracks", "Grease spots on range", "Prorated, 4 of 10 years left", f"{R} to Luke Jones and Lane Forti",
                  "Nothing moves until you approve it.")
         boxes = page.locator(".gf-mark")
         titles = boxes.evaluate_all("els => els.map(e => e.getAttribute('title'))")
@@ -811,7 +811,7 @@ def walk(base, setup, shots, check, facts):
         tenant.get_by_role("button", name="Ask my advocate").click()
         no_name = tenant.get_by_text("Pick your name.", exact=True)
         asked_for = no_name.count() == 1 and no_name.first.is_visible()
-        tenant.get_by_label("Your name").select_option(label="Priya Raman")
+        tenant.get_by_label("Your name").select_option(label="Luke Jones")
         tenant.wait_for_timeout(200)
         check('Dispute form: "Pick your name." shows when a name is missing and goes when one is picked', asked_for and no_name.count() == 0,
               f"shown {asked_for}, still there after the pick {no_name.count() > 0}")
@@ -822,10 +822,10 @@ def walk(base, setup, shots, check, facts):
                  "Charge looks weak", "Charge looks solid", f"{case_back}\n\nback of {usd(E['carpet'])}", "Not legal advice")
         only_amounts("Advocate's case", t, [E["case_back"], E["refund"], E["deductions"], *line_amounts, 0.0])
         shot(tenant, "advocate-case")
-        tenant.get_by_role("button", name=re.compile("^Send to Elena Marquez")).click()
+        tenant.get_by_role("button", name=re.compile("^Send to Teddy Buettner")).click()
         tenant.get_by_role("alertdialog").get_by_role("button", name="Send", exact=True).click()
         tenant.get_by_text("You asked back").wait_for(timeout=30_000)
-        sees("Dispute sent", tenant, f"You asked back\n{case_back}", "Sent to Elena Marquez")
+        sees("Dispute sent", tenant, f"You asked back\n{case_back}", "Sent to Teddy Buettner")
         shot(tenant, "dispute-sent")
 
         # 8. The negotiation (beat 6): the landlord's negotiator and the tenants' advocate, checked by code each turn.
@@ -848,7 +848,7 @@ def walk(base, setup, shots, check, facts):
         check("Properties: the disputed unit is under Move-out instead, with the dispute as its next step", "Disputed" in row and "Answer dispute" in row,
               f"its row under Move-out: {row!r}; the page reads: {text(page)[:300]!r}")
         go(page, f"/tenancy/{mo}?tab=move-out")
-        sees("Disputed", page, "Disputed", f"Priya Raman disputes 1 deduction and asks for {case_back} back.", "Let my negotiator answer")
+        sees("Disputed", page, "Disputed", f"Luke Jones disputes 1 deduction and asks for {case_back} back.", "Let my negotiator answer")
         page.get_by_role("button", name="Let my negotiator answer").click()
         page.get_by_text("Agreed back").first.wait_for(timeout=120_000)
         b1, b2, b3 = (usd(x) for x in E["turns_back"])
@@ -887,14 +887,14 @@ def walk(base, setup, shots, check, facts):
         # The landlord's Move-out tab stays open beside it: "Approve and pay" is off until the tenants accept, and while
         # it waits the page asks its small status route and refreshes nothing.
         pay = page.get_by_role("button", name=re.compile(r"^Approve and pay")).first
-        check("Side by side: Approve and pay is off until the tenants accept", pay.is_disabled() and "Waiting for Priya Raman and Daniel Okafor to accept." in text(page), text(page)[:300])
+        check("Side by side: Approve and pay is off until the tenants accept", pay.is_disabled() and "Waiting for Luke Jones and Lane Forti to accept." in text(page), text(page)[:300])
         stay(page)
         waited = time.time()
         page.wait_for_timeout(9000)
         polls, refreshes = asks(asked_l, waited, f"/tenancy/{mo}")
         check("Side by side: while it waits on the tenants, the landlord's page asks its status route every few seconds and refreshes nothing",
               2 <= polls <= 4 and refreshes == 0, f"{polls} status requests and {refreshes} refreshes in 9 s")
-        tenant.get_by_label("Your name").select_option(label="Priya Raman")
+        tenant.get_by_label("Your name").select_option(label="Luke Jones")
         tenant.get_by_role("button", name="Accept settlement").click()
         tenant.get_by_role("alertdialog").get_by_role("button", name="Accept settlement").click()
         tenant.wait_for_load_state("networkidle")
@@ -906,13 +906,13 @@ def walk(base, setup, shots, check, facts):
               f"after {time.time() - accepted:.0f} s the card reads: {page.locator('#negotiation').inner_text()[:240]!r}")
         if live:
             print(f"  Approve and pay came on {time.time() - accepted:.1f} s after the tenants accepted", flush=True)
-            sees("Side by side: the landlord's card says who accepted", page, "Waiting for you", "Accepted\nPriya Raman", "Approve and pay below")
+            sees("Side by side: the landlord's card says who accepted", page, "Waiting for you", "Accepted\nLuke Jones", "Approve and pay below")
         else:
             go(page, f"/tenancy/{mo}?tab=move-out")
         stay(tenant)
         page.get_by_role("button", name=re.compile(r"^Approve and pay")).first.click()
         dlg = page.get_by_role("alertdialog")
-        check("Approve and pay: asks first, naming the amount", f"Send {usd(E['settled'])} to Priya Raman and Daniel Okafor?" in dlg.inner_text(), dlg.inner_text()[:200])
+        check("Approve and pay: asks first, naming the amount", f"Send {usd(E['settled'])} to Luke Jones and Lane Forti?" in dlg.inner_text(), dlg.inner_text()[:200])
         dlg.get_by_role("button", name="Approve and pay").click()
         page.get_by_text(f"Settled: {usd(E['settled'])} back").first.wait_for(timeout=90_000)
         f3 = facts()

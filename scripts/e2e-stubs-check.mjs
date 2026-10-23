@@ -111,7 +111,7 @@ stubsOn(true);
   const { leaseKey } = leaseKeyLib;
   const read = { address: terms.propertyAddress, tenants: terms.tenants };
   eq("lease: the demo lease keys the same as a copy's own tenancy of it, whose dates the copy moved",
-    leaseKey(read), leaseKey({ address: "1140 E. JUNIPER HOLLOW LN, Orange, CA  92867", tenants: ["Daniel Okafor", "Priya Raman"] }));
+    leaseKey(read), leaseKey({ address: "1140 E. JUNIPER HOLLOW LN, Orange, CA  92867", tenants: ["Lane Forti", "Luke Jones"] }));
   check("lease: another unit at the same street number doesn't key the same",
     leaseKey(read) !== leaseKey({ address: "1140 E. Juniper Hollow Ln, Unit 2, Orange, CA 92867", tenants: terms.tenants }));
   check("lease: the same unit let to other tenants doesn't key the same",
@@ -153,7 +153,7 @@ stubsOn(true);
   ];
   const ranges = range.lawfulRanges({ deductions, depositHeld: 4800, today: "2026-10-03", moveOutDate: "2026-10-01", endDate: null, plannedMoveOut: null, notices: {}, deliveredOn: "2026-10-02", refundedOn: "2026-10-02" }, CA);
   const file = {
-    state: "CA", today: "2026-10-03", address: "1140 E. Juniper Hollow Ln", landlord: "Elena Marquez", tenants: ["Priya Raman"], moveOutDate: "2026-10-01", statementDue: "2026-10-22",
+    state: "CA", today: "2026-10-03", address: "1140 E. Juniper Hollow Ln", landlord: "Teddy Buettner", tenants: ["Luke Jones"], moveOutDate: "2026-10-01", statementDue: "2026-10-22",
     delivery: { method: "personal", date: "2026-10-02" }, depositHeld: 4800, statementRefund: 3790, refunded: 3790, wearNotCharged: [], dispute: { message: null, evidence: [] }, ranges,
     lines: ranges.lines.map((r) => {
       const d = deductions.find((x) => x.id === r.id);
@@ -209,13 +209,13 @@ stubsOn(true);
 /* ---------- 5. PayPal's record ---------- */
 {
   // PayPal's answers as its documentation shapes them, with every field the screens must never show planted in them.
-  const PII = ["tenant@example.com", "landlord@example.com", "Priya Raman", "Harbor View Rentals", "1140 E. Juniper Hollow Ln", "Orange, CA 92867", "receiver@example.com"];
+  const PII = ["tenant@example.com", "landlord@example.com", "Luke Jones", "Harbor View Rentals", "1140 E. Juniper Hollow Ln", "Orange, CA 92867", "receiver@example.com"];
   const leaked = (r) => PII.filter((w) => JSON.stringify(r).includes(w));
   const refund = {
     id: "1JU08902781691411", status: "COMPLETED", amount: { currency_code: "USD", value: "3790.00" },
-    note_to_payer: "Your deposit, less itemized deductions. Priya Raman: 1140 E. Juniper Hollow Ln",
+    note_to_payer: "Your deposit, less itemized deductions. Luke Jones: 1140 E. Juniper Hollow Ln",
     seller_payable_breakdown: { gross_amount: { value: "3790.00" }, paypal_fee: { value: "0.00" }, net_amount: { value: "3790.00" } },
-    payer: { email_address: "tenant@example.com", name: { given_name: "Priya", surname: "Raman" }, address: { address_line_1: "1140 E. Juniper Hollow Ln", admin_area_2: "Orange, CA 92867" } },
+    payer: { email_address: "tenant@example.com", name: { given_name: "Luke", surname: "Jones" }, address: { address_line_1: "1140 E. Juniper Hollow Ln", admin_area_2: "Orange, CA 92867" } },
     invoice_id: "GF-1", create_time: "2026-10-16T18:22:03Z", update_time: "2026-10-16T18:22:03Z",
     links: [{ href: "https://api-m.sandbox.paypal.com/v2/payments/refunds/1JU08902781691411", rel: "self", method: "GET" }, { href: "https://api-m.sandbox.paypal.com/v2/payments/captures/9YF61788W2043700U", rel: "up", method: "GET" }],
   };
@@ -225,10 +225,10 @@ stubsOn(true);
   eq("record: the refund's payer, note and breakdown never come through", leaked(record.pickRefund(refund)), []);
   const invoice = {
     id: "INV2-ABCD-EFGH-IJKL-MNOP", status: "PARTIALLY_REFUNDED",
-    detail: { currency_code: "USD", invoice_number: "GF-0123456789abcdef0123", note: "Priya Raman, 1140 E. Juniper Hollow Ln", terms_and_conditions: "Held under Civil Code 1950.5.",
+    detail: { currency_code: "USD", invoice_number: "GF-0123456789abcdef0123", note: "Luke Jones, 1140 E. Juniper Hollow Ln", terms_and_conditions: "Held under Civil Code 1950.5.",
       metadata: { create_time: "2026-10-13T17:00:00Z", last_update_time: "2026-10-16T18:22:03Z", recipient_view_url: "https://www.sandbox.paypal.com/invoice/p/#INV2" } },
     invoicer: { business_name: "Harbor View Rentals", email_address: "landlord@example.com", address: { address_line_1: "1140 E. Juniper Hollow Ln" } },
-    primary_recipients: [{ billing_info: { email_address: "tenant@example.com", name: { given_name: "Priya", surname: "Raman" }, address: { address_line_1: "1140 E. Juniper Hollow Ln", admin_area_2: "Orange, CA 92867" } } }],
+    primary_recipients: [{ billing_info: { email_address: "tenant@example.com", name: { given_name: "Luke", surname: "Jones" }, address: { address_line_1: "1140 E. Juniper Hollow Ln", admin_area_2: "Orange, CA 92867" } } }],
     items: [{ name: "Security deposit: 1140 E. Juniper Hollow Ln, Orange, CA 92867", quantity: "1", unit_amount: { currency_code: "USD", value: "4800.00" } }],
     amount: { currency_code: "USD", value: "4800.00", breakdown: { item_total: { value: "4800.00" } } },
     payments: { paid_amount: { currency_code: "USD", value: "4800.00" }, transactions: [{ type: "PAYPAL", payment_id: "9YF61788W2043700U", payment_date: "2026-10-13", method: "PAYPAL", amount: { currency_code: "USD", value: "4800.00" } }] },
@@ -241,8 +241,8 @@ stubsOn(true);
   eq("record: the invoice's recipients, invoicer, items and note never come through", leaked(record.pickInvoice(invoice)), []);
   const payout = {
     batch_header: { payout_batch_id: "5RB36725KN831551L", batch_status: "SUCCESS", time_created: "2026-10-16T18:22:03Z", time_completed: "2026-10-16T18:22:40Z",
-      sender_batch_header: { sender_batch_id: "deposit-1", email_subject: "Your security deposit refund", email_message: "Priya Raman" }, amount: { currency: "USD", value: "3790.00" }, fees: { currency: "USD", value: "0.25" } },
-    items: [{ payout_item_id: "G9", transaction_status: "SUCCESS", payout_item: { receiver: "receiver@example.com", note: "Priya Raman, 1140 E. Juniper Hollow Ln", amount: { value: "3790.00", currency: "USD" } } }],
+      sender_batch_header: { sender_batch_id: "deposit-1", email_subject: "Your security deposit refund", email_message: "Luke Jones" }, amount: { currency: "USD", value: "3790.00" }, fees: { currency: "USD", value: "0.25" } },
+    items: [{ payout_item_id: "G9", transaction_status: "SUCCESS", payout_item: { receiver: "receiver@example.com", note: "Luke Jones, 1140 E. Juniper Hollow Ln", amount: { value: "3790.00", currency: "USD" } } }],
   };
   eq("record: a Payout keeps the batch's id, status, amount and times, and nothing else",
     record.pickPayout(payout), { kind: "payout", id: "5RB36725KN831551L", status: "SUCCESS", amount: "3790.00 USD", createTime: "2026-10-16T18:22:03Z", completedTime: "2026-10-16T18:22:40Z" });

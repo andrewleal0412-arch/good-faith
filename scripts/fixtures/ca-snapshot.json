@@ -105,7 +105,7 @@
         {
           "cite": "(h)(1)",
           "n": 1,
-          "reason": "Priya Raman, Daniel Okafor; moved out October 1, 2026; statement dated October 3, 2026; due October 22, 2026.",
+          "reason": "Luke Jones, Lane Forti; moved out October 1, 2026; statement dated October 3, 2026; due October 22, 2026.",
           "state": "done",
           "title": "Tenant names, unit address, move-out date, statement date and the 21-day deadline"
         },
@@ -168,7 +168,7 @@
         {
           "cite": "(h)(1)(A), (h)(1)(C)",
           "n": 10,
-          "reason": "$3,790.00 by PayPal refund of the original deposit payment, to be sent, payable to Priya Raman, Daniel Okafor.",
+          "reason": "$3,790.00 by PayPal refund of the original deposit payment, to be sent, payable to Luke Jones, Lane Forti.",
           "state": "done",
           "title": "Refund amount, method and payees"
         },
@@ -348,8 +348,8 @@
         "paypalEmail": "email#4f4595a09d",
         "signedAt": "2025-10-01T17:05:00.000Z",
         "signedBy": [
-          "Priya Raman",
-          "Daniel Okafor"
+          "Luke Jones",
+          "Lane Forti"
         ]
       },
       "rules": {
@@ -371,8 +371,8 @@
         "moveOutDate": "2026-10-01",
         "statementDue": "2026-10-22",
         "tenants": [
-          "Priya Raman",
-          "Daniel Okafor"
+          "Luke Jones",
+          "Lane Forti"
         ]
       },
       "today": "2026-10-03",
@@ -872,7 +872,7 @@
             "PayPal",
             "Zelle"
           ],
-          "landlordName": "Elena Marquez",
+          "landlordName": "Teddy Buettner",
           "lateFee": {
             "amount": 120,
             "deductibleFromDeposit": true,
@@ -901,8 +901,8 @@
           "tenancyStartDate": "2025-10-01",
           "tenantIsServiceMember": null,
           "tenants": [
-            "Priya Raman",
-            "Daniel Okafor"
+            "Luke Jones",
+            "Lane Forti"
           ]
         },
         "totalSecurity": 5100
@@ -1670,7 +1670,7 @@
         "tagLabel": "Two months' rent allowed: an owner of no more than two properties and four units",
         "tagShort": "two-month cap",
         "tenancyId": "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
-        "tenants": "Priya Raman and Daniel Okafor",
+        "tenants": "Luke Jones and Lane Forti",
         "type": "Deposit invoice",
         "unit": "1140 E. Juniper Hollow Ln"
       },
@@ -1692,7 +1692,7 @@
         "tagLabel": "Received electronically, so the refund goes electronically",
         "tagShort": "electronic refund",
         "tenancyId": "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
-        "tenants": "Priya Raman and Daniel Okafor",
+        "tenants": "Luke Jones and Lane Forti",
         "type": "Payment",
         "unit": "1140 E. Juniper Hollow Ln"
       },
@@ -1714,7 +1714,7 @@
         "tagLabel": "Damage beyond ordinary wear and tear",
         "tagShort": "damage",
         "tenancyId": "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
-        "tenants": "Priya Raman and Daniel Okafor",
+        "tenants": "Luke Jones and Lane Forti",
         "type": "Deduction",
         "unit": "1140 E. Juniper Hollow Ln"
       },
@@ -1736,7 +1736,7 @@
         "tagLabel": "Damage beyond ordinary wear and tear",
         "tagShort": "damage",
         "tenancyId": "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
-        "tenants": "Priya Raman and Daniel Okafor",
+        "tenants": "Luke Jones and Lane Forti",
         "type": "Deduction",
         "unit": "1140 E. Juniper Hollow Ln"
       },
@@ -1758,7 +1758,7 @@
         "tagLabel": "Cleaning to the move-in level",
         "tagShort": "cleaning",
         "tenancyId": "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
-        "tenants": "Priya Raman and Daniel Okafor",
+        "tenants": "Luke Jones and Lane Forti",
         "type": "Deduction",
         "unit": "1140 E. Juniper Hollow Ln"
       }
@@ -1778,7 +1778,7 @@
       "events": [
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Move-out",
           "summary": "Move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2077,7 +2077,7 @@
       "events": [
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Move-out",
           "summary": "Move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2119,7 +2119,7 @@
       "events": [
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Move-out",
           "summary": "Move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2343,7 +2343,7 @@
         },
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Planned move-out",
           "summary": "Planned move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2418,7 +2418,7 @@
         },
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Planned move-out",
           "summary": "Planned move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2468,7 +2468,7 @@
         },
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Planned move-out",
           "summary": "Planned move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2570,7 +2570,7 @@
       "events": [
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Move-out",
           "summary": "Move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2637,7 +2637,7 @@
       "events": [
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Move-out",
           "summary": "Move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2695,7 +2695,7 @@
         },
         {
           "date": "2026-10-01",
-          "description": "Priya Raman and Daniel Okafor plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
+          "description": "Luke Jones and Lane Forti plan to move out of 1140 E. Juniper Hollow Ln, Orange, CA 92867 today. Photograph the unit within a reasonable time after possession is returned, before any repair or cleaning (Civ. Code 1950.5(g)(2)). The 21-day clock for the itemized statement and the refund starts at move-out ((h)(1)).",
           "kind": "move_out",
           "label": "Planned move-out",
           "summary": "Planned move-out: 1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -2957,9 +2957,9 @@
         "1140 E. Juniper Hollow Ln, Orange, CA 92867",
         "California Civil Code 1950.5(h)",
         "FROM",
-        "Elena Marquez",
+        "Teddy Buettner",
         "TO",
-        "Priya Raman and Daniel Okafor",
+        "Luke Jones and Lane Forti",
         "MOVED OUT",
         "October 1, 2026",
         "STATEMENT DATE",
@@ -3017,10 +3017,10 @@
         "Civ. Code 1950.5(h)(1)(A), (h)(1)(C)",
         "$3,790.00",
         "PayPal refund of the original deposit payment, to be sent.",
-        "Payable to Priya Raman and Daniel Okafor, PayPal account email#4f4595a09d.",
-        "One refund payable to all adult tenants named on the lease (Priya Raman and Daniel Okafor); the statement may go to",
+        "Payable to Luke Jones and Lane Forti, PayPal account email#4f4595a09d.",
+        "One refund payable to all adult tenants named on the lease (Luke Jones and Lane Forti); the statement may go to",
         "any one of them (Civ. Code 1950.5(h)(1)(C)). The security was paid electronically, so it is refunded electronically: by",
-        "PayPal under the written agreement signed by Priya Raman and Daniel Okafor on October 1, 2025 (Civ. Code",
+        "PayPal under the written agreement signed by Luke Jones and Lane Forti on October 1, 2025 (Civ. Code",
         "1950.5(h)(1)(A)).",
         "5. Local deposit interest",
         "No local deposit interest is included. California has no statewide requirement, and Orange is not among the cities",
@@ -3171,7 +3171,7 @@
     },
     "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee": {
       "back": "/tenancy/e06de0e7-70e2-4c8a-bb6c-1db47531e5ee?tab=move-out#refund",
-      "landlord": "Elena Marquez",
+      "landlord": "Teddy Buettner",
       "paypalEmail": "email#4f4595a09d",
       "review": {
         "amount": 3790,
@@ -3272,8 +3272,8 @@
       "street": "1140 E. Juniper Hollow Ln",
       "tenancyId": "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
       "tenants": [
-        "Priya Raman",
-        "Daniel Okafor"
+        "Luke Jones",
+        "Lane Forti"
       ]
     }
   },
@@ -3591,7 +3591,7 @@
         {
           "cite": "(h)(1)",
           "n": 1,
-          "reason": "Priya Raman, Daniel Okafor; moved out October 1, 2026; statement dated October 3, 2026; due October 22, 2026.",
+          "reason": "Luke Jones, Lane Forti; moved out October 1, 2026; statement dated October 3, 2026; due October 22, 2026.",
           "state": "done",
           "title": "Tenant names, unit address, move-out date, statement date and the 21-day deadline"
         },
@@ -3654,7 +3654,7 @@
         {
           "cite": "(h)(1)(A), (h)(1)(C)",
           "n": 10,
-          "reason": "$3,790.00 by PayPal refund of the original deposit payment, to be sent, payable to Priya Raman, Daniel Okafor.",
+          "reason": "$3,790.00 by PayPal refund of the original deposit payment, to be sent, payable to Luke Jones, Lane Forti.",
           "state": "done",
           "title": "Refund amount, method and payees"
         },
@@ -3817,7 +3817,7 @@
         "known": false,
         "note": "No local deposit interest is included. California has no statewide requirement, and Orange is not among the cities with a security deposit interest ordinance on record here (San Francisco, Los Angeles RSO units, Berkeley and West Hollywood)."
       },
-      "landlord": "Elena Marquez",
+      "landlord": "Teddy Buettner",
       "moveOutDate": "2026-10-01",
       "property": {
         "address": "1140 E. Juniper Hollow Ln, Orange, CA 92867",
@@ -3827,16 +3827,16 @@
         "agreement": {
           "signedAt": "2025-10-01T17:05:00.000Z",
           "signedBy": [
-            "Priya Raman",
-            "Daniel Okafor"
+            "Luke Jones",
+            "Lane Forti"
           ]
         },
         "amount": 3790,
         "method": "PayPal refund of the original deposit payment, to be sent",
-        "note": "One refund payable to all adult tenants named on the lease (Priya Raman and Daniel Okafor); the statement may go to any one of them (Civ. Code 1950.5(h)(1)(C)). The security was paid electronically, so it is refunded electronically: by PayPal under the written agreement signed by Priya Raman and Daniel Okafor on October 1, 2025 (Civ. Code 1950.5(h)(1)(A)).",
+        "note": "One refund payable to all adult tenants named on the lease (Luke Jones and Lane Forti); the statement may go to any one of them (Civ. Code 1950.5(h)(1)(C)). The security was paid electronically, so it is refunded electronically: by PayPal under the written agreement signed by Luke Jones and Lane Forti on October 1, 2025 (Civ. Code 1950.5(h)(1)(A)).",
         "payees": [
-          "Priya Raman",
-          "Daniel Okafor"
+          "Luke Jones",
+          "Lane Forti"
         ],
         "paypalEmail": "email#4f4595a09d",
         "paypalId": null,
@@ -3862,17 +3862,17 @@
       "tenantContacts": [
         {
           "email": "email#4f4595a09d",
-          "name": "Priya Raman"
+          "name": "Luke Jones"
         },
         {
           "email": null,
-          "name": "Daniel Okafor"
+          "name": "Lane Forti"
         }
       ],
       "tenantForwarding": null,
       "tenants": [
-        "Priya Raman",
-        "Daniel Okafor"
+        "Luke Jones",
+        "Lane Forti"
       ],
       "today": "2026-10-03",
       "totals": {
@@ -3964,7 +3964,7 @@
       "depositElectronic": true,
       "endDate": "2026-09-30",
       "id": "e06de0e7-70e2-4c8a-bb6c-1db47531e5ee",
-      "landlord": "Elena Marquez",
+      "landlord": "Teddy Buettner",
       "monthlyRent": 2400,
       "moveInPhotos": 3,
       "moveOutDate": "2026-10-01",
@@ -3976,13 +3976,13 @@
           "date": "2026-09-03",
           "method": "mail",
           "recorded_at": "2026-09-03T17:30:00.000Z",
-          "to": "Priya Raman"
+          "to": "Luke Jones"
         }
       },
       "plannedMoveOut": "2026-10-01",
       "refundNotice": {
         "needed": false,
-        "reason": "A written agreement on the refund method is already on file: Priya Raman and Daniel Okafor agreed on October 1, 2025 that the deposit comes back by PayPal to email#4f4595a09d. Civ. Code 1950.5(h)(1)(A)(ii)(II) does not require this notice when the landlord and tenant have previously entered into a written agreement designating the method of return under subclause (I)."
+        "reason": "A written agreement on the refund method is already on file: Luke Jones and Lane Forti agreed on October 1, 2025 that the deposit comes back by PayPal to email#4f4595a09d. Civ. Code 1950.5(h)(1)(A)(ii)(II) does not require this notice when the landlord and tenant have previously entered into a written agreement designating the method of return under subclause (I)."
       },
       "returned": null,
       "startDate": "2025-10-01",
@@ -3990,8 +3990,8 @@
       "status": "moving_out",
       "tenantMoveOut": null,
       "tenants": [
-        "Priya Raman",
-        "Daniel Okafor"
+        "Luke Jones",
+        "Lane Forti"
       ]
     }
   },
@@ -4123,8 +4123,8 @@
         "paypalEmail": "email#4f4595a09d",
         "signedAt": "2025-10-01T17:05:00.000Z",
         "signedBy": [
-          "Priya Raman",
-          "Daniel Okafor"
+          "Luke Jones",
+          "Lane Forti"
         ],
         "text": "I agree that my security deposit, less any lawful deductions, may be returned to me electronically by PayPal at the email above (Cal. Civ. Code 1950.5(h)(1)(A))."
       },
@@ -4140,7 +4140,7 @@
       },
       "endDate": "2026-09-30",
       "inspectedAt": "2026-10-01T17:30:00+00:00",
-      "landlord": "Elena Marquez",
+      "landlord": "Teddy Buettner",
       "moveOut": null,
       "moveOutDate": "2026-10-01",
       "noticeGivenOn": "2026-09-01",
@@ -4164,8 +4164,8 @@
       "statement": null,
       "statementDue": "2026-10-22",
       "tenants": [
-        "Priya Raman",
-        "Daniel Okafor"
+        "Luke Jones",
+        "Lane Forti"
       ],
       "today": "2026-10-03"
     }
