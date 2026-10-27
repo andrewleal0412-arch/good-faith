@@ -12,16 +12,16 @@ import { usd } from "@/lib/deductions";
 import type { Category, SeriesPoint } from "@/lib/insights";
 
 // The four charts on Insights, in AG Charts Community (MIT, no license key), registered per chart with only the
-// modules they draw with. Dressed in the design tokens: Inter, ink text, hairline grid, the app's dark tooltip. Color
-// does one job per chart and was checked with the data-viz palette validator: indigo is the series a chart is about,
-// gray the context beside it (emphasis); the deductions keep the colors their findings have everywhere in the app
-// (damage red, cleaning amber, rent gray). Every chart has a legend or a single series its title names, labels on the
-// bars, a tooltip per mark, and the grid below as its table.
+// modules they draw with. Dressed in the design tokens: Hanken Grotesk, ink text, hairline grid, the app's dark
+// tooltip. Color does one job per chart: navy is the series a chart is about, gray the context beside it (emphasis;
+// 4.4:1 between the two, so they part by lightness alone); the deductions keep the colors their findings have
+// everywhere in the app (damage red, cleaning amber, rent gray). Every chart has a legend or a single series its title
+// names, labels on the bars, a tooltip per mark, and the grid below as its table.
 
 const MODULES = [CartesianChartModule, AreaSeriesModule, BarSeriesModule, CategoryAxisModule, NumberAxisModule, LegendModule];
 
 const INK = "#1b1d23", INK3 = "#64697b", LINE = "#e6e8ee", LINE2 = "#eff0f4";
-const BRAND = "#5e6ad2", GRAY = "#9a9ead";
+const BRAND = "#003087", GRAY = "#9a9ead";
 const CATEGORY_FILL: Record<Category, string> = { damage: "#d64540", cleaning: "#d99a1b", rent: GRAY };
 
 /** Whole dollars, compact past a thousand: the axis ticks. */
@@ -32,7 +32,7 @@ function theme(font: string): AgChartTheme {
     baseTheme: "ag-default",
     palette: { fills: [BRAND, GRAY], strokes: [BRAND, GRAY] },
     params: {
-      // The keyboard's focus on a bar, a point or a legend item: a 2px brand line on a white one, 4.7:1 on the canvas.
+      // The keyboard's focus on a bar, a point or a legend item: a 2px brand line on a white one, 11.9:1 on the canvas.
       accentColor: BRAND, focusShadow: `0 0 0 2px ${BRAND}`,
       fontFamily: font, fontSize: 12, textColor: INK, subtleTextColor: INK3, backgroundColor: "#ffffff",
       gridLineColor: LINE2, axisLineColor: LINE, chartPadding: 4,
@@ -58,11 +58,11 @@ export function InsightsCharts(p: {
   categories: { category: Category; label: string; amount: number; count: number }[];
   states: { state: string; name: string; held: number; collected: number; returned: number; kept: number }[];
 }) {
-  // Canvas text needs the loaded font by name: next/font's Inter, read from its CSS variable once it is ready.
+  // Canvas text needs the loaded font by name: next/font's Hanken Grotesk, read from its CSS variable once it is ready.
   const [font, setFont] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    const name = getComputedStyle(document.documentElement).getPropertyValue("--font-inter").trim() || "system-ui, sans-serif";
+    const name = getComputedStyle(document.documentElement).getPropertyValue("--font-hanken").trim() || "system-ui, sans-serif";
     document.fonts.ready.then(() => { if (live) setFont(`${name}, system-ui, sans-serif`); }).catch(() => { if (live) setFont("system-ui, sans-serif"); });
     return () => { live = false; };
   }, []);

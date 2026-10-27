@@ -1,11 +1,11 @@
 # Good Faith design system
 
-Zillow Rental Manager's structure with Mercury's calm: a white canvas, neutral grays, one indigo, and green, amber and red for status only. The tokens live in `src/app/globals.css` (Tailwind 4 `@theme`, with the default palette, type scale, radii and shadows cleared so nothing outside this system can be used). The shared pieces live in `src/components/`.
+Zillow Rental Manager's structure with Mercury's calm: a white canvas, neutral grays, one navy, and green, amber and red for status only. The tokens live in `src/app/globals.css` (Tailwind 4 `@theme`, with the default palette, type scale, radii and shadows cleared so nothing outside this system can be used). The shared pieces live in `src/components/`.
 
 ## Rules
 
 - White background, neutral grays, one brand color. Green, amber and red mean status and nothing else; each status has exactly one color.
-- One family (Inter via `next/font`, weights 400, 500 and 600). Tabular figures on every amount.
+- One family (Hanken Grotesk via `next/font`, weights 400, 500 and 600). Tabular figures on every amount.
 - No cream, serif, orange, gradients, emojis or em dashes. Short Sentence-case labels.
 - No paragraphs on cards. A row carries a title and at most one sub line. Legal detail and citations sit only behind an info icon, a "Why?" link or a dotted-underline label, never printed under every row. Citations are the exact ones in `docs/LEGAL_RULES.md`.
 - One hero number per view. Stat tiles and the facts strip raise the cents at 60%. On a phone one strip never mixes precisions: when every cell is a hero (Properties) all drop their cents, otherwise the hero prints full cents like its neighbours (`phoneCents`). The refund and tenant heroes keep full-size cents.
@@ -22,8 +22,8 @@ Zillow Rental Manager's structure with Mercury's calm: a white canvas, neutral g
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `brand` | #5E6AD2 (hover #4F5BC4, active #4652B4) | Primary button, active nav, links, active tab, current step, focus outline |
-| `brand-50` / `brand-100` / `brand-700` | #EEF0FB / #DFE3F8 / #3C47A8 | Active nav fill, focus ring and avatar / text on brand tints |
+| `brand` | #003087 (hover #00296F, active #00225C) | Primary button, active nav, links, active tab, current step, focus outline |
+| `brand-50` / `brand-100` / `brand-700` | #E8EEF8 / #D3DEF0 / #00266C | Active nav fill, focus ring and avatar / text on brand tints |
 | `ink`, `ink-2`, `ink-3`, `ink-4` | #1B1D23, #464A58, #64697B, #9A9EAD | Text; `ink-3` is labels, meta and placeholders (4.5:1 on every surface) and the icon of an icon-only control (the three dots, the info icon, Copy), which needs 3:1; `ink-4` (2.7:1) is for icons beside words only |
 | `line`, `line-2` | #E6E8EE, #EFF0F4 | Card borders; row dividers inside cards |
 | `surface`, `surface-2`, `surface-3` | #F7F8FA, #F1F2F6, #E8EAEF | Soft panels and hover; secondary buttons; their hover |
@@ -39,7 +39,7 @@ PayPal's two-tone monogram (`PayPalMark`) is the only other color, always beside
 
 **Spacing:** sidebar 232px, top bar 56px, content gutter 28px (16px on a phone), card padding 20px, table rows 44 to 48px, sections 24px apart.
 
-**Focus:** one indicator for every control: the 2px `brand` outline 2px outside it (`:focus-visible` in `globals.css`), 4.7:1 on white, easing in on the fast duration. Inputs turn their border `brand` with a 3px `brand-50` ring, and the brand border is the indicator. An AG Grid cell or header draws the outline inside itself, a record tab 3px inside itself (its row scrolls sideways and clips anything outside; a tab the keyboard reaches scrolls whole into the row, clear of its chevron), a menu item inside itself on a `surface` fill, a file picker's label around itself (its input is hidden), and a chart's bar or point gets AG Charts' own 2px `brand` line. A `brand-100` ring alone is 1.3:1 on white, under WCAG's 3:1, so nothing uses one as its only indicator.
+**Focus:** one indicator for every control: the 2px `brand` outline 2px outside it (`:focus-visible` in `globals.css`), 11.9:1 on white, easing in on the fast duration. Inputs turn their border `brand` with a 3px `brand-50` ring, and the brand border is the indicator. An AG Grid cell or header draws the outline inside itself, a record tab 3px inside itself (its row scrolls sideways and clips anything outside; a tab the keyboard reaches scrolls whole into the row, clear of its chevron), a menu item inside itself on a `surface` fill, a segmented filter's chip 1px outside itself (its row clips at its 3px padding), a file picker's label around itself (its input is hidden), and a chart's bar or point gets AG Charts' own 2px `brand` line. A `brand-100` ring alone is 1.4:1 on white, under WCAG's 3:1, so nothing uses one as its only indicator.
 
 ## Motion
 
@@ -119,7 +119,7 @@ WCAG 2.2 AA, held by `scripts/a11y-check.py` on every landlord page and the tena
 | `EmptyState`, `Notice` | `components/ui.tsx` | One icon, one line, one sub line, one action: brand for "nothing yet", gray for not found, red for errors. `Notice` for an inline error. |
 | `CopyId`, `Thumb`, `Avatar`, `Wordmark` | `components/` | PayPal ids with copy (when the browser refuses the clipboard, the id is selected and one line under it says to copy it by hand); property photos; initials; the "Good Faith" wordmark. |
 | `RollMoney`, `PresenceList`, `usePresence`, `DrawCheck`, `WorkingDots`, `Moment`, `StepMark`, `StepLine`, `usePainted` | `components/roll-money.tsx`, `motion.tsx`, `steps.tsx` | The motion pieces (Motion, above): an amount counting to a new figure, rows easing in and out, things that open and close, a check drawn, the working dots, a once-per-viewer moment, a step timeline's mark and line, and whether a part is still what the server painted. |
-| `gridTheme`, `gridModules`, `GridTip`, `csvSafe`, `browserStore` | `components/grid.tsx` | Every AG Grid: the Community modules given through `AgGridProvider`, Quartz set from these tokens (no border of its own, the card draws it; 40px header in `text-xs` `ink-3`; 48px rows; a cell with keyboard focus gets the 2px `brand` outline drawn inside it over AG Grid's 1px focus border, an editor the 3px `brand-100` ring, an invalid one a `red` border; the row menus' column is named "Actions" for a screen reader and shows no header), the dark tip as its tooltip, the CSV formula guard, and the per-browser memory (column layout, closed groups) in try/catch. Charts (Insights only) use AG Charts with Inter, `ink` text, `line-2` grid lines and the dark tip; `brand` is the series a chart is about, `ink-4` gray the context beside it, and deductions keep their status colors (damage `red-dot`, cleaning `amber-dot`). |
+| `gridTheme`, `gridModules`, `GridTip`, `csvSafe`, `browserStore` | `components/grid.tsx` | Every AG Grid: the Community modules given through `AgGridProvider`, Quartz set from these tokens (no border of its own, the card draws it; 40px header in `text-xs` `ink-3`; 48px rows; a cell with keyboard focus gets the 2px `brand` outline drawn inside it over AG Grid's 1px focus border, an editor the 3px `brand-100` ring, an invalid one a `red` border; the row menus' column is named "Actions" for a screen reader and shows no header), the dark tip as its tooltip, the CSV formula guard, and the per-browser memory (column layout, closed groups) in try/catch. Charts (Insights only) use AG Charts with Hanken Grotesk, `ink` text, `line-2` grid lines and the dark tip; `brand` is the series a chart is about, `ink-4` gray the context beside it, and deductions keep their status colors (damage `red-dot`, cleaning `amber-dot`). |
 
 ## Layouts
 

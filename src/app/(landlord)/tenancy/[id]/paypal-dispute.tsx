@@ -156,7 +156,7 @@ export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { ten
           <LineMark><Icon name="calendar" className="size-3.5 text-ink-4" /></LineMark>
           <p className="min-w-0 flex-1">
             Your statement and refund are due {shortDate(stateDue.date)} under the state&apos;s rules. PayPal&apos;s hold doesn&apos;t pause that deadline.
-            <span className="ml-1.5 inline-flex align-[-2px]"><InfoTip align="end" title={stateDue.title} cite={stateDue.cite ?? undefined}>{stateDue.text} Accepting the claim ends PayPal&apos;s hold now; evidence leaves the money with PayPal until it decides.</InfoTip></span>
+            <span className="ml-1.5"><InfoTip align="end" title={stateDue.title} cite={stateDue.cite ?? undefined}>{stateDue.text} Accepting the claim ends PayPal&apos;s hold now; evidence leaves the money with PayPal until it decides.</InfoTip></span>
           </p>
         </div>
       )}

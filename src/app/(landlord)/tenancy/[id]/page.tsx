@@ -321,7 +321,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   () => summary.tenants, 40);
 
   // The record header's one primary action: the refund review (its own focused page) once the findings are in,
-  // otherwise the next step. It is the view's only indigo button, so the cards below show theirs as secondary.
+  // otherwise the next step. It is the view's only navy button, so the cards below show theirs as secondary.
   // Not while the next step is to take every deduction off (New York after day 14, Florida past the claim notice's 30
   // days): the review is blocked until they
   // are gone, so the primary is that step, which opens the Deductions card.

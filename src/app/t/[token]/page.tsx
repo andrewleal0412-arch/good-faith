@@ -357,7 +357,7 @@ function withTip(text: string, tip: ReactNode) {
   return (
     <>
       {text.slice(0, cut + 1)}
-      <span className="whitespace-nowrap">{text.slice(cut + 1)}<span className="ml-1.5 inline-flex align-[-2px]">{tip}</span></span>
+      <span className="whitespace-nowrap">{text.slice(cut + 1)}<span className="ml-1.5">{tip}</span></span>
     </>
   );
 }

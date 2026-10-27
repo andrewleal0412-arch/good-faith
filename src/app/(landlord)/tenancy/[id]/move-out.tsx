@@ -10,7 +10,7 @@ import { InfoTip } from "@/components/info-tip";
 import { Menu } from "@/components/menu";
 import { PresenceList } from "@/components/motion";
 import { FilePick } from "@/components/file-pick";
-import { Card, CardHead, Money, Notice, StatusChip, Thumb, inlineInputClass } from "@/components/ui";
+import { Card, CardHead, LineMark, Money, Notice, StatusChip, Thumb, inlineInputClass } from "@/components/ui";
 import type { Box } from "@/lib/boxes";
 import { basisOf, type StoredDeduction } from "@/lib/deductions";
 import { findingLine, findingTitle, gist, kindsFor, type Classification, type FindingStatus } from "@/lib/findings";
@@ -379,7 +379,9 @@ function FindingRow({ pack, f, locked, busy, hot, onHot, onDeduct, onReview, onR
   return (
     <div ref={ref} onMouseEnter={() => onHot(true)} onMouseLeave={() => onHot(false)} onFocus={() => onHot(true)} onBlur={() => onHot(false)}
       className={`flex gap-2.5 border-t border-line-2 px-4 pb-3 pt-2.5 transition-colors [&:nth-child(2)]:border-t-0 ${hot ? "bg-surface" : ""}`}>
-      <span className={`flex size-5 shrink-0 items-center justify-center rounded-[5px] text-xs font-semibold ${dismissed ? "bg-surface-3 text-ink-3" : `${BADGE[f.classification]} text-white`}`}>{f.n}</span>
+      <LineMark className="text-sm">
+        <span className={`flex size-5 shrink-0 items-center justify-center rounded-[5px] text-xs font-semibold ${dismissed ? "bg-surface-3 text-ink-3" : `${BADGE[f.classification]} text-white`}`}>{f.n}</span>
+      </LineMark>
       <div className={`min-w-0 flex-1 ${dismissed ? "opacity-60" : ""}`}>
         <div className="text-sm font-medium" title={f.item}>{findingTitle(f)}</div>
         <StatusChip tone={k.tone} dot={false} size="sm" className="mt-1">{k.label}</StatusChip>

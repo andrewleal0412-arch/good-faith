@@ -1,7 +1,7 @@
 import Link from "@/components/link";
 import type { ComponentProps } from "react";
 
-// Three button styles and nothing else: primary (the one indigo action on a view), secondary (gray surface, like
+// Three button styles and nothing else: primary (the one navy action on a view), secondary (gray surface, like
 // Mercury's Back) and link (in-card actions such as Edit or Add finding).
 
 export type ButtonVariant = "primary" | "secondary" | "link";

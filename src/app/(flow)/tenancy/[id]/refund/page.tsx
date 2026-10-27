@@ -5,7 +5,7 @@ import { Fragment, Suspense, type ReactNode } from "react";
 import { ButtonLink } from "@/components/button";
 import { Icon, PayPalMark, type IconName } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
-import { Money, Notice, StatusChip, Wordmark } from "@/components/ui";
+import { LineMark, Money, Notice, StatusChip, Wordmark } from "@/components/ui";
 import { PAGE_PATH, runNotes, stripQuotes, type Step } from "@/lib/agent-notes";
 import { paidAgo } from "@/lib/closeout";
 import { atTextIn, shortDate, timeIn } from "@/lib/dates";
@@ -113,7 +113,7 @@ function withTip(text: string, tip: ReactNode) {
   return (
     <span>
       {text.slice(0, cut + 1)}
-      <span className="whitespace-nowrap">{text.slice(cut + 1)}<span className="ml-1.5 inline-flex align-[-2px]">{tip}</span></span>
+      <span className="whitespace-nowrap">{text.slice(cut + 1)}<span className="ml-1.5">{tip}</span></span>
     </span>
   );
 }
@@ -382,7 +382,7 @@ function CheckRow({ c }: { c: Check }) {
   // One line from sm up (label left, value right); on a phone the value drops under the label instead of being cut.
   return (
     <li className="flex min-w-0 items-start gap-2.5 py-[7px] text-sm text-ink-2 sm:items-center">
-      <span className="mt-px sm:mt-0"><StateMark state={c.state} /></span>
+      <LineMark><StateMark state={c.state} /></LineMark>
       <div className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-3">
         <p className="shrink-0"><InfoTip trigger={<TipLabel>{c.label}</TipLabel>} title={c.tip.title} cite={c.tip.cite}>{c.tip.body}</InfoTip></p>
         <p className="mt-0.5 text-xs tabular-nums text-ink-3 sm:ml-auto sm:mt-0 sm:min-w-0 sm:truncate sm:text-right sm:text-sm" title={c.value}>{c.value}</p>
@@ -447,9 +447,9 @@ function AgentRun({ run, amount, deposit, word, statute, zone, trace }: { run: R
         {rows.map((x, i) => (
           <li key={x.key} className="relative flex min-w-0 items-start gap-2.5 py-[7px] text-sm text-ink-2">
             {i < rows.length - 1 && (
-              <StepLine done={x.state === "ok"} sight={sight(x.key, "line")} delay={i * STEP_MS + 200} className="absolute -bottom-[7px] left-[8.5px] top-[27px] w-px" />
+              <StepLine done={x.state === "ok"} sight={sight(x.key, "line")} delay={i * STEP_MS + 200} className="absolute -bottom-[7px] left-[8.5px] top-[26px] w-px" />
             )}
-            <span className="relative mt-px">{x.state === "ok" ? <StepMark small state="done" sight={sight(x.key, "check")} delay={i * STEP_MS} /> : <StateMark state={x.state} />}</span>
+            <LineMark className="relative">{x.state === "ok" ? <StepMark small state="done" sight={sight(x.key, "check")} delay={i * STEP_MS} /> : <StateMark state={x.state} />}</LineMark>
             <div className="min-w-0 flex-1" title={x.detail || undefined}>
               <p>{x.title}</p>
               {x.state === "fail" && x.detail && <p className="mt-0.5 text-xs text-ink-3">{x.detail}</p>}
@@ -518,10 +518,12 @@ function Sent({ v, statute, zone }: { v: RefundView; statute: string; zone: stri
         <ol className="mt-4" aria-label={`${word} timeline`}>
           {trail.map((t, i) => (
             <li key={t.key} className="relative grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2.5 pb-2.5 text-sm last:pb-0">
-              {i < last && <span aria-hidden data-moment={i === last - 1 ? "grow-y" : undefined} data-delay="140" className="absolute -bottom-px left-[8.5px] top-[21px] w-px bg-green-dot/45" />}
-              <span data-moment={i === last ? "pop" : undefined} data-delay="220" className="relative mt-px flex size-[18px] items-center justify-center rounded-full bg-green-bg text-green">
-                <Icon data-moment={i === last ? "draw" : undefined} data-delay="260" name="check" className="size-3" />
-              </span>
+              {i < last && <span aria-hidden data-moment={i === last - 1 ? "grow-y" : undefined} data-delay="140" className="absolute -bottom-px left-[8.5px] top-[20px] w-px bg-green-dot/45" />}
+              <LineMark>
+                <span data-moment={i === last ? "pop" : undefined} data-delay="220" className="relative flex size-[18px] items-center justify-center rounded-full bg-green-bg text-green">
+                  <Icon data-moment={i === last ? "draw" : undefined} data-delay="260" name="check" className="size-3" />
+                </span>
+              </LineMark>
               <span className={i === last ? "text-ink" : "text-ink-2"}>{t.label}</span>
               <span className="whitespace-nowrap tabular-nums text-ink-3">{atTextIn(t.at, zone)}</span>
             </li>

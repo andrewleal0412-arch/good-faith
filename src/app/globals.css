@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
-/* Good Faith: a white canvas, neutral grays, one indigo, and green, amber and red for status only. Inter in six sizes,
-   tabular figures on every amount. The default palette, type scale, radii and shadows are cleared so nothing outside
-   this system can creep in. */
+/* Good Faith: a white canvas, neutral grays, one navy, and green, amber and red for status only. Hanken Grotesk in six
+   sizes, tabular figures on every amount. The default palette, type scale, radii and shadows are cleared so nothing
+   outside this system can creep in. */
 @theme {
   --color-*: initial;
   --color-white: #ffffff;
   --color-canvas: #ffffff;
 
   /* The one brand color: primary buttons, active nav, links, the active tab, the current step. */
-  --color-brand: #5e6ad2;
-  --color-brand-hover: #4f5bc4;
-  --color-brand-active: #4652b4;
-  --color-brand-50: #eef0fb;
-  --color-brand-100: #dfe3f8;
-  --color-brand-700: #3c47a8;
+  --color-brand: #003087;
+  --color-brand-hover: #00296f;
+  --color-brand-active: #00225c;
+  --color-brand-50: #e8eef8;
+  --color-brand-100: #d3def0;
+  --color-brand-700: #00266c;
 
   /* Ink for text, lines for borders, surfaces for soft panels and hover. */
   --color-ink: #1b1d23;
@@ -81,7 +81,7 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: var(--font-hanken), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @layer base {
@@ -125,7 +125,7 @@
   input[type="radio"] {
     accent-color: var(--color-brand);
   }
-  /* One keyboard focus style for every control: a 2px brand outline, 4.7:1 on white. Inputs opt out with outline-none
+  /* One keyboard focus style for every control: a 2px brand outline, 11.9:1 on white. Inputs opt out with outline-none
      and turn their border brand instead; a control in a box that clips (a grid cell, a menu item, a record tab) draws
      the outline inside itself with a negative offset. */
   :focus-visible {

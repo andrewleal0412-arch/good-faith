@@ -389,7 +389,8 @@ async ([b64, ex, ey, w, h]) => {
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
   const x = c.getContext('2d'); x.drawImage(img, 0, 0);
   const d = x.getImageData(0, 0, c.width, c.height).data;
-  const brand = (px, py) => { const i = (py * c.width + px) * 4; return Math.abs(d[i] - 94) < 28 && Math.abs(d[i + 1] - 106) < 28 && Math.abs(d[i + 2] - 210) < 28; };
+  // The outline's color is the brand token (--color-brand, #003087 in globals.css).
+  const brand = (px, py) => { const i = (py * c.width + px) * 4; return Math.abs(d[i] - 0) < 28 && Math.abs(d[i + 1] - 48) < 28 && Math.abs(d[i + 2] - 135) < 28; };
   const count = (x0, x1, y0, y1) => { let n = 0; for (let yy = Math.max(0, y0); yy < Math.min(c.height, y1); yy++) for (let xx = Math.max(0, x0); xx < Math.min(c.width, x1); xx++) if (brand(xx, yy)) n++; return n; };
   return {
     top: count(ex + 3, ex + w - 3, ey - 4, ey + 4) / (w - 6), bottom: count(ex + 3, ex + w - 3, ey + h - 4, ey + h + 4) / (w - 6),

@@ -353,7 +353,7 @@ async function LiveSecurity({ live, pack }: { live: Live; pack: StatePack }) {
             {s.security.leaseAsked != null && s.security.cap != null && s.security.leaseAsked > s.security.amount
               ? `The lease asked for ${usd(s.security.leaseAsked)}; the cap is ${usd(s.security.cap)}`
               : "How the lease labeled it"}
-            <span className="ml-1.5 inline-flex align-[-2px]"><InfoTip title="The basis of the security">{s.security.basisNote}</InfoTip></span>
+            <span className="ml-1.5"><InfoTip title="The basis of the security">{s.security.basisNote}</InfoTip></span>
           </span>
           <span className="hidden print:inline">{s.security.basisNote}</span>
         </span>
@@ -598,7 +598,7 @@ function Deduction({ pack, d, urls }: { pack: StatePack; d: StatementDeduction; 
         {d.explanation}
         {d.guidance && (
           <>
-            <span className="ml-1.5 inline-flex align-[-2px] print:hidden">
+            <span className="ml-1.5 print:hidden">
               <InfoTip title="Guidance, not statute">Prorated by {d.proration === "useful_life" ? "useful life" : "the paint schedule"}, {pack.statement.guidanceSource}. A court may decide differently.</InfoTip>
             </span>
             <span className="hidden text-ink-3 print:inline"> (prorated by {d.proration === "useful_life" ? "useful life" : "the paint schedule"}: {pack.copy.guidanceLabel}, not statute)</span>
@@ -637,7 +637,7 @@ function Deduction({ pack, d, urls }: { pack: StatePack; d: StatementDeduction; 
             <p className="mt-2 text-sm text-amber">
               {pack.statement.estimateLine}
               <span className="hidden print:inline"> ({pack.statement.estimateCite})</span>
-              <span className="ml-1.5 inline-flex align-[-2px] print:hidden"><InfoTip title="Estimates" cite={pack.statement.estimateCite}>The work is not finished or the invoice is not in hand yet.</InfoTip></span>
+              <span className="ml-1.5 print:hidden"><InfoTip title="Estimates" cite={pack.statement.estimateCite}>The work is not finished or the invoice is not in hand yet.</InfoTip></span>
             </p>
           )}
           {d.photos.length > 0 && (

@@ -51,7 +51,7 @@ Three things to check inside your copy, under a minute each.
 | Criterion | Where to look |
 |---|---|
 | Technical implementation of PayPal + AI | Claude agents call PayPal's Agent Toolkit as an MCP server inside the app's process; Invoicing, refunds, Payouts, verified webhooks and the Disputes API with multipart evidence ([`agent.ts`](src/lib/agent.ts), [`paypal.ts`](src/lib/paypal.ts)). |
-| Design | White, neutral grays, one indigo, legal detail behind tips; WCAG 2.2 AA at 1280 and 390 px, held by a script ([docs/DESIGN.md](docs/DESIGN.md), [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)). |
+| Design | White, neutral grays, one navy, legal detail behind tips; WCAG 2.2 AA at 1280 and 390 px, held by a script ([docs/DESIGN.md](docs/DESIGN.md), [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)). |
 | Impact | Five states' deposit law in one engine, for landlords who own one unit and the tenants whose money it is ([the problem](docs/HOW_IT_WORKS.md#the-problem)). |
 | Innovation | Two agents negotiating for two humans inside a range code computed from the statute, each turn checked before anyone sees it, and PayPal paying only when both humans say yes. |
 | Presentation | A private demo copy per judge, a [demo script](docs/DEMO_SCRIPT.md) beat by beat, and an end-to-end test that walks it on a production build ([Checks](#checks)). |
@@ -82,7 +82,7 @@ Three things to check inside your copy, under a minute each.
 
 ## Architecture
 
-One Next.js 16 app (App Router, TypeScript, Tailwind 4) on Render, with Supabase for the data and the files. Indigo boxes propose (Claude), gray boxes decide (code), amber boxes are a person's approval, and green boxes are PayPal.
+One Next.js 16 app (App Router, TypeScript, Tailwind 4) on Render, with Supabase for the data and the files. Navy boxes propose (Claude), gray boxes decide (code), amber boxes are a person's approval, and green boxes are PayPal.
 
 ```mermaid
 flowchart TB
@@ -143,7 +143,7 @@ flowchart TB
   H4 -->|counted once| GUARD
   APP <--> DB
 
-  classDef ai fill:#EEF0FB,stroke:#5E6AD2,color:#1B1D23
+  classDef ai fill:#E8EEF8,stroke:#003087,color:#1B1D23
   classDef code fill:#F1F2F6,stroke:#64697B,color:#1B1D23
   classDef human fill:#FCF1D6,stroke:#946200,color:#1B1D23
   classDef pay fill:#E6F4EA,stroke:#1E7B45,color:#1B1D23

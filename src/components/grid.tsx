@@ -19,7 +19,7 @@ export const gridModules = (...own: Module[]): Module[] => [ClientSideRowModelMo
 /** The design tokens by value (globals.css): the theme mixes them into its hover, selection and focus tints, which it
  *  cannot do from a var() reference. The grid draws no border of its own; the card around it does. */
 export const gridTheme = themeQuartz.withParams({
-  accentColor: "#5e6ad2",
+  accentColor: "#003087",
   backgroundColor: "#ffffff",
   foregroundColor: "#1b1d23",
   cellTextColor: "#1b1d23",
@@ -41,35 +41,35 @@ export const gridTheme = themeQuartz.withParams({
   rowHeight: 48,
   autoHeightMinBodyHeight: 48, // room for the "nothing matches" line, not the 150px default under a short list
   rowHoverColor: "#f7f8fa",
-  selectedRowBackgroundColor: "#eef0fb",
+  selectedRowBackgroundColor: "#e8eef8",
   pinnedRowBorder: { color: "#e6e8ee" },
   pinnedRowFontWeight: 400,
   pinnedRowTextColor: "#1b1d23",
   pinnedRowBackgroundColor: "#ffffff",
-  valueChangeValueHighlightBackgroundColor: "#eef0fb", // a cell the code just worked out again flashes brand-50
-  fontFamily: "var(--font-inter), system-ui, sans-serif",
+  valueChangeValueHighlightBackgroundColor: "#e8eef8", // a cell the code just worked out again flashes brand-50
+  fontFamily: "var(--font-hanken), system-ui, sans-serif",
   fontSize: 13,
   dataFontSize: 13,
   cellHorizontalPadding: 10,
   iconSize: 12,
   checkboxBorderRadius: 4,
   checkboxUncheckedBorderColor: "#c9ccd6",
-  checkboxCheckedBackgroundColor: "#5e6ad2",
-  checkboxCheckedBorderColor: "#5e6ad2",
-  checkboxIndeterminateBackgroundColor: "#5e6ad2",
-  checkboxIndeterminateBorderColor: "#5e6ad2",
+  checkboxCheckedBackgroundColor: "#003087",
+  checkboxCheckedBorderColor: "#003087",
+  checkboxIndeterminateBackgroundColor: "#003087",
+  checkboxIndeterminateBorderColor: "#003087",
   // Keyboard focus on a cell: AG Grid's 1px border in brand, under the app's 2px brand outline (globals.css). AG Grid's
-  // own controls (a header, a row's checkbox) ring in solid brand, 4.7:1 on white, not its faint accent tint.
-  rangeSelectionBorderColor: "#5e6ad2",
-  focusShadow: { spread: 2, color: "#5e6ad2" },
-  inputFocusBorder: { color: "#5e6ad2" },
-  inputFocusShadow: "0 0 0 3px #dfe3f8",
+  // own controls (a header, a row's checkbox) ring in solid brand, 11.9:1 on white, not its faint accent tint.
+  rangeSelectionBorderColor: "#003087",
+  focusShadow: { spread: 2, color: "#003087" },
+  inputFocusBorder: { color: "#003087" },
+  inputFocusShadow: "0 0 0 3px #d3def0",
   inputBorder: { color: "#e6e8ee" },
   inputBorderRadius: 6,
   inputInvalidBorder: { color: "#b3261e" },
   inputInvalidTextColor: "#b3261e",
-  cellEditingBorder: { color: "#5e6ad2" },
-  cellEditingShadow: "0 0 0 3px #dfe3f8",
+  cellEditingBorder: { color: "#003087" },
+  cellEditingShadow: "0 0 0 3px #d3def0",
 });
 
 /** The keyboard, the same in every grid (WAI-ARIA's grid pattern): the grid is one stop in the page's Tab order, the

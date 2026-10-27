@@ -128,7 +128,7 @@ export function Segmented({ items, active, className }: { items: TabItem[]; acti
         const on = t.key === active;
         return (
           <Link key={t.key} href={t.href} scroll={false} aria-current={on ? "true" : undefined}
-            className={cx("inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm transition-[color,background-color,box-shadow]",
+            className={cx("inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm transition-[color,background-color,box-shadow] focus-visible:outline-offset-1",
               on ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink")}>
             {t.label}
             {t.count != null && <span className="font-normal text-ink-3">{t.count}</span>}
@@ -169,7 +169,7 @@ export function Fact({ label, value, sub, big, info }: { label: ReactNode; value
  *  instead of floating to the cell's edge or onto a line of its own. */
 function FactLabel({ label, info }: { label: ReactNode; info?: ReactNode }) {
   if (!info) return <>{label}</>;
-  const tip = <span className="ml-[5px] inline-flex align-[-2px]">{info}</span>;
+  const tip = <span className="ml-[5px]">{info}</span>;
   if (typeof label !== "string" || !label.includes(" ")) return <>{label}{tip}</>;
   const cut = label.lastIndexOf(" ");
   return <>{label.slice(0, cut + 1)}<span className="whitespace-nowrap">{label.slice(cut + 1)}{tip}</span></>;

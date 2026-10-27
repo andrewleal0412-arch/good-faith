@@ -59,7 +59,7 @@ export function Insights({ units, rows, today }: { units: InsightUnit[]; rows: L
   const t = view.tree.total;
   const holding = view.tree.tenancies.filter((x) => x.held > 0).length;
   const paidBy = view.tree.tenancies.filter((x) => x.collected > 0).length;
-  const btn = (on: boolean) => `inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm transition-[color,background-color,box-shadow] ${on ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`;
+  const btn = (on: boolean) => `inline-flex h-7 shrink-0 items-center gap-[5px] rounded-sm px-2.5 text-sm transition-[color,background-color,box-shadow] focus-visible:outline-offset-1 ${on ? "bg-canvas font-medium text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`;
 
   return (
     <>

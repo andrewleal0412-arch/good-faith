@@ -15,9 +15,9 @@ import { dateIn, describeDelivery, longDate, type Statement, type StatementPhoto
 
 const W = 612, H = 792, M = 54; // US letter, 0.75 inch margins
 const TEXT_W = W - 2 * M;
-// The app's tokens (globals.css): ink #1B1D23 / #464A58 / #6E7385, brand #5E6AD2, line #E6E8EE, amber #946200.
+// The app's tokens (globals.css): ink #1B1D23 / #464A58 / #6E7385, brand #003087, line #E6E8EE, amber #946200.
 const INK = rgb(0.106, 0.114, 0.137), INK2 = rgb(0.275, 0.29, 0.345), INK3 = rgb(0.431, 0.451, 0.522);
-const ACCENT = rgb(0.369, 0.416, 0.824), LINE = rgb(0.902, 0.91, 0.933), WARN = rgb(0.58, 0.384, 0);
+const ACCENT = rgb(0, 0.188, 0.529), LINE = rgb(0.902, 0.91, 0.933), WARN = rgb(0.58, 0.384, 0);
 
 /** Photos are resized to this many pixels on the long side and re-encoded as JPEG before embedding, so a 12 MB phone
  *  photo becomes a few hundred KB and a packet with a dozen photos still fits an email. */

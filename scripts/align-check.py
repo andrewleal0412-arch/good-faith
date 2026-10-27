@@ -20,11 +20,11 @@ compared with the middle of the capitals:
   - A mark on a line of running text (an info tip after a label) is centered on that line's capitals; a mark stacked
     over centered text (an empty state) is centered over it side to side.
 
-The tolerance is 0.75 px: Chrome rounds Inter's ascent and descent to whole pixels, so a line box centered on a mark
-puts the capitals within 0.6 px of its middle at every size the app uses, and anything a visitor can see is a pixel or
-more. Charts, marks positioned over something (absolute or fixed), hidden ones, anything over 48 px and photos (an
-image over 32 px: a card's picture sits level with the top of its text) are left out, and so is anything inside
-[data-align=skip] (none at the time of writing).
+The tolerance is 0.75 px: Chrome rounds Hanken Grotesk's ascent and descent to whole pixels, so a line box centered
+on a mark puts the capitals within 0.6 px of its middle at every size the app uses, and anything a visitor can see is
+a pixel or more. Charts, marks positioned over something (absolute or fixed), hidden ones, anything over 48 px and
+photos (an image over 32 px: a card's picture sits level with the top of its text) are left out, and so is anything
+inside [data-align=skip] (none at the time of writing).
 
 The run, the checklist's (as scripts/e2e-demo.py, whose build, server and copy it reuses): a temporary worktree of HEAD
 with this checkout's uncommitted changes laid over it, next build, next start on 3211 (or --port) with the stubs on, a

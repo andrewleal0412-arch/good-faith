@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Suspense, use, useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { Button, ButtonLink } from "./button";
 import { useModal } from "./drawer";
-import { Icon, PayPalMark } from "./icons";
+import { Icon } from "./icons";
 import { motionOff, usePresence } from "./motion";
 import { WELCOME_COOKIE } from "@/lib/demo-guide";
 import type { DemoWelcome as Welcome, TourStop } from "@/lib/demo-welcome";
@@ -99,21 +99,14 @@ function Card({ w, open, onSkip, onTour }: { w: Welcome; open: boolean; onSkip: 
   // It rises into place over a fading backdrop, as the confirm dialog does (a sheet on a phone).
   const { mounted, state } = usePresence(open);
   if (!mounted) return null;
-  const marks = [<Icon key="c" name="camera" />, <PayPalMark key="p" size={15} />, <Icon key="s" name="file-check" />];
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6 print:hidden" role="dialog" aria-modal={open ? "true" : undefined} aria-labelledby={titleId} inert={!open}>
       <button type="button" aria-hidden tabIndex={-1} data-state={state} className="gf-scrim absolute inset-0 cursor-default bg-ink/30" onClick={onSkip} />
       <div ref={panel} data-state={state} data-welcome="" className="gf-dialog relative max-h-full w-full overflow-y-auto rounded-t-lg border border-line bg-canvas px-5 pb-5 pt-5 shadow-md sm:max-w-[520px] sm:rounded-lg sm:p-7">
-        <div className="text-xs font-medium uppercase tracking-[0.04em] text-ink-3">Your private copy of the demo</div>
-        <h2 id={titleId} className="mt-2 text-balance text-xl font-semibold tracking-[-0.015em] sm:text-2xl">{w.title}</h2>
+        <h2 id={titleId} className="text-balance text-xl font-semibold tracking-[-0.015em] sm:text-2xl">{w.title}</h2>
         <p className="mt-2 text-sm text-ink-2">{w.lead}</p>
-        <ul className="mt-5 flex flex-col gap-3">
-          {w.lines.map((line, i) => (
-            <li key={line} className="flex items-center gap-3 text-sm text-ink-2">
-              <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand [&_svg]:size-[15px]">{marks[i]}</span>
-              <span>{line}</span>
-            </li>
-          ))}
+        <ul className="mt-4 flex list-disc flex-col gap-2 pl-5 text-sm text-ink-2 marker:text-ink-4">
+          {w.lines.map((line) => <li key={line}>{line}</li>)}
         </ul>
         <div className="mt-6 flex flex-row-reverse gap-2 border-t border-line-2 pt-5 max-sm:flex-col">
           <Button variant="primary" size="lg" data-autofocus onClick={onTour} className="max-sm:w-full">Show me around</Button>
