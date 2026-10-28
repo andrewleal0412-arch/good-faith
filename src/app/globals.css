@@ -424,6 +424,11 @@
   .gf-fade-in {
     animation: gf-fade-in var(--dur-base) var(--ease-standard) backwards;
   }
+  /* The welcome tour's words: each stop's arrive from a faint copy over the slow token, while its card glides there
+     (components/demo-welcome.tsx). */
+  .gf-tour-words {
+    animation: gf-enter var(--dur-slow) var(--ease-standard) backwards;
+  }
 
   /* Popovers: menus and the bell drop from their trigger (rise when they open upward); tips fade. */
   .gf-pop[data-state="open"] {

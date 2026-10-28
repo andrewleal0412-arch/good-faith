@@ -57,6 +57,10 @@ export function useMotionOff(): boolean {
 /** The standard curve as a function of time (0 to 1), for an amount counted in a script. */
 export const standardCurve = cubicBezier(0, 0, 0.2, 1);
 
+/** The curve for a part moved by a script from one resting place to another (the welcome tour's ring and card): it
+ *  starts gently and slows to rest, where the standard curve would leave at full speed and read as a jump. */
+export const glideCurve = cubicBezier(0.4, 0, 0.2, 1);
+
 function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
   const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
   const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;

@@ -5,7 +5,7 @@ import { Suspense, use, useEffect, useId, useRef, useState, type CSSProperties }
 import { Button, ButtonLink } from "./button";
 import { useModal } from "./drawer";
 import { Icon } from "./icons";
-import { motionOff, usePresence } from "./motion";
+import { glideCurve, motionOff, usePresence } from "./motion";
 import { WELCOME_COOKIE } from "@/lib/demo-guide";
 import type { DemoWelcome as Welcome, TourStop } from "@/lib/demo-welcome";
 
@@ -120,19 +120,33 @@ function Card({ w, open, onSkip, onTour }: { w: Welcome; open: boolean; onSkip: 
 const PAD = 6; // the ring's space around the part it shows
 const GAP = 12; // between the ring and the tour's card
 const EDGE = 16; // the tour's card keeps this far from the screen's edges
+const GLIDE = 400; // ms the ring and the card take from one stop to the next
 
-type Spot = { ring: CSSProperties; pop: CSSProperties };
+/** Where the card is laid out before the first stop places it, so its height can be measured at its real width. */
+const UNPLACED: CSSProperties = { top: EDGE, left: EDGE, width: 320 };
+
+type Box = Record<string, number>;
+type Spot = { ring: Box; pop: Box };
+
+/** A box `k` of the way from `a` to `b` (0 to 1). */
+const mix = (a: Box, b: Box, k: number): Box => Object.fromEntries(Object.entries(b).map(([p, v]) => [p, a[p] + (v - a[p]) * k]));
+
+/** Draws a box on an element: its edges in pixels, written straight to its style, since they change every frame. */
+function place(el: HTMLElement | null, box: Box) {
+  if (el) for (const [p, v] of Object.entries(box)) el.style.setProperty(p, `${v}px`);
+}
 
 /** The first copy of a stop's part that is on screen: a unit is a table row on a computer and a card on a phone. */
 const partOf = (s: TourStop) => [...document.querySelectorAll<HTMLElement>(s.anchor)].find((el) => el.checkVisibility()) ?? null;
 
 /** Where the ring and the tour's card go for a part: the card under it, or over it when there is no room under, kept
- *  on screen either way, and over the part itself only when the part is taller than the screen allows. */
-function spotFor(el: HTMLElement, pop: HTMLElement | null): Spot {
+ *  on screen either way, and over the part itself only when the part is taller than the screen allows. `ahead` is how
+ *  far the page has still to scroll, so the spot is where the part will rest. */
+function spotFor(el: HTMLElement, pop: HTMLElement | null, ahead = 0): Spot {
   const r = el.getBoundingClientRect();
   const vw = document.documentElement.clientWidth, vh = window.innerHeight;
   const left = Math.max(4, r.left - PAD), right = Math.min(vw - 4, r.right + PAD);
-  const top = r.top - PAD, bottom = r.bottom + PAD;
+  const top = r.top - ahead - PAD, bottom = r.bottom - ahead + PAD;
   const width = Math.min(320, vw - 2 * EDGE);
   const h = pop?.offsetHeight ?? 180;
   const y = bottom + GAP + h <= vh - EDGE ? bottom + GAP : top - GAP - h >= EDGE ? top - GAP - h : Math.max(EDGE, vh - EDGE - h);
@@ -180,72 +194,107 @@ function Stops({ shown, start, onEnd }: { shown: TourStop[]; start: string; onEn
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const bodyId = useId();
+  const ring = useRef<HTMLDivElement>(null);
+  // Where the ring and the card are drawn now, which the next stop's glide starts from.
+  const drawn = useRef<Spot | null>(null);
+  const [placed, setPlaced] = useState(false);
   const [step, setI] = useState(0);
-  const [spot, setSpot] = useState<Spot | null>(null);
   useModal(true, panel, onEnd);
   const i = Math.min(step, shown.length - 1); // a list found again shorter keeps the tour on its last stop
   const stop = shown[i];
 
-  // Each stop brings its part to the middle of the screen, and the ring and the card follow it while it scrolls there
-  // and whenever the window or the part changes size. Focus goes to the stop's main button.
+  // Each stop brings its part to the middle of the screen. The ring and the card glide from where the last stop left
+  // them to where the part will rest, and wait there for it while the page's scroll carries it in (aiming at the part
+  // itself would chase it up and back); after that they follow it exactly while it scrolls and whenever the window or
+  // the part changes size. The first stop, and reduced motion, put them in place at once. Focus goes to the stop's main
+  // button.
   useEffect(() => {
     const found = partOf(stop);
     if (!found) return;
     let el: HTMLElement = found;
-    const bring = () => el.scrollIntoView({ block: "center", behavior: motionOff() ? "instant" : "smooth" });
+    // Where the page's scroll will stop: the part's middle in the middle of the screen under any scroll padding (the
+    // top bar's), within the page. Unknown (null) once it has stopped. The scroll has stopped 150 ms after its last
+    // step (no scrollend: older Safari has none); one that stopped short of the goal leaves them on the part.
+    let goal: number | null = null;
+    let still = 0;
+    const stopped = () => { goal = null; measure(); };
+    const wait = () => { clearTimeout(still); still = window.setTimeout(stopped, 150); };
+    const bring = () => {
+      el.scrollIntoView({ block: "center", behavior: motionOff() ? "instant" : "smooth" });
+      const r = el.getBoundingClientRect(), html = document.documentElement, vh = html.clientHeight;
+      const pad = parseFloat(getComputedStyle(html).scrollPaddingTop) || 0;
+      goal = Math.min(html.scrollHeight - vh, Math.max(0, scrollY + r.top + r.height / 2 - (pad + vh) / 2));
+      wait();
+    };
     bring();
+    const from = motionOff() ? null : drawn.current;
+    const began = performance.now();
     let frame = 0;
     const sized = new ResizeObserver(() => measure());
+    function draw() {
+      // A unit is a table row on a computer and a card on a phone, so a window that crosses between the two (a
+      // tablet turned, a window resized) swaps the part on screen: the ring goes to the one shown now.
+      const now = partOf(stop);
+      if (now && now !== el) { sized.unobserve(el); el = now; sized.observe(el); bring(); }
+      if (goal !== null && Math.abs(goal - scrollY) < 1) goal = null;
+      const to = spotFor(el, panel.current, goal === null ? 0 : goal - scrollY);
+      const k = from ? Math.min(1, (performance.now() - began) / GLIDE) : 1;
+      const at = from && k < 1 ? { ring: mix(from.ring, to.ring, glideCurve(k)), pop: mix(from.pop, to.pop, glideCurve(k)) } : to;
+      drawn.current = at;
+      place(ring.current, at.ring);
+      place(panel.current, at.pop);
+      setPlaced(true);
+      if (k < 1) frame = requestAnimationFrame(draw);
+    }
     function measure() {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        // A unit is a table row on a computer and a card on a phone, so a window that crosses between the two (a
-        // tablet turned, a window resized) swaps the part on screen: the ring goes to the one shown now.
-        const now = partOf(stop);
-        if (now && now !== el) { sized.unobserve(el); el = now; sized.observe(el); bring(); }
-        setSpot(spotFor(el, panel.current));
-      });
+      frame = requestAnimationFrame(draw);
     }
     // A new window size lays the page out again (a phone's layout stacks everything), which can carry the part off
     // screen with nothing scrolling: once the resizing stops, the part is brought back to the middle.
     let settle = 0;
     const resized = () => { measure(); clearTimeout(settle); settle = window.setTimeout(() => { bring(); measure(); }, 150); };
+    const scrolled = () => { measure(); wait(); };
     measure();
     panel.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus({ preventScroll: true });
-    window.addEventListener("scroll", measure, true);
+    window.addEventListener("scroll", scrolled, true);
     window.addEventListener("resize", resized);
     sized.observe(el);
     if (panel.current) sized.observe(panel.current);
     return () => {
       cancelAnimationFrame(frame);
       clearTimeout(settle);
-      window.removeEventListener("scroll", measure, true);
+      clearTimeout(still);
+      window.removeEventListener("scroll", scrolled, true);
       window.removeEventListener("resize", resized);
       sized.disconnect();
     };
   }, [stop]);
 
   const last = i === shown.length - 1;
-  const move = "transition-[top,left,width,height] duration-(--dur-base) ease-(--ease-standard) motion-reduce:transition-none";
   return (
     <div className="print:hidden">
-      {/* The page under the tour takes no clicks; the ring only draws. */}
+      {/* The page under the tour takes no clicks; the ring only draws. Both are placed by the glide above, not here. */}
       <div aria-hidden className="fixed inset-0 z-50" />
-      <div aria-hidden data-tour-ring="" className={`pointer-events-none fixed z-50 rounded-lg border-2 border-brand ${move} ${spot ? "" : "opacity-0"}`}
-        style={{ ...spot?.ring, boxShadow: "0 0 0 9999px color-mix(in srgb, var(--color-ink) 45%, transparent)" }} />
+      <div ref={ring} aria-hidden data-tour-ring="" className={`pointer-events-none fixed z-50 rounded-lg border-2 border-brand ${placed ? "" : "opacity-0"}`}
+        style={{ boxShadow: "0 0 0 9999px color-mix(in srgb, var(--color-ink) 45%, transparent)" }} />
       <div ref={panel} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} data-tour-stop={i + 1}
-        className={`fixed z-50 flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4 shadow-md ${move} ${spot ? "" : "opacity-0"}`}
-        style={spot?.pop ?? { top: EDGE, left: EDGE, width: 320 }}>
+        className={`fixed z-50 flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4 shadow-md ${placed ? "" : "opacity-0"}`}
+        style={UNPLACED}>
+        {/* Each stop's words arrive from a faint copy as the card travels to it (.gf-tour-words), rather than swapping
+            in where the last stop was. */}
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-ink-3">{i + 1} of {shown.length}</span>
+          <span key={i} className="gf-tour-words text-xs font-medium text-ink-3">{i + 1} of {shown.length}</span>
           <button type="button" aria-label="Close the tour" onClick={onEnd}
             className="-my-0.5 -mr-1.5 inline-flex size-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-surface hover:text-ink">
             <Icon name="x" className="size-3.5" />
           </button>
         </div>
         <div aria-live="polite">
-          <h2 id={titleId} className="text-base font-medium">{stop.title}</h2>
-          <p id={bodyId} className="mt-1 text-sm text-ink-2">{stop.body}</p>
+          <div key={i} className="gf-tour-words">
+            <h2 id={titleId} className="text-base font-medium">{stop.title}</h2>
+            <p id={bodyId} className="mt-1 text-sm text-ink-2">{stop.body}</p>
+          </div>
         </div>
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={onEnd} className="-ml-1 rounded-sm px-1 py-1.5 text-sm font-medium text-ink-3 transition-colors hover:text-ink">
