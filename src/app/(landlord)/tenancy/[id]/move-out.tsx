@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, type Ref } from "react";
 import { Button, buttonClass, pickerFocus } from "@/components/button";
 import { ConfirmDialog } from "@/components/confirm";
@@ -10,6 +9,7 @@ import { InfoTip } from "@/components/info-tip";
 import { Menu } from "@/components/menu";
 import { PresenceList } from "@/components/motion";
 import { FilePick } from "@/components/file-pick";
+import { useRefresh } from "@/components/refresh";
 import { Card, CardHead, LineMark, Money, Notice, StatusChip, Thumb, inlineInputClass } from "@/components/ui";
 import type { Box } from "@/lib/boxes";
 import { basisOf, type StoredDeduction } from "@/lib/deductions";
@@ -71,7 +71,7 @@ export function MoveOut(p: {
   quiet?: boolean; // the record header holds the view's primary button, so Compare shows as secondary
   reads?: boolean; // a TypeSafe key is set: the Add finding form reads the words as they are typed (src/lib/jev.ts)
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const pack = packFor(p.state);
   const KIND = kindsFor(pack);
   const [busy, setBusy] = useState<string | null>(null);
@@ -86,10 +86,8 @@ export function MoveOut(p: {
     setBusy("photos");
     setError("");
     const res = await uploadPhotos(`/api/tenancies/${p.tenancyId}/photos`, { phase: "move_out_before", room }, list);
-    setBusy(null);
     if (!res.ok) setError(res.error);
-    else afterDone?.();
-    router.refresh();
+    refresh(() => { setBusy(null); if (res.ok) afterDone?.(); });
   }
 
   // Comparing again replaces the suggested findings; once a deduction exists, a dialog asks first.
@@ -99,18 +97,16 @@ export function MoveOut(p: {
     setBusy("inspect");
     setError("");
     const r = await fetch(`/api/tenancies/${p.tenancyId}/inspect`, { method: "POST" });
-    setBusy(null);
     if (!r.ok) setError((await r.json().catch(() => ({}))).error ?? "The comparison didn't finish. Try again.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   async function act(key: string, url: string, init: RequestInit) {
     setBusy(key);
     setError("");
     const r = await fetch(url, init);
-    setBusy(null);
     if (!r.ok) setError((await r.json().catch(() => ({}))).error ?? "Couldn't save. Try again.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
   const review = (f: FindingView, status: FindingStatus | null) => act(`review-${f.id}`, `/api/tenancies/${p.tenancyId}/findings/${f.id}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
@@ -141,13 +137,13 @@ export function MoveOut(p: {
         sub={drawer?.kind === "deduction" ? `${drawer.f.n}. ${findingTitle(drawer.f)}, ${drawer.f.room}` : undefined}>
         {drawer?.kind === "deduction" && (
           <DeductionForm tenancyId={p.tenancyId} state={pack.code} finding={drawer.f}
-            onCancel={() => setDrawer(null)} onDone={() => { setDrawer(null); router.refresh(); }} />
+            onCancel={() => setDrawer(null)} onDone={() => refresh(() => setDrawer(null))} />
         )}
       </Drawer>
       <Drawer open={drawer?.kind === "finding"} onClose={() => setDrawer(null)} title="Add finding" sub={drawer?.kind === "finding" ? drawer.room : undefined}>
         {drawer?.kind === "finding" && (
           <FindingForm tenancyId={p.tenancyId} state={pack.code} room={drawer.room} like={drawer.like} reads={p.reads}
-            onCancel={() => setDrawer(null)} onDone={() => { setDrawer(null); router.refresh(); }} />
+            onCancel={() => setDrawer(null)} onDone={() => refresh(() => setDrawer(null))} />
         )}
       </Drawer>
       <Drawer open={drawer?.kind === "photos"} onClose={() => setDrawer(null)} title="Add move-out photos" sub="Compare again afterwards to include them">

@@ -94,8 +94,8 @@ export function FindingForm({ tenancyId, state, room, like, reads = false, onDon
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room, like, item, classification: kind, observation, read: shown ? { kind: shown.kind, p: shown.p, seal: shown.seal } : null }),
     });
-    setBusy(false);
-    if (!r.ok) return setError((await r.json().catch(() => ({}))).error ?? "Couldn't save it.");
+    // Saved: the form stays busy until onDone's refresh brings the page in with the finding, and closes it.
+    if (!r.ok) { setBusy(false); return setError((await r.json().catch(() => ({}))).error ?? "Couldn't save it."); }
     onDone();
   }
 

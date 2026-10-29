@@ -10,7 +10,8 @@ the words that matter and every money figure against what the code computes, sav
       At the end (12d) it is opened again and says the deposit is closed out
    1. Properties: the three units, the Texas unit's Rules chip (beat 8), and the demo guide's eight beats, each
       ticked off this copy's own rows and linking to where that beat happens in it
-   2. Check a lease: demo/lease-single-owner.pdf, its flags and the lawful deposit (beat 1)
+   2. Check a lease: the sample in one click (no Claude call), then demo/lease-single-owner.pdf uploaded, its flags
+      and the lawful deposit (beat 1)
    3. The move-out unit's Overview: the deposit paid through a PayPal invoice, the signed refund agreement (beat 2)
    4. Move-out: the move-in and move-out photo pairs with Claude's damage boxes, the three deductions (beat 3)
    5. Review refund: the rail in words with PayPal's window from refund-rail.ts, the close-out agent's plan, its
@@ -223,6 +224,8 @@ def server_log_checks(whole, this_run):
     check("the server's log carries the stubs' banner", "[E2E STUBS ON] GOOD_FAITH_E2E_STUBS=1" in whole)
     missing = [j for j in STUB_JOBS if f"stub model answered a {j} call" not in this_run]
     check("the stubs answered the Claude jobs (lease, close-out, advocate, negotiator)", not missing, "missing: " + ", ".join(missing))
+    n = this_run.count("stub model answered a lease call")
+    check("the sample lease made no Claude call: the stub answered the two uploads of the lease and nothing more", n == 2, f"{n} lease answers")
     bad = [w for w in REAL_CALL_SIGNS if w in this_run]
     check("the server's log shows no real PayPal or Claude call and no unhandled error", not bad, ", ".join(bad))
 
@@ -488,6 +491,42 @@ def walk(base, setup, shots, check, facts):
         return (sum(1 for u in mine if u.split("?")[0].endswith("/dispute") and "/api/" in u),
                 sum(1 for u in mine if "_rsc=" in u and u.split("?")[0].endswith(own)))
 
+    # A button that acts and then refreshes the page (Send refund, Let my negotiator answer, Accept settlement, Approve
+    # and pay) stays busy, "Sending..." or disabled, until the refreshed page is in. Cleared as soon as the request
+    # answered, it came back on with its old label for the half second the refresh took, and the old screen showed
+    # again with it. `watch_button` records every change to the button from before the click (the first button whose
+    # words match `rest`, outside the confirm dialog, which has a button of the same name), one frame per change, so
+    # a frame can't slip between two looks; `no_flash` reads them once the new screen is up and fails on a frame after
+    # the first busy one with the old label on a live button.
+    WATCH = """(rest) => {
+      const R = new RegExp(rest);
+      const t0 = performance.now();
+      window.__gfFrames = [];
+      const look = () => {
+        const b = [...document.querySelectorAll('button')].find((x) => !x.closest('[role=alertdialog]') && R.test(x.textContent.trim()));
+        const f = b ? { t: Math.round(performance.now() - t0), label: b.textContent.trim(), on: !b.disabled } : { t: Math.round(performance.now() - t0), gone: true };
+        const last = window.__gfFrames[window.__gfFrames.length - 1];
+        if (!last || last.label !== f.label || last.on !== f.on || last.gone !== f.gone) window.__gfFrames.push(f);
+      };
+      const obs = new MutationObserver(look);
+      obs.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+      window.__gfFramesStop = () => obs.disconnect();
+      look();
+    }"""
+
+    def watch_button(page, rest):
+        page.evaluate(WATCH, rest)
+
+    def no_flash(step, page, rest):
+        frames = page.evaluate("() => { if (window.__gfFramesStop) window.__gfFramesStop(); return window.__gfFrames || []; }")
+        R = re.compile(rest)
+        # Busy: disabled, "...ing", or gone (Let my negotiator answer leaves with its block while the agents run).
+        busy = next((i for i, f in enumerate(frames) if i > 0 and (f.get("gone") or not f["on"] or f["label"].endswith("..."))), None)
+        back = [f for f in frames[busy + 1:] if not f.get("gone") and f["on"] and R.search(f["label"])] if busy is not None else []
+        how = "no busy frame" if busy is None else f"back on {back[0]['t'] - frames[busy]['t']} ms after it went busy" if back else "stayed busy"
+        check(f"{step}: the button stays busy until the refreshed page is in, never back on with its old label", busy is not None and not back,
+              f"{how}; the frames since the click: {json.dumps(frames)[:700]}")
+
     f0 = facts()
     E = expected(f0, U)
 
@@ -536,7 +575,7 @@ def walk(base, setup, shots, check, facts):
         card = page.locator("[data-welcome]")
         dep = f"${E['deposit']:,.0f}" if abs(E["deposit"] - round(E["deposit"])) < 0.005 else usd(E["deposit"])
         words = re.sub(r"\s+", " ", card.inner_text()) if card.count() else ""
-        want = ["Your private copy of the demo", "You're the landlord at Harbor View Rentals",
+        want = ["You're the landlord at Harbor View Rentals",
                 f"Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln. Close out their {dep} deposit. California gives you 21 days.",
                 "PayPal runs in its sandbox", "8 steps, ticked off in the checklist"]
         check("Welcome: the card opens on Properties, with the copy's own tenants, unit, deposit and clock",
@@ -653,7 +692,24 @@ def walk(base, setup, shots, check, facts):
         check("Texas unit: the Rules chip's tip names the Texas statute and its bad-faith penalty", "92" in tip and "$100" in tip, tip[:300])
         shot(page, "texas-rules")
 
-        # 2. Check a lease (beat 1): the stubbed read of demo/lease-single-owner.pdf, judged by the code.
+        # 2. Check a lease (beat 1). First the sample in one click, from the facts Claude read when the demo was built
+        # (no Claude call: the server-log check at the end counts the lease stub's answers), then the stubbed live read
+        # of demo/lease-single-owner.pdf, judged by the code.
+        go(page, "/lease")
+        check("Sample lease: the PDF itself opens from the link beside the button",
+              page.get_by_role("link", name="open it").get_attribute("href") == "/api/lease/sample")
+        page.get_by_role("button", name="Check the sample lease").click()
+        page.get_by_role("heading", name="Findings").wait_for(timeout=30_000)
+        sees("Sample lease", page, "lease-single-owner.pdf", "1140 E. Juniper Hollow Ln, Orange, CA 92867", "Sample", "Checked",
+             "The sample lease, from the facts Claude read when the demo was built", f"Lawful deposit\n{usd(DEMO['deposit'])}",
+             f"Lease asks {usd(DEMO['over_cap'])} more", "3 violations", "1 warning")
+        shot(page, "sample-lease")
+        # The sample has no daily allowance, so it must not add a file to the shared storage on every click: checking it
+        # again reuses the workspace's one stored copy.
+        paths = page.evaluate("""async () => { const p = []; for (let i = 0; i < 2; i++)
+          p.push((await (await fetch("/api/lease/sample", { method: "POST" })).json()).leasePath); return p; }""")
+        check("Sample lease: checking it again reuses the workspace's one stored copy", paths[0] is not None and paths[0] == paths[1],
+              f"leasePath {paths}")
         go(page, "/lease")
         page.locator("input[type=file]").set_input_files(str(REPO / "demo/lease-single-owner.pdf"))
         page.get_by_role("heading", name="Findings").wait_for(timeout=60_000)
@@ -740,8 +796,10 @@ def walk(base, setup, shots, check, facts):
         check("Refund prepared, opened again: Send refund and Decline are on once PayPal has answered",
               page.get_by_role("button", name="Send refund").is_enabled() and page.get_by_role("button", name="Decline").is_enabled()
               and page.locator("main [data-skeleton]").count() == 0)
+        watch_button(page, r"^Send refund$|^Sending\.\.\.$")
         page.get_by_role("button", name="Send refund").click()
         page.get_by_text("Sent through PayPal").first.wait_for(timeout=90_000)
+        no_flash("Send refund", page, r"^Send refund$")
         f1 = facts()
         refunds = [p for p in f1["payments"] if p["tenancy_id"] == mo and p["kind"] == "refund"]
         rid = refunds[0]["paypal_id"] if refunds else ""
@@ -849,8 +907,10 @@ def walk(base, setup, shots, check, facts):
               f"its row under Move-out: {row!r}; the page reads: {text(page)[:300]!r}")
         go(page, f"/tenancy/{mo}?tab=move-out")
         sees("Disputed", page, "Disputed", f"Luke Jones disputes 1 deduction and asks for {case_back} back.", "Let my negotiator answer")
+        watch_button(page, r"^Let my negotiator answer$")
         page.get_by_role("button", name="Let my negotiator answer").click()
         page.get_by_text("Agreed back").first.wait_for(timeout=120_000)
+        no_flash("Let my negotiator answer", page, r"^Let my negotiator answer$")
         b1, b2, b3 = (usd(x) for x in E["turns_back"])
         t = sees("Negotiation", page, "Settlement agreed", f"Agreed back\n{usd(E['settled'])}", f"Offers {b1} back", f"Asks {b2} back", f"Gives {b3} back",
                  "Your negotiator", "Their advocate", "Counters", "Concedes", f"Approve and pay {usd(E['settled'])}")
@@ -895,8 +955,11 @@ def walk(base, setup, shots, check, facts):
         check("Side by side: while it waits on the tenants, the landlord's page asks its status route every few seconds and refreshes nothing",
               2 <= polls <= 4 and refreshes == 0, f"{polls} status requests and {refreshes} refreshes in 9 s")
         tenant.get_by_label("Your name").select_option(label="Luke Jones")
+        watch_button(tenant, r"^Accept settlement$|^Accepting\.\.\.$")
         tenant.get_by_role("button", name="Accept settlement").click()
         tenant.get_by_role("alertdialog").get_by_role("button", name="Accept settlement").click()
+        tenant.get_by_text(re.compile(r"^Waiting for .* to approve$")).first.wait_for(timeout=30_000)
+        no_flash("Accept settlement", tenant, r"^Accept settlement$")
         tenant.wait_for_load_state("networkidle")
         tenant.wait_for_timeout(800)
         shot(tenant, "tenants-accepted")
@@ -910,11 +973,13 @@ def walk(base, setup, shots, check, facts):
         else:
             go(page, f"/tenancy/{mo}?tab=move-out")
         stay(tenant)
+        watch_button(page, r"^Approve and pay|^Sending\.\.\.$")
         page.get_by_role("button", name=re.compile(r"^Approve and pay")).first.click()
         dlg = page.get_by_role("alertdialog")
         check("Approve and pay: asks first, naming the amount", f"Send {usd(E['settled'])} to Luke Jones and Lane Forti?" in dlg.inner_text(), dlg.inner_text()[:200])
         dlg.get_by_role("button", name="Approve and pay").click()
         page.get_by_text(f"Settled: {usd(E['settled'])} back").first.wait_for(timeout=90_000)
+        no_flash("Approve and pay", page, r"^Approve and pay")
         f3 = facts()
         sets = [x for x in f3["settlements"] if x["tenancy_id"] == mo]
         spay = [p for p in f3["payments"] if p["tenancy_id"] == mo and p["kind"] == "settlement_refund"]

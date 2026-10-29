@@ -7,6 +7,7 @@ import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { WorkingDots } from "@/components/motion";
+import { useRefresh } from "@/components/refresh";
 import { Card, CardHead, LineMark, Money, Notice, StatusChip } from "@/components/ui";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { PayPalDisputeView } from "@/lib/chargeback-store";
@@ -26,6 +27,7 @@ const STATUS_TONE: Record<string, "red" | "amber" | "green" | "gray"> = {
 export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { tenancyId: string; v: PayPalDisputeView; quiet: boolean; zone?: string }) {
   const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
   const router = useRouter();
+  const refresh = useRefresh();
   const [busy, setBusy] = useState<null | "check" | "prepare" | "approve" | "decline" | "recheck">(null);
   const [polling, setPolling] = useState(v.running);
   const [error, setError] = useState("");
@@ -56,19 +58,17 @@ export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { ten
   async function check() {
     setError(""); setInfo(""); setBusy("check");
     const { res, j } = await post("check");
-    setBusy(null);
-    if (!res?.ok) return setError(j.error ?? "Couldn't reach PayPal. Try again.");
-    setInfo(j.changed ? "PayPal's latest is below." : "Nothing new from PayPal.");
-    router.refresh();
+    if (!res?.ok) { setBusy(null); return setError(j.error ?? "Couldn't reach PayPal. Try again."); }
+    refresh(() => { setBusy(null); setInfo(j.changed ? "PayPal's latest is below." : "Nothing new from PayPal."); });
   }
 
   async function prepare() {
     setError(""); setInfo(""); setBusy("prepare"); setPolling(true);
     const { res, j } = await post("prepare");
-    setBusy(null);
-    if (!res) return; // the connection dropped; the run goes on, and the polling shows it
-    if (!res.ok && !j.running) { setError(j.error ?? "The defense agent couldn't prepare a response."); setPolling(false); }
-    router.refresh();
+    if (!res) return setBusy(null); // the connection dropped; the run goes on, and the polling shows it
+    const failed = !res.ok && !j.running;
+    if (failed) setError(j.error ?? "The defense agent couldn't prepare a response.");
+    refresh(() => { setBusy(null); if (failed) setPolling(false); });
   }
 
   async function approve() {
@@ -80,9 +80,8 @@ export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { ten
     if (!ok) return;
     setError(""); setInfo(""); setBusy("approve");
     const { res, j } = await post("approve", { responseId: r.id, hash: r.hash });
-    setBusy(null);
     if (!res?.ok) setError(j.error ?? "Couldn't send that. Try again.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   async function recheck() {
@@ -91,18 +90,16 @@ export function PayPalDisputeCard({ tenancyId, v, quiet, zone = PACIFIC }: { ten
     if (!ok) return;
     setError(""); setBusy("recheck");
     const { res, j } = await post("recheck", { responseId: r.id });
-    setBusy(null);
     if (!res?.ok) setError(j.error ?? "Couldn't check that. Try again.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   async function decline() {
     if (!r) return;
     setError(""); setBusy("decline");
     const { res, j } = await post("decline", { responseId: r.id });
-    setBusy(null);
     if (!res?.ok) setError(j.error ?? "Couldn't decline that.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   const tone = STATUS_TONE[v.statusCode ?? ""] ?? (v.open ? "amber" : "gray");

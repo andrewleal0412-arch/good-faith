@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "@/components/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { daysBetween, shortDate } from "@/lib/dates";
 import type { EventKind } from "@/lib/ics";
@@ -11,6 +10,7 @@ import { describeTenantMoveOut, tenantMoveOutSentOn, type TenantMoveOut } from "
 import { Button, ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
+import { useRefresh } from "@/components/refresh";
 import { Card, CardHead, KV, LineMark, Notice, inlineInputClass } from "@/components/ui";
 import { MoveOutDate } from "./move-out-date";
 import { NoticeGivenForm } from "./notice-given-form";
@@ -38,7 +38,7 @@ export function NoticeSection(p: {
   tenantMoveOut: TenantMoveOut | null; // what the tenants sent through their link, if anything
   quiet?: boolean; // the record header holds the view's primary button, so Record notice shows as secondary
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [end, setEnd] = useState(p.endDate ?? "");
   const [editing, setEditing] = useState(false);
   // Until a notice is recorded, the form starts from what the tenants sent through their link: the day they sent it
@@ -55,10 +55,8 @@ export function NoticeSection(p: {
     setError("");
     const r = await fetch(url, init);
     const j = await r.json().catch(() => ({}));
-    setBusy(null);
-    if (!r.ok) return setError(j.error ?? "Something went wrong.");
-    setEditing(false);
-    router.refresh();
+    if (!r.ok) { setBusy(null); return setError(j.error ?? "Something went wrong."); }
+    refresh(() => { setBusy(null); setEditing(false); });
   }
   const saveEnd = (endDate: string | null) => call("end", `/api/tenancies/${p.tenancyId}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endDate }),

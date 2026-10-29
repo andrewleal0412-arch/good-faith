@@ -1,10 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
+import { useRefresh } from "@/components/refresh";
 import { Notice } from "@/components/ui";
 
 // The review page's buttons: Back, the one primary (Prepare refund, which starts the close-out agent, or Send refund,
@@ -20,7 +20,7 @@ export function RefundActions(p: {
   disabled?: boolean; // a blocker, a failed rules check, or a run already in progress
   auth: string; // the sentence under the buttons
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [confirm, dialog] = useConfirm();
   const [busy, setBusy] = useState<"start" | "approve" | "decline" | null>(null);
   const [error, setError] = useState("");
@@ -46,9 +46,8 @@ export function RefundActions(p: {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved: kind === "approve" }),
     }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : {};
-    setBusy(null);
     if (!r?.ok || j.error) setError(j.error ?? "Something went wrong. Nothing was sent.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   const progress = busy === "start" ? "The agent is reading the file and checking the deposit with PayPal"

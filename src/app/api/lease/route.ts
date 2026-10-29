@@ -1,9 +1,8 @@
 import { db } from "@/lib/db";
 import { extractLeaseTerms } from "@/lib/extract";
 import { isPdf, readForm, UNREADABLE } from "@/lib/images";
+import { leaseResult } from "@/lib/lease-result";
 import { claudeNeverAnswered, takeAllowance } from "@/lib/limits";
-import { evaluateLease, lawfulDeposit, smallLandlordExempt, totalSecurity } from "@/lib/rules";
-import { isSupported, packFor, stateCode, unsupportedMessage } from "@/lib/states";
 import { ACCESS_MESSAGES } from "@/lib/session";
 import { mb, UPLOAD_BUDGET } from "@/lib/uploads";
 import { currentWorkspace, uploadPrefix } from "@/lib/workspace";
@@ -43,20 +42,7 @@ export async function POST(req: Request) {
       db.storage.from("leases").upload(leasePath, bytes, { contentType: "application/pdf" }),
     ]);
     if (upload.error) console.error("lease upload failed", upload.error.message);
-    // The state the lease names, else the one its address ends with.
-    const state = stateCode(terms.state) ?? stateCode(terms.propertyAddress);
-    terms.state = state;
-    const supported = isSupported(state);
-    const pack = supported ? packFor(state) : null;
-    return Response.json({
-      leasePath: upload.error ? null : leasePath,
-      state, supported, refusal: supported ? null : unsupportedMessage(state),
-      lawfulDeposit: pack ? lawfulDeposit(terms, pack) : null,
-      terms,
-      totalSecurity: totalSecurity(terms),
-      smallLandlordExempt: smallLandlordExempt(terms),
-      flags: pack ? evaluateLease(terms, pack) : [],
-    });
+    return Response.json(leaseResult(terms, upload.error ? null : leasePath));
   } catch (e) {
     console.error("lease extraction failed", e);
     // Claude never answered (an overload, a bad key): nothing was spent, so the check goes back to today's allowance.

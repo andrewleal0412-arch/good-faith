@@ -1,12 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { addDays, shortDate } from "@/lib/dates";
 import { FORWARDING_MAX, PLANNED_MOVE_OUT_HORIZON_DAYS, PLANNED_MOVE_OUT_PAST_DAYS, tenantMoveOutSentOn, type TenantMoveOut } from "@/lib/tenant";
 import { zoneOf } from "@/lib/states";
 import { buttonClass } from "@/components/button";
 import { FormField } from "@/components/field";
+import { useRefresh } from "@/components/refresh";
 import { Notice, inputClass } from "@/components/ui";
 
 const input = inputClass;
@@ -24,7 +24,7 @@ const EXAMPLE: Record<string, string> = {
 // Sending it again changes the one record rather than adding another; the landlord sees the latest. Once the
 // landlord has recorded the actual move-out (moveOutDate), the date is settled and only the address is asked for.
 export function MovingOutForm(p: { token: string; tenants: string[]; today: string; moveOutDate: string | null; existing: TenantMoveOut | null; quiet?: boolean; state?: string }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const dateLocked = !!p.moveOutDate;
   const [saved, setSaved] = useState(p.existing); // the record as the server last returned it, so a change shows at once
   const [open, setOpen] = useState(!p.existing);
@@ -43,12 +43,13 @@ export function MovingOutForm(p: { token: string; tenants: string[]; today: stri
       body: JSON.stringify({ name, plannedMoveOut: dateLocked ? undefined : date, forwardingAddress: address }),
     });
     const j = await r.json().catch(() => ({}));
-    setBusy(false);
-    if (!r.ok) return setError(j.error ?? "Couldn't send that. Try again.");
-    if (j.moveOut) setSaved(j.moveOut as TenantMoveOut);
-    setJustSent(true);
-    setOpen(false);
-    router.refresh();
+    if (!r.ok) { setBusy(false); return setError(j.error ?? "Couldn't send that. Try again."); }
+    refresh(() => {
+      setBusy(false);
+      if (j.moveOut) setSaved(j.moveOut as TenantMoveOut);
+      setJustSent(true);
+      setOpen(false);
+    });
   }
 
   if (!open && saved) {

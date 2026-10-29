@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AgGridProvider, AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
 import type {
@@ -17,6 +16,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { Menu, type MenuItem } from "@/components/menu";
 import { useMotionOff } from "@/components/motion";
+import { useRefresh } from "@/components/refresh";
 import { RollMoney } from "@/components/roll-money";
 import { Money, Notice, inputClass } from "@/components/ui";
 import { checkEdit, editableFields, editRowOf, FIELD_LABEL, inputWords, type Changes, type EditField, type EditLimits, type EditRow } from "@/lib/deduction-edit";
@@ -227,7 +227,7 @@ export function DeductionsGrid(p: {
   limits: Record<string, EditLimits>;
   totals: (live: { total: number; refund: number; balanceClaimed: number }) => TotalLine[];
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const apiRef = useRef<GridApi<Row> | null>(null);
   const [confirm, confirmDialog] = useConfirm();
   // A recomputed amount flashes and a row added while the grid is seen fades in, unless the viewer asked for less motion.
@@ -328,29 +328,32 @@ export function DeductionsGrid(p: {
     const resp = await fetch(`/api/tenancies/${p.tenancyId}/deductions/${row.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changes, math: before.math }),
     }).catch(() => null);
-    setSaving(null);
     const j = resp ? await resp.json().catch(() => ({})) as { error?: string; amount?: number; math?: string; changes?: string[] } : {};
     if (!resp || !resp.ok) {
+      setSaving(null);
       setEdits((e) => ({ ...e, [row.id]: before }));
       const why = j.error ?? "Couldn't save it. Check the connection and try again.";
       setMessage({ tone: "red", text: why });
       return why;
     }
-    setEdits((e) => ({ ...e, [row.id]: { ...r.row, amount: j.amount ?? r.row.amount, math: j.math ?? r.row.math } }));
-    setMessage({ tone: "gray", text: `Saved. ${row.title}: ${(j.changes ?? []).join(", ").toLowerCase() || "no change"}. It comes to ${usd(j.amount ?? r.row.amount)}.` });
-    router.refresh();
+    refresh(() => {
+      setSaving(null);
+      setEdits((e) => ({ ...e, [row.id]: { ...r.row, amount: j.amount ?? r.row.amount, math: j.math ?? r.row.math } }));
+      setMessage({ tone: "gray", text: `Saved. ${row.title}: ${(j.changes ?? []).join(", ").toLowerCase() || "no change"}. It comes to ${usd(j.amount ?? r.row.amount)}.` });
+    });
     return null;
-  }, [p.limits, p.pack, p.tenancyId, router]);
+  }, [p.limits, p.pack, p.tenancyId, refresh]);
 
   const remove = useCallback(async (row: Row) => {
     if (!(await confirm({ title: "Remove this deduction?", body: `${row.title}, ${usd(row.amount ?? 0)}. Its receipt goes too; the after-repair photos stay on file.`, action: "Remove" }))) return;
     setSaving(row.id);
     const r = await fetch(`/api/tenancies/${p.tenancyId}/deductions/${row.id}`, { method: "DELETE" });
-    setSaving(null);
-    if (!r.ok) setMessage({ tone: "red", text: (await r.json().catch(() => ({}))).error ?? "Couldn't remove it." });
-    else setMessage({ tone: "gray", text: `Removed ${row.title}.` });
-    router.refresh();
-  }, [confirm, p.tenancyId, router]);
+    const failed = r.ok ? null : (await r.json().catch(() => ({}))).error ?? "Couldn't remove it.";
+    refresh(() => {
+      setSaving(null);
+      setMessage(failed ? { tone: "red", text: failed } : { tone: "gray", text: `Removed ${row.title}.` });
+    });
+  }, [confirm, p.tenancyId, refresh]);
 
   const context = useMemo<Ctx>(() => ({
     layout, allowed: p.allowed, pack: p.pack, documentsRequired: s.documentsRequired, saving, locked: p.locked,

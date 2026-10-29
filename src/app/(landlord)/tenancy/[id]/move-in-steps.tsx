@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, buttonClass, pickerFocus } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { FormField } from "@/components/field";
 import { InfoTip } from "@/components/info-tip";
+import { useRefresh } from "@/components/refresh";
 import { StepLine, StepMark } from "@/components/steps";
 import { Money, Notice, StatusChip, inputClass, inlineInputClass } from "@/components/ui";
 import { atTextIn, shortDate, todayIn } from "@/lib/dates";
@@ -41,7 +41,7 @@ const ROOMS = ["Living room", "Kitchen", "Bedroom 1", "Bedroom 2", "Bathroom", "
 // AB 2801), with the state's own records where its pack puts them (a Washington checklist before the deposit, the
 // account the deposit is held in after it). The law behind each step is in its info tip.
 export function MoveInSteps(p: Props) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
@@ -53,9 +53,8 @@ export function MoveInSteps(p: Props) {
     setError("");
     const r = await fetch(url, init).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : {};
-    setBusy(null);
-    if (!r?.ok) return setError(j.error ?? "Something went wrong. Try again.");
-    router.refresh();
+    if (!r?.ok) { setBusy(null); return setError(j.error ?? "Something went wrong. Try again."); }
+    refresh(() => setBusy(null));
   }
 
   // Photos are shrunk in the browser and sent in requests under the host's body limit (src/lib/uploads.ts). The input is
@@ -67,9 +66,8 @@ export function MoveInSteps(p: Props) {
     setBusy("photos");
     setError("");
     const res = await uploadPhotos(`/api/tenancies/${p.tenancyId}/photos`, { phase: "move_in", room }, files);
-    setBusy(null);
     if (!res.ok) setError(res.error);
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   const pack = packFor(p.state);

@@ -77,8 +77,8 @@ export function DeductionForm({ tenancyId, state, finding, onDone, onCancel }: {
     if (receiptFile) fd.append("receipt", receiptFile);
     for (const f of afterFiles) fd.append("after", f);
     const r = await fetch(`/api/tenancies/${tenancyId}/deductions`, { method: "POST", body: fd });
-    setBusy(false);
-    if (!r.ok) return setError(await uploadError(r, "Couldn't save it.", "That receipt and those photos are too large for one request. Add fewer after-repair photos, or a smaller receipt."));
+    // Saved: the form stays busy until onDone's refresh brings the page in with the deduction, and closes it.
+    if (!r.ok) { setBusy(false); return setError(await uploadError(r, "Couldn't save it.", "That receipt and those photos are too large for one request. Add fewer after-repair photos, or a smaller receipt.")); }
     onDone();
   }
 

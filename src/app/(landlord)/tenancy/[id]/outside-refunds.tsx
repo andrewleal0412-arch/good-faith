@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { CopyId } from "@/components/copy-id";
 import { InfoTip } from "@/components/info-tip";
 import { PresenceList } from "@/components/motion";
+import { useRefresh } from "@/components/refresh";
 import { Card, CardHead, Money, Notice } from "@/components/ui";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 
@@ -21,7 +21,7 @@ export type OutsideRefundView = { id: string; amount: number; at: string | null;
 const WHY = "PayPal shows this refund of the tenants' deposit payment, but it wasn't sent from Good Faith: it was made in PayPal, or a refund sent from here lost PayPal's answer. Record it if it returned part or all of this deposit: it then counts toward what goes back on the statement, the tenants' page and Payments, and the close-out sends only what is still owed. Mark it not this deposit if it was something else: it then counts nowhere here. Until you decide, the close-out and a settlement wait, so the same money can't go back twice.";
 
 export function OutsideRefundsCard({ tenancyId, refunds, quiet, zone = PACIFIC }: { tenancyId: string; refunds: OutsideRefundView[]; quiet: boolean; zone?: string }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const open = refunds.filter((r) => r.status === "open");
@@ -34,9 +34,8 @@ export function OutsideRefundsCard({ tenancyId, refunds, quiet, zone = PACIFIC }
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refundId: id, decision }),
     }).catch(() => null);
     const j = res ? await res.json().catch(() => ({})) : {};
-    setBusy(null);
     if (!res?.ok) setError(j.error ?? "Couldn't save that. Try again.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   return (

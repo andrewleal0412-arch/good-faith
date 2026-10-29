@@ -1,10 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { FormField } from "@/components/field";
+import { useRefresh } from "@/components/refresh";
 import { Notice, inputClass } from "@/components/ui";
 import { longDate } from "@/lib/dates";
 import { describeNoticeGiven, NOTICE_METHOD_LABEL, NOTICE_SLUG, recordFor, type NoticeGiven, type NoticeKind, type NoticeMethod } from "@/lib/notices";
@@ -16,7 +16,7 @@ const input = inputClass;
 // a deposit is held in, a claim notice sent by certified mail): the date, how, with whom, and what it names. Shared by
 // the tenancy page and the record's own page. When it is already recorded, it shows the record and offers to undo it.
 export function NoticeGivenForm(p: { tenancyId: string; state: string; kind: NoticeKind; tenants: string[]; today: string; given: NoticeGiven | null }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [confirm, dialog] = useConfirm();
   const def = recordFor(packFor(p.state), p.kind)!;
   const labels = def.form ?? { method: "How it was given", date: "Date given", button: "Mark as given" };
@@ -35,19 +35,16 @@ export function NoticeGivenForm(p: { tenancyId: string; state: string; kind: Not
     setError("");
     const body = def.detail || def.received ? { date, method, to, detail, received: method === "email" ? date : received } : { date, method, to };
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
-    setBusy(false);
-    if (!r?.ok) return setError((r ? (await r.json().catch(() => ({}))).error : null) ?? "Couldn't record that.");
-    setOpen(false);
-    router.refresh();
+    if (!r?.ok) { setBusy(false); return setError((r ? (await r.json().catch(() => ({}))).error : null) ?? "Couldn't record that."); }
+    refresh(() => { setBusy(false); setOpen(false); });
   }
 
   async function undo() {
     if (!(await confirm({ title: "Remove this record?", body: `The ${def.short} goes back to ${def.draft ? "a draft" : "not recorded"}. The activity log keeps both entries.`, action: "Remove" }))) return;
     setBusy(true);
     const r = await fetch(url, { method: "DELETE" }).catch(() => null);
-    setBusy(false);
-    if (!r?.ok) return setError((r ? (await r.json().catch(() => ({}))).error : null) ?? "Couldn't change that.");
-    router.refresh();
+    if (!r?.ok) { setBusy(false); return setError((r ? (await r.json().catch(() => ({}))).error : null) ?? "Couldn't change that."); }
+    refresh(() => setBusy(false));
   }
 
   if (p.given) {

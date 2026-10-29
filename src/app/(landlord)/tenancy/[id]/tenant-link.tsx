@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
+import { useRefresh } from "@/components/refresh";
 import { Card, CardHead, Notice, StatusChip, inputClass } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { TENANT_VIEW_TIP } from "@/lib/copy";
@@ -23,7 +23,7 @@ export function TenantLinkPanel(p: {
   demoHref?: string | null; // a demo copy's tenants' page, which its own pages may open again (one person plays both sides)
   zone?: string; // the property's time zone (its state pack's), which its times are shown in
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [confirm, dialog] = useConfirm();
   const field = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState<string | null>(null); // the link just made, held until the page is left
@@ -41,10 +41,8 @@ export function TenantLinkPanel(p: {
     setCopyNote("");
     const r = await fetch(api, { method: "POST" }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : {};
-    setBusy(null);
-    if (!r?.ok) return setError(j.error ?? "Couldn't create the link.");
-    setUrl(`${window.location.origin}${j.path}`);
-    router.refresh();
+    if (!r?.ok) { setBusy(null); return setError(j.error ?? "Couldn't create the link."); }
+    refresh(() => { setBusy(null); setUrl(`${window.location.origin}${j.path}`); });
   }
 
   async function revoke() {
@@ -52,10 +50,8 @@ export function TenantLinkPanel(p: {
     setBusy("revoke");
     setError("");
     const r = await fetch(api, { method: "DELETE" }).catch(() => null);
-    setBusy(null);
-    if (!r?.ok) return setError((r ? (await r.json().catch(() => ({}))).error : null) ?? "Couldn't turn the link off.");
-    setUrl(null);
-    router.refresh();
+    if (!r?.ok) { setBusy(null); return setError((r ? (await r.json().catch(() => ({}))).error : null) ?? "Couldn't turn the link off."); }
+    refresh(() => { setBusy(null); setUrl(null); });
   }
 
   /** The clipboard API exists only on secure origins (localhost or https), so over plain http the field is selected

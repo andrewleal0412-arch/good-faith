@@ -9,6 +9,7 @@ import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { WorkingDots } from "@/components/motion";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
+import { useRefresh } from "@/components/refresh";
 import { LineMark, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import { useWatch } from "@/components/watch";
 import type { AdvocateCase, Verdict } from "@/lib/advocate";
@@ -70,6 +71,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
   zone?: string; // the property's time zone (its state pack's), which the dispute's dates are shown in
 }) {
   const router = useRouter();
+  const refresh = useRefresh();
   const d = view.dispute;
   // A dispute the tenants withdrew can be opened again: a new one of the same statement, its form filled in from the
   // withdrawn one's charges and reasons (photos are added again). `draft` is the dispute being written, if any.
@@ -208,22 +210,16 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
     if (!withCase && !(await save())) return setBusy(null);
     const r = await fetch(`/api/t/${token}/dispute/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ withCase }) });
     const j = await r.json().catch(() => ({}));
-    setBusy(null);
-    if (!r.ok) {
-      setError(j.error ?? "Couldn't send that. Try again.");
-      router.refresh();
-      return;
-    }
-    router.refresh();
+    if (!r.ok) setError(j.error ?? "Couldn't send that. Try again.");
+    refresh(() => setBusy(null));
   }
 
   async function removePhoto(id: string) {
     setBusy("remove");
     const r = await fetch(`/api/t/${token}/dispute/evidence/${id}`, { method: "DELETE" });
     const j = await r.json().catch(() => ({}));
-    setBusy(null);
-    if (!r.ok) return setError(j.error ?? "Couldn't remove that photo.");
-    router.refresh();
+    if (!r.ok) { setBusy(null); return setError(j.error ?? "Couldn't remove that photo."); }
+    refresh(() => setBusy(null));
   }
 
   const sendNote = view.sendNote && <p className="mt-3 text-center text-xs text-ink-3">{view.sendNote}</p>;
@@ -475,7 +471,7 @@ function CaseLines({ c, view }: { c: AdvocateCase; view: TenantDisputeView }) {
 function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
   token: string; landlord: string; view: TenantDisputeView; negotiation: LoadedNegotiation | null; zone: string; onAgain?: () => void;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
   const d = view.dispute!;
   const n = negotiation;
@@ -548,8 +544,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     if (!ok) return;
     setBusy("accept");
     await post("accept", { name });
-    setBusy(null);
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   async function acceptOffer() {
@@ -565,8 +560,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     if (!ok) return;
     setBusy("accept");
     await post("offer", { accept: true, name });
-    setBusy(null);
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   async function withdraw() {
@@ -579,8 +573,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     if (!ok) return;
     setBusy("withdraw");
     await post("withdraw", { name });
-    setBusy(null);
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   async function counter() {
@@ -589,9 +582,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     if (!name) return refuse("Pick your name.", "name");
     setBusy("offer");
     const ok = await post("offer", { amount: amt, message: message.trim() || null, name });
-    setBusy(null);
-    if (ok) { setOfferOpen(false); setAmount(""); setMessage(""); }
-    router.refresh();
+    refresh(() => { setBusy(null); if (ok) { setOfferOpen(false); setAmount(""); setMessage(""); } });
   }
 
   let hero: ReactNode;

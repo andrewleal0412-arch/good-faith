@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "@/components/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
@@ -9,6 +8,7 @@ import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
 import { NegotiationThread, Position } from "@/components/negotiation-thread";
+import { useRefresh } from "@/components/refresh";
 import { Card, CardHead, LineMark, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import { useWatch } from "@/components/watch";
 import { DEMO_EXAMPLE } from "@/lib/copy";
@@ -27,7 +27,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
   zone?: string; // the property's time zone (its state pack's), which the dates are shown in
 }) {
   const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
-  const router = useRouter();
+  const refresh = useRefresh();
   const [autoConcede, setAutoConcede] = useState(v.policy?.autoConcede ?? true);
   const [limit, setLimit] = useState(v.policy?.limit != null ? String(v.policy.limit) : "");
   const [busy, setBusy] = useState<null | "run" | "pay" | "offer">(null);
@@ -79,14 +79,12 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
     const r = await fetch(`/api/tenancies/${tenancyId}/dispute/negotiate`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ policy: { autoConcede, limit: n } }),
     }).catch(() => null);
-    setBusy(null);
     // The connection dropped mid-run: the run goes on on the server, and the polling shows it.
-    if (!r) return;
+    if (!r) return setBusy(null);
     const j = await r.json().catch(() => ({}));
+    if (!r.ok && !j.running) setError(j.error ?? "The agents couldn't negotiate. Try again.");
     // The run is over (it answered), so nothing is left to wait for: the typing row goes with this refresh.
-    if (r.ok) setPolling(false);
-    else if (!j.running) { setError(j.error ?? "The agents couldn't negotiate. Try again."); setPolling(false); }
-    router.refresh();
+    refresh(() => { setBusy(null); if (r.ok || !j.running) setPolling(false); });
   }
 
   async function pay() {
@@ -109,9 +107,8 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
     setBusy("pay");
     const r = await fetch(`/api/tenancies/${tenancyId}/dispute/settle`, { method: "POST" }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : {};
-    setBusy(null);
     if (!r?.ok) setError(j.error ?? "Couldn't send that. Try again.");
-    router.refresh();
+    refresh(() => setBusy(null));
   }
 
   async function offer(accept: boolean) {
@@ -131,12 +128,8 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: n, accept, message: message.trim() || null }),
     }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : {};
-    setBusy(null);
-    if (!r?.ok) return setError(j.error ?? "Couldn't send that offer.");
-    setOfferOpen(false);
-    setAmount("");
-    setMessage("");
-    router.refresh();
+    if (!r?.ok) { setBusy(null); return setError(j.error ?? "Couldn't send that offer."); }
+    refresh(() => { setBusy(null); setOfferOpen(false); setAmount(""); setMessage(""); });
   }
 
   const chip = settled ? <StatusChip live tone="green">Settled</StatusChip>

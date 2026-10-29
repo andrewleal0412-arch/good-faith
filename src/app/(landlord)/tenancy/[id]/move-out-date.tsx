@@ -1,8 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
+import { useRefresh } from "@/components/refresh";
 import { inlineInputClass } from "@/components/ui";
 import { shortDate } from "@/lib/dates";
 
@@ -12,7 +12,7 @@ import { shortDate } from "@/lib/dates";
 export function MoveOutDate({ tenancyId, value, locked, className = "" }: {
   tenancyId: string; value: string | null; locked: boolean; className?: string;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [editing, setEditing] = useState(!value);
   const [date, setDate] = useState(value ?? "");
   const [busy, setBusy] = useState(false);
@@ -24,10 +24,8 @@ export function MoveOutDate({ tenancyId, value, locked, className = "" }: {
     const r = await fetch(`/api/tenancies/${tenancyId}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ moveOutDate: date }),
     });
-    setBusy(false);
-    if (!r.ok) return setError((await r.json().catch(() => ({}))).error ?? "Couldn't save the date.");
-    setEditing(false);
-    router.refresh();
+    if (!r.ok) { setBusy(false); return setError((await r.json().catch(() => ({}))).error ?? "Couldn't save the date."); }
+    refresh(() => { setBusy(false); setEditing(false); });
   }
 
   if (locked || (value && !editing)) {

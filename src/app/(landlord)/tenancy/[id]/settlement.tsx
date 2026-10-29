@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { lazy, Suspense, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm";
 import { Icon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
+import { useRefresh } from "@/components/refresh";
 import { Bone } from "@/components/skeletons";
 import { Card, CardHead, Notice } from "@/components/ui";
 import type { EditLimits } from "@/lib/deduction-edit";
@@ -66,7 +66,7 @@ export function Settlement(p: {
   // next-step.ts): the card then offers to remove them all at once.
   removeAll?: { title: string; detail: string; cite: string | null } | null;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [confirm, confirmDialog] = useConfirm();
   const [removing, setRemoving] = useState(false);
   const [message, setMessage] = useState<{ tone: "red" | "gray"; text: string } | null>(null);
@@ -120,10 +120,11 @@ export function Settlement(p: {
     setMessage(null);
     const r = await fetch(`/api/tenancies/${p.tenancyId}/deductions`, { method: "DELETE" }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) as { error?: string; removed?: number } : {};
-    setRemoving(false);
-    if (!r?.ok) setMessage({ tone: "red", text: j.error ?? `Couldn't remove ${one ? "it" : "them"}. Check the connection and try again.` });
-    else setMessage({ tone: "gray", text: `Removed ${j.removed === 1 ? "the deduction" : `${j.removed ?? count} deductions`}. The refund is next.` });
-    router.refresh();
+    refresh(() => {
+      setRemoving(false);
+      if (!r?.ok) setMessage({ tone: "red", text: j.error ?? `Couldn't remove ${one ? "it" : "them"}. Check the connection and try again.` });
+      else setMessage({ tone: "gray", text: `Removed ${j.removed === 1 ? "the deduction" : `${j.removed ?? count} deductions`}. The refund is next.` });
+    });
   };
   const inBrowser = useSyncExternalStore(noSubscribe, () => true, () => false);
   const bones = (

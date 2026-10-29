@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { LanguageModel } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
+import { DEMO_LEASE_FILE, DEMO_LEASE_TERMS } from "./demo-lease";
 import { e2eLog } from "./e2e-switch";
 
 // The scripted models behind every Claude job while the e2e stubs are on (src/lib/e2e-switch.ts; never on Render):
@@ -67,42 +68,12 @@ const clamp = (x: number, lo: number, hi: number) => Math.min(Math.max(x, lo), h
 
 /* ---------- The lease check ---------- */
 
-/** What Claude read from demo/lease-single-owner.pdf (the demo's move-out unit's stored lease_terms), with the two
- *  fields added since. */
-const DEMO_LEASE = {
-  propertyAddress: "1140 E. Juniper Hollow Ln, Orange, CA 92867",
-  city: "Orange",
-  state: "CA",
-  landlordName: "Teddy Buettner",
-  ownerType: "natural_person",
-  ownerPropertyCount: 1,
-  ownerUnitCount: 1,
-  buildingUnitCount: null,
-  tenants: ["Luke Jones", "Lane Forti"],
-  tenancyStartDate: "2025-10-01",
-  leaseEndDate: "2026-09-30",
-  monthlyRent: 2400,
-  securityDeposit: 4800,
-  otherMoveInCharges: [{
-    label: "Cleaning fee", amount: 300, refundable: false,
-    quote: "Tenant shall also pay a nonrefundable cleaning fee of $300.00, which covers professional cleaning at the end of the tenancy and will not be returned.",
-  }],
-  nonrefundableLanguage: ["Tenant shall also pay a nonrefundable cleaning fee of $300.00, which covers professional cleaning at the end of the tenancy and will not be returned."],
-  lateFee: {
-    amount: 120, percentOfRent: 5, deductibleFromDeposit: true,
-    quote: "If rent is not received by the 5th day of the month, Tenant shall pay a late charge of $120.00 (5% of the monthly rent), which Landlord may deduct from the security deposit.",
-  },
-  mandatoryCleaningClause: "Tenant shall also pay a nonrefundable cleaning fee of $300.00, which covers professional cleaning at the end of the tenancy and will not be returned.",
-  electronicPaymentMethods: ["PayPal", "Zelle"],
-  tenantIsServiceMember: null,
-};
-export const DEMO_LEASE_FILE = "lease-single-owner.pdf";
-
+/** A live read of demo/lease-single-owner.pdf answers with the facts Claude read from it (src/lib/demo-lease.ts). */
 function lease(o: CallOptions) {
   const files = o.prompt.flatMap((m) => (typeof m.content === "string" ? [] : m.content.filter((p) => p.type === "file")));
   const name = files[0]?.filename ?? "";
   if (name !== DEMO_LEASE_FILE) throw new Error(`The e2e stub reads only demo/${DEMO_LEASE_FILE}, not "${name.slice(0, 80)}".`);
-  return answer(JSON.stringify(DEMO_LEASE));
+  return answer(JSON.stringify(DEMO_LEASE_TERMS));
 }
 
 /* ---------- The close-out agent ---------- */

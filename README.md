@@ -27,7 +27,7 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 
 [good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, dated that day, with a welcome card and a short tour of Properties on the first visit, and a demo guide above each page that lists these eight beats and ticks them off. The first page after a quiet spell can take up to a minute while Render wakes.
 
-1. **Lease check.** Check a lease, upload `demo/lease-single-owner.pdf` (about 20 seconds): a deposit over the cap, a "nonrefundable" fee, and the lawful amount to collect.
+1. **Lease check.** Check a lease, then Check the sample lease: one click, from the facts Claude read when the demo was built, and the code flags a deposit over the cap, a "nonrefundable" fee, and the lawful amount to collect. To watch Claude read it live (about 20 seconds), open the sample from the link beside the button and drop the PDF on the page.
 2. **Deposit by PayPal.** Properties, then 1140 E. Juniper Hollow Ln, Overview: the signed refund agreement and the deposit paid through a PayPal invoice.
 3. **Move-out boxes.** The same unit's Move-out tab: the photo pairs, Claude's boxes, and the three deductions computed in code, the carpet prorated by its age.
 4. **Refund approval.** Review refund, then Prepare refund (under 60 seconds), then Send refund: $3,790.00 back through PayPal's Agent Toolkit, and the receipt shows PayPal's refund id.

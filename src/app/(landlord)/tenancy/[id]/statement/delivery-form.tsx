@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { shortDate } from "@/lib/dates";
 import type { DeliveryRecord } from "@/lib/delivery";
@@ -9,6 +8,7 @@ import { Button } from "@/components/button";
 import { Drawer, drawerFooter } from "@/components/drawer";
 import { InfoTip } from "@/components/info-tip";
 import { FormField } from "@/components/field";
+import { useRefresh } from "@/components/refresh";
 import { Card, CardHead, LineMark, Notice, StatusChip, inputClass } from "@/components/ui";
 
 const input = inputClass;
@@ -33,7 +33,7 @@ export function DeliveryPanel(p: {
   forwarding: { address: string; name: string | null; date: string } | null; // what the tenants gave through their link
   waiting?: boolean; // PayPal's live answer for the statement is not in yet: the button waits for it
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [open, setOpen] = useState(false);
   const d = p.existing;
 
@@ -67,7 +67,7 @@ export function DeliveryPanel(p: {
         )}
         <Button className="mt-4 w-full" onClick={() => setOpen(true)} disabled={p.waiting} title={p.waiting ? "Checking the deposit with PayPal" : undefined}>{d ? "Change" : "Record delivery"}</Button>
       </div>
-      {open && !p.waiting && <DeliveryDrawer {...p} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); router.refresh(); }} />}
+      {open && !p.waiting && <DeliveryDrawer {...p} onClose={() => setOpen(false)} onSaved={() => refresh(() => setOpen(false))} />}
     </Card>
   );
 }
@@ -106,8 +106,8 @@ function DeliveryDrawer(p: Parameters<typeof DeliveryPanel>[0] & { onClose: () =
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ method, date, to, address, email, by_agreement: method === "email" ? agreed || !needsAgreement : false }),
     }).catch(() => null);
-    setBusy(false);
-    if (!r?.ok) return setError((r && (await r.json().catch(() => ({}))).error) ?? "Couldn't record that.");
+    // Saved: the drawer stays on "Saving..." until onSaved's refresh brings the page in with the record, and closes it.
+    if (!r?.ok) { setBusy(false); return setError((r && (await r.json().catch(() => ({}))).error) ?? "Couldn't record that."); }
     p.onSaved();
   }
 

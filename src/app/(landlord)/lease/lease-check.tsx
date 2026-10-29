@@ -6,6 +6,7 @@ import { Button } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Card, Fact, FactStrip, KV, Money, Notice, StatusChip, inlineInputClass, type Tone } from "@/components/ui";
+import { DEMO_LEASE_FILE } from "@/lib/demo-lease";
 import type { Flag, LeaseTerms } from "@/lib/rules";
 import { isSupported, packFor, SUPPORTED, STATE_NAMES, supportedNames, unsupportedMessage } from "@/lib/states";
 import { CA } from "@/lib/states/ca";
@@ -118,6 +119,7 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
   const [error, setError] = useState("");
   const [startError, setStartError] = useState("");
   const [fileName, setFileName] = useState("");
+  const [sample, setSample] = useState(false); // the result is the sample lease's, from the facts read when the demo was built
   const [dragging, setDragging] = useState(false);
   const [starting, setStarting] = useState(false);
   const router = useRouter();
@@ -154,12 +156,24 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
       setState("error");
       return;
     }
-    setFileName(file.name);
-    setState("reading");
-    setError("");
     const body = new FormData();
     body.append("file", file);
-    const r = await fetch("/api/lease", { method: "POST", body }).catch(() => null);
+    await read(file.name, false, fetch("/api/lease", { method: "POST", body }));
+  }
+
+  /** The sample lease, demo/lease-single-owner.pdf, checked from the facts Claude read when the demo was built
+   *  (src/lib/demo-lease.ts): no Claude call, so it is in at once; the PDF itself opens from the link beside the button
+   *  for anyone who wants to watch Claude read it. */
+  function checkSample() {
+    return read(DEMO_LEASE_FILE, true, fetch("/api/lease/sample", { method: "POST" }));
+  }
+
+  async function read(name: string, isSample: boolean, request: Promise<Response>) {
+    setFileName(name);
+    setSample(isSample);
+    setState("reading");
+    setError("");
+    const r = await request.catch(() => null);
     if (!r) {
       setError("Couldn't reach the server. Check the connection and try again.");
       setState("error");
@@ -179,6 +193,7 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
   function reset() {
     setResult(null);
     setCode(null);
+    setSample(false);
     setState("idle");
     setError("");
     setStartError("");
@@ -237,9 +252,15 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
           </div>
           <div className="flex items-center gap-3 max-sm:w-full max-sm:justify-between max-sm:pl-11">
             {picker}
+            {sample && <StatusChip tone="gray" dot={false} className="max-sm:hidden">Sample</StatusChip>}
             <StatusChip tone="green" className="max-sm:hidden">Checked</StatusChip>
             <Button variant="link" onClick={reset}>Check another</Button>
           </div>
+          {sample && (
+            <p className="basis-full text-xs text-ink-3">
+              The sample lease, from the facts Claude read when the demo was built. A lease you upload is read live, in about 20 seconds.
+            </p>
+          )}
         </Card>
 
         <FactStrip cols={3}>
@@ -357,13 +378,21 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
           </span>
         )}
       </label>
-      <p className="mt-3 flex items-center gap-1.5 text-sm text-ink-3">
-        For properties in {supportedNames()}
-        <InfoTip title="Supported states">
-          {SUPPORTED.map((c) => <span key={c} className="block">{packFor(c).name}: {packFor(c).statute.short}</span>)}
-          <span className="mt-1.5 block text-white/70">The lease&apos;s state picks the rules. Any other state is refused, by name. Not legal advice.</span>
-        </InfoTip>
-      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-ink-3">
+        <p className="flex items-center gap-1.5">
+          For properties in {supportedNames()}
+          <InfoTip title="Supported states">
+            {SUPPORTED.map((c) => <span key={c} className="block">{packFor(c).name}: {packFor(c).statute.short}</span>)}
+            <span className="mt-1.5 block text-white/70">The lease&apos;s state picks the rules. Any other state is refused, by name. Not legal advice.</span>
+          </InfoTip>
+        </p>
+        {/* No lease at hand: the sample, checked in one click, or opened as a PDF to drop here for a live read. */}
+        <p className="flex items-center gap-1.5 sm:ml-auto">
+          No lease at hand?
+          <Button variant="link" className="h-auto px-0" onClick={checkSample} disabled={reading}>Check the sample lease</Button>
+          or <a href="/api/lease/sample" target="_blank" rel="noopener" className="text-brand hover:underline">open it</a>
+        </p>
+      </div>
       {state === "error" && <Notice className="mt-4">{error}</Notice>}
     </div>
   );
