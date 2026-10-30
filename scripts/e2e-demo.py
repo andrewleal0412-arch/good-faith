@@ -770,6 +770,27 @@ def walk(base, setup, shots, check, facts):
                  f"Verified the {D} deposit with PayPal", f"Prepared the {R} refund", "Waiting for your approval", "Final check before sending", "Matches the file")
         only_amounts("Refund prepared", t, [E["refund"], E["deposit"], E["deductions"]])
         shot(page, "refund-prepared")
+        # The steps that called PayPal's Agent Toolkit name the tool beside them (the judges own these tools): the
+        # deposit read with get_invoice, the refund prepared with create_refund, in that order, and the chip's tip
+        # says the tool is PayPal's own, served over MCP.
+        tools = page.locator("[data-toolkit-tool]").evaluate_all("els => els.map((e) => [e.dataset.toolkitTool, e.textContent.trim()])")
+        check("Refund prepared: the agent's steps name the Agent Toolkit tool each one called, get_invoice then create_refund",
+              tools == [["get_invoice", "get_invoice"], ["create_refund", "create_refund"]], json.dumps(tools))
+        if tools:
+            # A click pins the chip's tip open (another tip may already be up from the checks above, so a hover is
+            # not enough); Escape puts it away.
+            page.locator("[data-toolkit-tool]").first.click()
+            mine = page.locator("[role=tooltip]", has_text="get_invoice").first
+            try:
+                mine.wait_for(timeout=5_000)
+            except Exception:
+                pass
+            shown = mine.count() > 0 and mine.is_visible()
+            tip = mine.inner_text() if shown else ""
+            check("Refund prepared: the tool chip's tip opens and says it is PayPal's own tool from the Agent Toolkit, over MCP",
+                  shown and "Agent Toolkit" in tip and "MCP" in tip and "get_invoice" in tip, tip[:300] or "no tip shown")
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
         # The prepared review opened again, as from Move-out: while PayPal's part streams in behind its skeletons, Send
         # refund and Decline stay off (the waiting buttons have no run id); once it is in, both are on. Every DOM change
         # on the way is recorded, so a frame with a skeleton and a live button can't slip between two looks.
@@ -828,6 +849,15 @@ def walk(base, setup, shots, check, facts):
         check("Refund sent: Check again reads PayPal again and shows the same record", len(asked_again) >= 1 and record_rows(page) == want,
               f"{len(asked_again)} reads since the click; shown {json.dumps(record_rows(page))}")
         shot(page, "refund-sent")
+        # The receipt's Details: the same steps, now with the refund sent and read back, each PayPal step naming its tool.
+        page.locator("summary", has_text="Details").first.click()
+        try:
+            page.locator("[data-toolkit-tool=get_refund]").first.wait_for(timeout=10_000)
+        except Exception:
+            pass
+        tools = page.locator("[data-toolkit-tool]").evaluate_all("els => els.map((e) => e.dataset.toolkitTool)")
+        check("Refund sent: the receipt's steps name get_invoice, create_refund and get_refund, in the order the agent called them",
+              tools == ["get_invoice", "create_refund", "get_refund"], json.dumps(tools))
 
         # 6. The itemized statement, its delivery, and the tenants' page.
         go(page, f"/tenancy/{mo}/statement")

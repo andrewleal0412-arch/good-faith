@@ -58,7 +58,7 @@ Three things to check inside your copy, under a minute each.
 
 ### Best Use of PayPal + AI
 
-- Claude never decides an amount. It reads the figures code computed, then calls PayPal's own tools: `get_invoice`, `create_refund`, `get_refund`, and `get_dispute` in a PayPal dispute.
+- Claude never decides an amount. It reads the figures code computed, then calls PayPal's own tools: `get_invoice`, `create_refund`, `get_refund`, and `get_dispute` in a PayPal dispute. The refund review and the receipt name the close-out's three tools beside the steps that called them, with a tip on what each did.
 - `create_refund` is wrapped so it waits for the landlord and passes `guardRefund`, which reads the database and PayPal again and refuses any other rail, amount, payment or account.
 - The same rail rule sends the close-out and a settlement against the original payment inside PayPal's 180-day window, else as a Payout to the account the tenants named in writing ([`refund-rail.ts`](src/lib/refund-rail.ts)).
 - Every refund and Payout carries an idempotency key from the app's own records, so a retry after a lost answer gets the first result back.
@@ -208,7 +208,7 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `demo-welcome` 25, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 295, `thumbs` 169, `e2e-stubs` 60, `page-weight` 164 | All passed | CI, every push |
 | `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
-| `e2e-demo.py` on a production build | 132 of 132 | By hand, 2026-10-29 |
+| `e2e-demo.py` on a production build | 135 of 135 | By hand, 2026-10-30 |
 | `a11y-check.py` on a production build | 386 of 386, no serious or critical axe violation | By hand, 2026-10-16 |
 | `align-check.py` on a production build | 7 of 7: 2,309 marks beside text, 927 glyphs in frames and 694 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-10-23 |
 
