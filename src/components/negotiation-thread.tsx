@@ -8,8 +8,10 @@ import { LineMark, Money, StatusChip } from "./ui";
 
 // The negotiation as both sides see it: every turn, who made it (an agent or a person), the move, what it gives back,
 // the message to the other side, and behind a disclosure the reasoning and the charge-by-charge figures with each
-// reason and citation. What the app checked or changed in a turn sits behind an info tip. Shared by the landlord's
-// property page and the tenants' dispute page, which differ only in who "you" are.
+// reason and citation. Every turn code checked carries a green Checked mark beside its move, so both pages show
+// that the turn was held to the lawful range before anyone saw it; what code held it to, and what it changed, sits
+// behind the mark as its tip. Shared by the landlord's property page and the tenants' dispute page, which differ only
+// in who "you" are.
 
 export type Perspective = "landlord" | "tenant";
 
@@ -54,6 +56,16 @@ export function NegotiationThread({ turns, perspective, names, working }: {
   );
 }
 
+/** The mark on a checked turn: a green check and the word, the tip's trigger (its button is named by this word). */
+function CheckedMark() {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-green">
+      <Icon name="check" className="size-3" />
+      Checked
+    </span>
+  );
+}
+
 function Avatar({ side, agent }: { side: "landlord" | "tenant"; agent: boolean }) {
   return (
     <span aria-hidden className={`flex size-6 items-center justify-center rounded-full text-xs font-semibold ${side === "landlord" ? "bg-surface-2 text-ink-2" : "bg-brand-50 text-brand-700"}`}>
@@ -74,9 +86,10 @@ function TurnRow({ t, p, names, ref }: { t: TurnView; p: Perspective; names: { l
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium">{who}</span>
           <StatusChip tone={agrees ? "green" : "gray"} dot={false} size="sm" className="gf-settle">{MOVE[t.move] ?? t.move}</StatusChip>
-          {(t.adjustments.length > 0 || t.reasonsChecked) && (
-            <InfoTip title="How this was checked" className="gf-settle">
-              The app held this turn to each charge&apos;s lawful range and to the negotiation&apos;s rules{t.adjustments.length ? `: ${t.adjustments.join(" ")}` : "."}
+          {(t.checked || t.adjustments.length > 0 || t.reasonsChecked) && (
+            <InfoTip title="Checked by code" className="gf-settle" trigger={<CheckedMark />}>
+              Code held this turn to each charge&apos;s lawful range and to the negotiation&apos;s rules before either page showed it
+              {t.adjustments.length ? `: ${t.adjustments.join(" ")}` : ". Every figure was inside them, so nothing was changed."}
               {t.reasonsChecked ? ` ${CHECKED_NOTE}` : ""}
             </InfoTip>
           )}

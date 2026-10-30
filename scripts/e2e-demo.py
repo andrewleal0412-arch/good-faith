@@ -914,6 +914,19 @@ def walk(base, setup, shots, check, facts):
         b1, b2, b3 = (usd(x) for x in E["turns_back"])
         t = sees("Negotiation", page, "Settlement agreed", f"Agreed back\n{usd(E['settled'])}", f"Offers {b1} back", f"Asks {b2} back", f"Gives {b3} back",
                  "Your negotiator", "Their advocate", "Counters", "Concedes", f"Approve and pay {usd(E['settled'])}")
+        # Every turn carries code's Checked mark, with no click: the case and the three exchanges, on this page and
+        # (below) on the tenants'. Its tip says what code held the turn to, and that it changed nothing.
+        want_turns = 1 + len(E["turns_back"])
+        marks = page.get_by_role("button", name=re.compile(r"^Checked$"))
+        check(f"Negotiation: every one of the {want_turns} turns carries the Checked mark", marks.count() == want_turns, f"{marks.count()} marks")
+        if marks.count():
+            marks.first.hover()
+            page.wait_for_timeout(300)
+            tip = " ".join(page.locator("[role=tooltip]").all_inner_texts())
+            check("Negotiation: the Checked mark's tip says the turn was held to the lawful range and nothing was changed",
+                  "Checked by code" in tip and "lawful range" in tip and "nothing was changed" in tip, tip[:300] or "no tip")
+            page.mouse.move(0, 0)
+            page.wait_for_timeout(300)
         # One turn's reasoning and figures, and a Why? on the negotiator's counter: its reason, with the pack's citation.
         page.get_by_text("Reasoning and figures").nth(1).click()
         page.wait_for_timeout(300)
@@ -942,6 +955,8 @@ def walk(base, setup, shots, check, facts):
         if not live:
             go(tenant, f"{setup['tenantPath']}/dispute")
         sees("Tenants see the settlement", tenant, f"Settlement offered\n{usd(E['settled'])}", "Both sides agree", f"Offers {b1} back", f"Asks {b2} back")
+        tenant_marks = tenant.get_by_role("button", name=re.compile(r"^Checked$")).count()
+        check(f"Tenants' page: the same Checked mark on every one of the {want_turns} turns", tenant_marks == want_turns, f"{tenant_marks} marks")
 
         # 9. The settlement (beat 7): both humans say yes, PayPal (fake) refunds the agreed amount, the statement amends.
         # The landlord's Move-out tab stays open beside it: "Approve and pay" is off until the tenants accept, and while

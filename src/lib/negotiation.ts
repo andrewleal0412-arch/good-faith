@@ -306,6 +306,7 @@ export type TurnView = {
   n: number; side: Side; actor: Turn["actor"]; move: TurnMove; amountBack: number; totalKeep: number;
   message: string | null; reasoning: string | null; citations: string[]; adjustments: string[]; at: string | null;
   reasonsChecked: boolean; // Jev compared the turn's reasons with the record (src/lib/jev.ts)
+  checked: boolean; // code held the turn to the lawful range and the negotiation's rules (checkTurn) and stored what it found
   lines: TurnLineView[];
   limit: { wanted: number; limit: number } | null; // the landlord's page only
   by: string | null; // the tenant who made a human tenant turn
@@ -359,8 +360,14 @@ export function negotiationView(d: NegotiationRow, facts: DisputeFacts, turns: T
   const views: TurnView[] = turns.map((t) => ({
     n: t.n, side: t.side, actor: t.actor, move: t.move, amountBack: t.amount_back, totalKeep: t.total_keep,
     message: t.message, reasoning: t.reasoning, citations: t.citations ?? [],
-    adjustments: (t.checks?.adjustments ?? []),
+    // What code changed in the turn, in words: checkTurn's adjustments, and for the case (turn 1) what checkProposal
+    // held (its `problems`, src/lib/disputes.ts firstTurn), so the mark never says nothing changed when a figure was.
+    adjustments: [...(t.checks?.adjustments ?? []), ...(t.checks?.problems ?? [])],
     reasonsChecked: !!t.checks?.support || (t.n === 1 && t.actor === "agent" && !!d.advocate?.support),
+    // Every turn stored by the app was checked by code and carries `checks`: the case through checkProposal
+    // (firstTurn), every later turn through checkTurn (an empty adjustments list when it changed nothing); the
+    // recorded example's turns passed the same checks (scripts/demo-history.mjs).
+    checked: !!t.checks,
     at: t.created_at ?? null, lines: linesOf(caseLines(t)),
     limit: side === "landlord" ? t.checks?.private?.limit ?? null : null,
     by: t.side === "tenant" && t.actor === "human" ? t.checks?.by ?? (t.n === 1 ? d.opened_by : null) : null,
