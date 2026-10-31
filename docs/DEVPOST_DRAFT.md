@@ -130,8 +130,7 @@ Good Faith
 
 https://good-faith.onrender.com, PayPal sandbox only. No real money moves.
 
-1. Enter the access code: `<ACCESS CODE GOES HERE>`. On Render's free plan the first page after a quiet spell takes
-   about a minute.
+1. Enter the access code: `<ACCESS CODE GOES HERE>`.
 2. Your browser gets a private copy of a small landlord with three units, dated to today, with a guide at the top of
    each page linking to each step. Start over, in the account menu, gives a fresh one.
 3. Open 1140 E. Juniper Hollow Ln and its Move-out tab for Claude's boxes. Review refund, Prepare refund, then Send
