@@ -80,6 +80,14 @@ Three things to check inside your copy, under a minute each.
 - Payments: every invoice, payment, deduction, refund, settlement and payout, with saved views, a remembered column layout, a details panel per row and a CSV a spreadsheet can't run as formulas ([`ledger-grid.tsx`](src/app/%28landlord%29/ledger/ledger-grid.tsx)).
 - Insights: the portfolio grouped by state with pinned totals and four AG Charts from the ledger's own rows, so Payments, Insights and Properties agree ([more](docs/HOW_IT_WORKS.md#built-with-ag-grid)).
 
+### Best Use of Render
+
+- The hosted demo is one Render Blueprint ([`render.yaml`](render.yaml)): a Node web service and a cron job, every variable `sync: false`, so the file sits in the public repo and holds no secret.
+- The web service runs one instance by design (the access gate's wrong-code count lives in memory), on Render's paid plan, which does not sleep, in the Render region paired to the Supabase project's; Render checks [`/api/health`](src/app/api/health/route.ts), whose public answer says the server is up and nothing else.
+- The cron job, `good-faith-sweep`, runs `npm run demo:sweep -- --apply` every morning: each judge's private copy older than 14 days is removed with its rows and its files, so the demo cleans up after itself ([`demo-sweep.mjs`](scripts/demo-sweep.mjs)).
+- The caller's address comes from `CF-Connecting-IP`, which Render's Cloudflare edge sets and a caller can't forge ([`access-throttle.ts`](src/lib/access-throttle.ts) reads it); the gate's wrong-code limit, the per-address limit on new copies and the webhook route's rate limit all count by it. The app sends its pages uncompressed and leaves Brotli and gzip to that edge (`compress: false` in [`next.config.ts`](next.config.ts)).
+- Render sets no per-route time limit, so a Claude inspection or a close-out run takes as long as Claude does. The deploy, the judging-window checklist and the ten-minute check after a deploy are in [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Architecture
 
 One Next.js 16 app (App Router, TypeScript, Tailwind 4) on Render, with Supabase for the data and the files. Navy boxes propose (Claude), gray boxes decide (code), amber boxes are a person's approval, and green boxes are PayPal.
@@ -164,6 +172,7 @@ flowchart TB
 | **Jev by TypeSafe** (`@typesafe-ai/sdk` 0.6.0) | Optional, and off without `TYPESAFE_API_KEY`. With the key, it reads a finding's words as the landlord types them and checks the agents' reasons against the record ([details](docs/HOW_IT_WORKS.md#jev-optional)). |
 | **PayPal** | Invoicing, the Agent Toolkit over MCP (`@paypal/agent-toolkit` 1.11.0 through `@ai-sdk/mcp`), Payouts, the Disputes API and webhooks, all in the sandbox ([`paypal.ts`](src/lib/paypal.ts), [`agent.ts`](src/lib/agent.ts), [`paypal-webhook.ts`](src/lib/paypal-webhook.ts)). |
 | **Supabase** | Postgres and three private Storage buckets. The server uses the secret key with row level security on and no policies, and every query is scoped in code to the session's workspace ([`workspace.ts`](src/lib/workspace.ts)). Row-locking functions make the concurrent writes atomic. |
+| **Render** | The hosted demo: one Blueprint with the web service and the daily sweep cron, behind Render's Cloudflare edge ([Render](#best-use-of-render)). |
 | **AG Grid and AG Charts Community** | The deductions, Payments and Insights grids and the four charts ([AG Grid](#ag-grid-sponsor-prize)). |
 | **pdf-lib and sharp** | The statement's PDF packet with the photo exhibits and invoices; the photos' 480 px thumbnails. |
 
