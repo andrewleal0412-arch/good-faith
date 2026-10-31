@@ -879,6 +879,18 @@ def walk(base, setup, shots, check, facts):
         t = sees("Advocate's case", tenant, f"Your advocate proposes back\n\n{case_back}", f"On top of the {R} refund on the statement, from the {P} deducted.",
                  "Charge looks weak", "Charge looks solid", f"{case_back}\n\nback of {usd(E['carpet'])}", "Not legal advice")
         only_amounts("Advocate's case", t, [E["case_back"], E["refund"], E["deductions"], *line_amounts, 0.0])
+        # The case carries code's Checked mark before it is sent, the same mark every turn of the thread carries below,
+        # so the first thing the advocate writes shows it was held to the lawful range without a click.
+        mark = tenant.get_by_role("button", name=re.compile(r"^Checked$"))
+        check("Advocate's case: the case carries the Checked mark before it is sent", mark.count() == 1 and mark.first.is_visible(), f"{mark.count()} marks")
+        if mark.count():
+            mark.first.hover()
+            tenant.wait_for_timeout(300)
+            tip = " ".join(tenant.locator("[role=tooltip]").all_inner_texts())
+            check("Advocate's case: the mark's tip says code held the case to the lawful range before the page showed it",
+                  "Checked by code" in tip and "lawful range" in tip and "before this page showed it" in tip, tip[:300] or "no tip")
+            tenant.mouse.move(0, 0)
+            tenant.wait_for_timeout(300)
         shot(tenant, "advocate-case")
         tenant.get_by_role("button", name=re.compile("^Send to Teddy Buettner")).click()
         tenant.get_by_role("alertdialog").get_by_role("button", name="Send", exact=True).click()

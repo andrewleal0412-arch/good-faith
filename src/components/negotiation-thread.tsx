@@ -56,8 +56,10 @@ export function NegotiationThread({ turns, perspective, names, working }: {
   );
 }
 
-/** The mark on a checked turn: a green check and the word, the tip's trigger (its button is named by this word). */
-function CheckedMark() {
+/** The mark on a checked turn: a green check and the word, the tip's trigger (its button is named by this word).
+ *  The tenants' dispute page puts the same mark on the advocate's case before it is sent, so the first agent output
+ *  the tenants see carries it too. */
+export function CheckedMark() {
   return (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-green">
       <Icon name="check" className="size-3" />
