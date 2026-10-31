@@ -1,4 +1,6 @@
-import type { ReactNode, Ref } from "react";
+"use client";
+
+import { useEffect, useState, type ReactNode, type Ref } from "react";
 import { CHECKED_NOTE } from "@/lib/jev-notes";
 import type { TurnLineView, TurnView } from "@/lib/negotiation";
 import { Icon } from "./icons";
@@ -44,16 +46,29 @@ export function NegotiationThread({ turns, perspective, names, working }: {
         {working && writer && (
           <li key="working" data-leave="at-once" className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-x-3 border-t border-line-2 py-3.5 first:border-t-0">
             <Avatar side={working} agent />
-            <div role="status" className="flex min-h-6 items-center gap-2.5">
+            <div role="status" className="flex min-h-6 flex-wrap items-center gap-x-2.5 gap-y-1">
               <span className="font-medium">{writer}</span>
               <WorkingDots className="text-ink-4" />
-              <span className="sr-only">is writing its turn. Each turn appears here as it is made.</span>
+              <span className="text-xs text-ink-3">is writing its turn, a live Claude call. It lands here the moment it is done. <Elapsed key={working} /></span>
             </div>
           </li>
         )}
       </PresenceList>
     </ol>
   );
+}
+
+/** The seconds since this page saw the turn start (the typing row appeared), so whoever is watching can see the wait
+ *  is moving. Keyed by the writing side, so it starts again from zero when the other agent's turn begins. Hidden from
+ *  the live region: the words are read once, the count is for the eye. */
+function Elapsed() {
+  const [since] = useState(() => Date.now());
+  const [now, setNow] = useState(since);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <span aria-hidden className="tabular-nums">{Math.max(0, Math.round((now - since) / 1000))}s</span>;
 }
 
 /** The mark on a checked turn: a green check and the word, the tip's trigger (its button is named by this word). */

@@ -55,7 +55,7 @@ eq("card: the lead names the tenants, the unit, the deposit and the state's cloc
 eq("card: three lines, the sandbox named, the eight beats counted", w?.lines, [
   "Claude compares the move-in and move-out photos. Code prices each charge against the statute.",
   "PayPal runs in its sandbox: real API calls, test money.",
-  `${guide.BEATS.length} steps, ticked off in the checklist at the top of each page. Three of them wait up to a minute on Claude.`,
+  `${guide.BEATS.length} steps, ticked off in the checklist at the top of each page. Three of them wait on Claude: the refund under a minute, the tenants' case about a minute, the negotiation a turn at a time.`,
 ]);
 eq("card: live PayPal is never called a sandbox", welcomeOf({ units: [live], account: "Harbor View Rentals", today, sandbox: false })?.lines[1], "PayPal is live here: real money moves.");
 eq("card: the tour ends on the move-out photos, beat 3's own card", w?.start, guide.guideSteps([{ ...live, leaseChecked: true, statementDelivered: false, payments: [], disputesSent: [] }])

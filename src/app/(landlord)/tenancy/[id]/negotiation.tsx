@@ -269,7 +269,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
             <Button variant={quiet ? "secondary" : "primary"} disabled={!!busy} onClick={run}>
               {v.turns.length > 1 ? "Continue negotiating" : "Let my negotiator answer"}
             </Button>
-            <span className="text-xs text-ink-3">{v.agentTurnsLeft === 6 ? "Up to 3 exchanges with their advocate" : `${Math.floor(v.agentTurnsLeft / 2)} exchange${Math.floor(v.agentTurnsLeft / 2) === 1 ? "" : "s"} left`}</span>
+            <span className="text-xs text-ink-3">{v.agentTurnsLeft === 6 ? "Up to 3 exchanges with their advocate" : `${Math.floor(v.agentTurnsLeft / 2)} exchange${Math.floor(v.agentTurnsLeft / 2) === 1 ? "" : "s"} left`}, each turn a live Claude call that lands below the moment it is done</span>
           </div>
         </div>
       )}
