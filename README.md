@@ -25,7 +25,7 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 
 ## Try it
 
-[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, dated that day, with a welcome card and a short tour of Properties on the first visit, and a demo guide above each page that lists these eight beats and ticks them off. The first page after a quiet spell can take up to a minute while Render wakes.
+[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, dated that day, with a welcome card and a short tour of Properties on the first visit, and a demo guide above each page that lists these eight beats and ticks them off. The server stays awake (Render's paid plan), so the first page is a normal page load.
 
 1. **Lease check.** Check a lease, then Check the sample lease: one click, from the facts Claude read when the demo was built, and the code flags a deposit over the cap, a "nonrefundable" fee, and the lawful amount to collect. To watch Claude read it live (about 20 seconds), open the sample from the link beside the button and drop the PDF on the page.
 2. **Deposit by PayPal.** Properties, then 1140 E. Juniper Hollow Ln, Overview: the signed refund agreement and the deposit paid through a PayPal invoice.
@@ -218,7 +218,7 @@ What each script checks, and how the end-to-end test builds and stubs: [docs/HOW
 
 - **Sandbox only.** Live PayPal is refused until there is a per-landlord sign-in; the hosted demo's shared access code is not one.
 - **Five states, statutes only.** Other states are refused. City rules are warnings, and some rules in the verified state specs are not in code yet ([known gaps](docs/rules/README.md#known-gaps)).
-- **The hosted demo is on Render's free plan,** which sleeps after 15 quiet minutes.
+- **One small server.** The hosted demo is one Render instance with half a CPU (Render's paid plan, which does not sleep), and every page is rendered on it; the screens that read PayPal live before they show (the statement, the refund review) are the slow ones.
 - **Daily limits.** The advocate runs three times a day per unit and the negotiator three times a day per browser; if the day's pre-paid sandbox deposits run out, the Review refund page says so and the rest of the copy still works.
 - **Demo data.** The Texas deposit is dated after its notice, since PayPal dates the sandbox payment the day the demo was built, and the closed unit's settled dispute is a recorded example with no PayPal money behind it.
 
