@@ -1033,6 +1033,10 @@ def walk(base, setup, shots, check, facts):
               len(sets) == 1 and sets[0]["status"] == "sent" and abs(float(sets[0]["amount"]) - E["settled"]) < 0.005 and len(spay) == 1 and sid.startswith("E2E") and sid != rid,
               json.dumps({"settlements": sets, "payments": spay})[:500])
         sees("Settled", page, "Closed", f"Settled: {usd(E['settled'])} back", sid, "Amended statement")
+        # The tab's strip agrees with the Payments tab once the settlement is paid: the deductions as settled with the
+        # statement's total under them, and the hero is everything returned, the refund and the settlement together.
+        sees("Settled: the strip reads the deductions as settled", page, f"Deductions as settled\n{usd(E['kept'])}", f"{usd(E['deductions'])} less {usd(E['settled'])} settled")
+        sees("Settled: the strip's hero is everything returned", page, f"Returned\n{usd(E['returned'])}", f"{usd(E['refund'])} refund, {usd(E['settled'])} settlement")
         shot(page, "settled")
         # The tenants' page, open since they accepted, shows the payment; then neither page asks again.
         live = arrives(tenant, lambda: tenant.get_by_text("Sent by PayPal").first.is_visible())

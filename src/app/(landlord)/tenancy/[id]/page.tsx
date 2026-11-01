@@ -270,6 +270,12 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // What the Move-out tab's Refunded figure shows: the close-out's refund, or what went back before it once that covers
   // what is owed (a refund made in PayPal with any PayPal dispute's money beside it).
   const returnedHere = returned ? Math.round((Number(returned.amount) + (returned.kind === "outside_refund" ? via?.amount ?? 0 : 0)) * 100) / 100 : 0;
+  // A dispute's settlement paid on top of that (settlement.ts; a Payout still pending counts, as the ledger counts it).
+  // The Move-out strip then reads as the unit's Payments tab does (money.tsx): the deductions as settled, with the
+  // statement's total under them, and everything returned. Forfeited deductions keep nothing, so a settlement there is
+  // money toward the whole deposit and the forfeited cells stand (summary.settledBack, below).
+  const settledPaid = Math.round(paymentRows.filter((p) => (p.kind === "settlement_refund" || p.kind === "settlement_payout") && !returnFailed(p.status as string | null))
+    .reduce((s, p) => s + Number(p.amount), 0) * 100) / 100;
   const notKept = notKeptAfterDispute(summary);
   const delivery = t.statement_delivery ? (t.statement_delivery as DeliveryRecord) : null;
   // New York after day 14 (the statement's standing): the deductions stay as claimed and the whole deposit is owed back.
@@ -282,6 +288,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
     returnedOn: outsideAt ? dayOf(outsideAt) : returnedOk ? dayOf(returnedOk.created_at) : null, refundOwed: money.refund > 0,
   }) : null;
   const forfeited = forfeit?.forfeits ? forfeit : null;
+  // Paid where no refund was owed (the deductions took the deposit), the settlement is all that went back.
+  const settledHere = !forfeited && settledPaid > 0 ? settledPaid : 0;
   // The deductions grid on Move-out: whether its inputs may change, and each line's limits from its lawful range (the
   // same range engine the tenants' dispute and the edit route run). Read only once the deductions are final or while a
   // dispute the tenants sent is open (deductionsLock, the rule the deduction routes refuse by), and for the demo's
@@ -505,12 +513,15 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
       <FactStrip cols={4}>
         <Fact label={reversal ? "Deposit" : "Deposit held"} info={held != null ? demoDepositTip : undefined} value={held != null ? <Money value={held} /> : <span className="text-ink-3">Not paid</span>}
           sub={reversedSub ?? (held != null ? (paidOn ? `Paid by PayPal, ${shortDate(paidOn)}` : "Paid by PayPal") : "Not paid")} />
-        <Fact label="Deductions" value={<RollMoney quick value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
-          info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />
-        <Fact label={returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : prior ? "Left to refund" : "Refund due"} big
-          value={<RollMoney value={returned ? returnedHere : forfeited ? Math.max(0, Math.round(((held ?? 0) - prior) * 100) / 100)
+        {settledHere > 0
+          ? <Fact label="Deductions as settled" value={<RollMoney quick value={Math.round((money.total - settledHere) * 100) / 100} />} sub={`${usd(money.total)} less ${usd(settledHere)} settled`} />
+          : <Fact label="Deductions" value={<RollMoney quick value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
+            info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />}
+        <Fact label={settledHere > 0 ? "Returned" : returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : prior ? "Left to refund" : "Refund due"} big
+          value={<RollMoney value={settledHere > 0 ? Math.round(((returnedOk ? returnedHere : 0) + settledHere) * 100) / 100 : returned ? returnedHere : forfeited ? Math.max(0, Math.round(((held ?? 0) - prior) * 100) / 100)
             : money.balanceClaimed > 0 ? money.balanceClaimed : prior ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
-          sub={forfeited && returned && (held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0)) * 100) / 100)} still owed`
+          sub={settledHere > 0 ? (returnedOk ? `${usd(returnedHere)} refund, ${usd(settledHere)} settlement` : `${usd(settledHere)} settlement`)
+            : forfeited && returned && (held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0)) * 100) / 100)} still owed`
             : returned ? (returned.kind === "dispute_refund" ? `Through the PayPal dispute, ${shortDate(dayOf(returned.created_at))}` : returned.kind === "outside_refund" ? `In PayPal${via ? " and the dispute" : ""}, ${shortDate(dayOf(returned.created_at))}` : `By PayPal, ${shortDate(dayOf(returned.created_at))}`)
               : via && !outside ? `After ${usd(via.amount)} through the PayPal dispute` : outside ? `After ${usd(prior)} already refunded` : summary.tenants.length ? `To ${summary.tenants.join(" and ")}` : "To the tenants"} />
         <Fact label={dueLabelOf(summary)}
