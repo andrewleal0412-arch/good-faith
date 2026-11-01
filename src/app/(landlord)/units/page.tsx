@@ -90,6 +90,11 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
   const held = "error" in ledger ? units.reduce((s, u) => s + heldNow(u.summary), 0) : ledgerTotals(lrows).held;
   const holding = units.filter((u) => heldNow(u.summary) > 0).length;
   const refunds = lrows.filter((r) => r.effect === "returned" && r.date.startsWith(year));
+  // A settlement's payment went back to the tenants, so it is in Refunded; the sub line counts it apart from the
+  // refunds, as Payments' tabs (Refunds, Settlements), Insights ("of it in settlements") and the Deducted cell beside
+  // it ("less 1 settlement") do.
+  const refundRows = refunds.filter((r) => r.kind !== "settlement");
+  const settlementRows = refunds.filter((r) => r.kind === "settlement");
   const deducted = lrows.filter((r) => r.kind === "deduction" && r.effect === "claimed" && r.date.startsWith(year) && r.amount > 0);
   // A settled dispute gave part of the deductions back: they count as settled, as the ledger and each unit's Payments
   // tab count them (ledgerTotals), and the settlement itself is in Refunded. Each settlement comes off its own unit's
@@ -137,7 +142,7 @@ export default async function PropertiesPage({ searchParams }: PageProps<"/units
 
       <FactStrip className="mb-6">
         <Fact label="Deposits held" big value={<Money value={held} cents="small" />} sub={plural(holding, "tenancy", "tenancies")} />
-        <Fact label="Refunded this year" big value={<Money value={sum(refunds)} cents="small" />} sub={plural(refunds.length, "refund")} />
+        <Fact label="Refunded this year" big value={<Money value={sum(refunds)} cents="small" />} sub={`${plural(refundRows.length, "refund")}${settlementRows.length ? `, ${plural(settlementRows.length, "settlement")}` : ""}`} />
         <Fact label="Deducted this year" big value={<Money value={Math.max(0, Math.round((sum(deducted) - settledAmount) * 100) / 100)} cents="small" />}
           sub={`${plural(deducted.length, "item")}${settledCount ? `, less ${plural(settledCount, "settlement")}` : ""}`} />
       </FactStrip>
