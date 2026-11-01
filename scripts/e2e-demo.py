@@ -937,6 +937,11 @@ def walk(base, setup, shots, check, facts):
               f"its row under Move-out: {row!r}; the page reads: {text(page)[:300]!r}")
         go(page, f"/tenancy/{mo}?tab=move-out")
         sees("Disputed", page, "Disputed", f"Luke Jones disputes 1 deduction and asks for {case_back} back.", "Let my negotiator answer")
+        # The one long wait on the path with no words about time until now: the line beside the button says each turn
+        # is a live Claude call that lands in the thread the moment it is done (the typing row says the same with a counter
+        # while a turn is being written, which the instant stubs never leave on screen long enough to read).
+        check("Negotiation: before the run, the line beside Let my negotiator answer says each turn is a live Claude call that lands the moment it is done",
+              "each turn a live Claude call that lands below the moment it is done" in text(page), text(page)[:400])
         watch_button(page, r"^Let my negotiator answer$")
         page.get_by_role("button", name="Let my negotiator answer").click()
         page.get_by_text("Agreed back").first.wait_for(timeout=120_000)
