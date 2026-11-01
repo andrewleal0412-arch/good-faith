@@ -159,23 +159,35 @@ function Review({ v, awaiting, ran, live, statute, record, zone }: { v: RefundVi
       </Rows>
       <Divider />
 
-      <details open className="group">
-        <Summary />
-        <div className="mt-3">
-          <GroupHead title="Checks" right="Just now" />
-          <Suspense fallback={<ChecksWaiting />}>
-            <LiveChecks live={live} statute={statute} record={record} zone={zone} />
-          </Suspense>
-        </div>
-      </details>
-
-      {/* The button, held off until PayPal's answer is in (the routes behind it check everything again anyway). With no
-          run id, Decline is held off too (actions.tsx). */}
-      <Suspense fallback={<RefundActions tenancyId={v.tenancyId} back={v.back} mode={awaiting ? "send" : "prepare"} label={awaiting ? `Send ${word}` : ran ? "Prepare again" : `Prepare ${word}`}
-        disabled auth="Checking the deposit with PayPal..." />}>
+      {/* The checks and the button stream in one boundary, so the button is never on screen before the checks: a
+          boundary over React's progressive chunk (12,800 bytes of HTML, which the checks and the agent's steps are
+          near) is flushed after the smaller ones, and in its own boundary the button would land first. The button is
+          held off until PayPal's answer is in (the routes behind it check everything again anyway). With no run id,
+          Decline is held off too (actions.tsx). */}
+      <Suspense fallback={
+        <>
+          <Checks><ChecksWaiting /></Checks>
+          <RefundActions tenancyId={v.tenancyId} back={v.back} mode={awaiting ? "send" : "prepare"} label={awaiting ? `Send ${word}` : ran ? "Prepare again" : `Prepare ${word}`}
+            disabled auth="Checking the deposit with PayPal..." />
+        </>
+      }>
+        <Checks><LiveChecks live={live} statute={statute} record={record} zone={zone} /></Checks>
         <LiveActions v={v} live={live} />
       </Suspense>
     </>
+  );
+}
+
+/** The Details section of the review: the checks, open. */
+function Checks({ children }: { children: ReactNode }) {
+  return (
+    <details open className="group">
+      <Summary />
+      <div className="mt-3">
+        <GroupHead title="Checks" right="Just now" />
+        {children}
+      </div>
+    </details>
   );
 }
 
@@ -391,25 +403,47 @@ function CheckRow({ c }: { c: Check }) {
   );
 }
 
+/** The close-out's PayPal tools are the Agent Toolkit's own, served to the agent over MCP (src/lib/agent.ts; create_refund
+ *  is the toolkit's, on a connection that carries the refund's idempotency key). The app's other tools (the facts, the
+ *  statement checklist, a Payout through the Payouts API) are not, so only these three get the chip. */
+const TOOLKIT_TOOLS = {
+  get_invoice: "Reads the deposit invoice, so the agent verifies the payment before it prepares the refund.",
+  create_refund: "Refunds the deposit payment, only after your approval and guardRefund's last check.",
+  get_refund: "Reads the refund back after it was sent, so the receipt shows PayPal's own status.",
+} as const;
+type ToolkitTool = keyof typeof TOOLKIT_TOOLS;
+const toolkitTool = (tool: string): ToolkitTool | undefined => (Object.hasOwn(TOOLKIT_TOOLS, tool) ? (tool as ToolkitTool) : undefined);
+
+/** A small chip naming the Agent Toolkit tool a step called, with a tip saying what the tool does here. */
+function ToolkitChip({ tool }: { tool: ToolkitTool }) {
+  return (
+    <InfoTip title="PayPal's own tool, over MCP" cite="PayPal Agent Toolkit, an MCP server in the app's process"
+      trigger={<span data-toolkit-tool={tool} className="inline-flex h-[20px] items-center whitespace-nowrap rounded-sm bg-surface-2 px-1.5 text-xs font-medium text-ink-2">{tool}</span>}>
+      {tool}: {TOOLKIT_TOOLS[tool]}
+    </InfoTip>
+  );
+}
+
 /** One short line per thing the agent did, in the order it did them. A refund waiting for the landlord shows as
- *  prepared, then waiting; PayPal's own answer for each step is the row's tooltip. */
+ *  prepared, then waiting; PayPal's own answer for each step is its title's tooltip (the chip beside it has its own). */
 function agentRows(steps: Step[], p: { amount: number; deposit: number; word: string; proposedAt: string | null; zone: string }) {
-  const out: { key: string; title: string; detail: string; state: Mark; right?: string }[] = [];
+  const out: { key: string; title: string; detail: string; state: Mark; right?: string; tool?: ToolkitTool }[] = [];
   for (const s of steps) {
     const detail = stripQuotes(s.detail).text;
     const state: Mark = s.state === "error" ? "fail" : s.state === "declined" ? "declined" : "ok";
     const money = s.tool === "create_refund" || s.tool === "send_payout";
     if (money) {
       const w = s.tool === "send_payout" ? "payout" : "refund";
+      const tool = toolkitTool(s.tool);
       if (s.state === "waiting") {
-        out.push({ key: s.id, title: `Prepared the ${usd(p.amount)} ${w}`, detail: s.title, state: "ok" });
+        out.push({ key: s.id, title: `Prepared the ${usd(p.amount)} ${w}`, detail: s.title, state: "ok", tool });
         out.push({ key: `${s.id}:wait`, title: "Waiting for your approval", detail, state: "waiting", right: p.proposedAt ? timeIn(p.proposedAt, p.zone) : undefined });
       } else if (s.state === "declined") {
-        out.push({ key: s.id, title: `You declined the ${w}`, detail, state });
+        out.push({ key: s.id, title: `You declined the ${w}`, detail, state, tool });
       } else if (s.state === "error") {
-        out.push({ key: s.id, title: `The ${w} did not go through`, detail, state });
+        out.push({ key: s.id, title: `The ${w} did not go through`, detail, state, tool });
       } else {
-        out.push({ key: s.id, title: `Sent the ${w} through PayPal`, detail, state });
+        out.push({ key: s.id, title: `Sent the ${w} through PayPal`, detail, state, tool });
       }
       continue;
     }
@@ -417,7 +451,7 @@ function agentRows(steps: Step[], p: { amount: number; deposit: number; word: st
       : s.tool === "get_invoice" ? `Verified the ${usd(p.deposit)} deposit with PayPal`
         : s.tool === "get_refund" ? "Confirmed the refund with PayPal"
           : s.tool === "get_statement_checklist" ? "Checked the itemized statement" : s.title;
-    out.push({ key: s.id, title, detail, state });
+    out.push({ key: s.id, title, detail, state, tool: toolkitTool(s.tool) });
   }
   return out;
 }
@@ -450,8 +484,8 @@ function AgentRun({ run, amount, deposit, word, statute, zone, trace }: { run: R
               <StepLine done={x.state === "ok"} sight={sight(x.key, "line")} delay={i * STEP_MS + 200} className="absolute -bottom-[7px] left-[8.5px] top-[26px] w-px" />
             )}
             <LineMark className="relative">{x.state === "ok" ? <StepMark small state="done" sight={sight(x.key, "check")} delay={i * STEP_MS} /> : <StateMark state={x.state} />}</LineMark>
-            <div className="min-w-0 flex-1" title={x.detail || undefined}>
-              <p>{x.title}</p>
+            <div className="min-w-0 flex-1">
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5"><span title={x.detail || undefined}>{x.title}</span>{x.tool && <>{" "}<ToolkitChip tool={x.tool} /></>}</p>
               {x.state === "fail" && x.detail && <p className="mt-0.5 text-xs text-ink-3">{x.detail}</p>}
             </div>
             {x.right && <span className="shrink-0 tabular-nums text-ink-3">{x.right}</span>}
