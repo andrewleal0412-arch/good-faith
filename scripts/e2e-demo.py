@@ -89,6 +89,20 @@ failed = 0
 passed = 0
 
 
+def pacific_year(ts=None):
+    """The calendar year in Pacific time, of a timestamp (ISO, UTC) or of now: the year Properties' facts strip counts."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    pacific = ZoneInfo("America/Los_Angeles")
+    at = datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(pacific) if ts else datetime.now(pacific)
+    return at.strftime("%Y")
+
+
+def plural_e2e(n, one, many=None):
+    """units/page.tsx, plural: "1 refund", "2 refunds"."""
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
 def check(name, ok, detail=""):
     global failed, passed
     if ok:
@@ -1090,6 +1104,22 @@ def walk(base, setup, shots, check, facts):
         check("Same lease twice: no second tenancy and no second property were made",
               len(f5["tenancies"]) == len(f4["tenancies"]) and len({(t.get("properties") or {}).get("address") for t in f5["tenancies"]}) == len(f5["tenancies"]),
               f"{len(f4['tenancies'])} tenancies before, {len(f5['tenancies'])} after: {[(t.get('properties') or {}).get('address') for t in f5['tenancies']]}")
+
+        # Properties' facts strip after the close-out: Refunded this year holds every payment that went back, the two
+        # settlements among them, and its sub line counts the settlements apart from the refunds, as Payments' tabs
+        # (Refunds, Settlements) and Insights ("of it in settlements") do, and as the Deducted cell beside it ("less 2
+        # settlements") does. Counted from the copy's own payment rows that PayPal (or the fake) completed this year.
+        # The page's year is Pacific (units.ts, pacificToday) and each row's day is its property's zone; Pacific here
+        # closes the UTC gap, so a row stamped late on New Year's Eve counts in the year the page counts it in.
+        year = pacific_year()
+        went_back = [p for p in f3["payments"] if p["kind"] in ("refund", "payout", "settlement_refund", "settlement_payout", "dispute_refund", "outside_refund")
+                     and p["status"] in ("COMPLETED", "SUCCESS") and pacific_year(p["created_at"]) == year]
+        back_settlements = [p for p in went_back if p["kind"] in ("settlement_refund", "settlement_payout")]
+        back_refunds = [p for p in went_back if p not in back_settlements]
+        go(page, "/units")
+        sub_want = plural_e2e(len(back_refunds), "refund") + (f", {plural_e2e(len(back_settlements), 'settlement')}" if back_settlements else "")
+        sees("Properties after the close-out: Refunded this year counts the settlements apart from the refunds", page,
+             f"Refunded this year\n{usd(cents(sum(float(p['amount']) for p in went_back)))}\n{sub_want}")
 
         # 12. The guide's own ground, last, so nothing above runs without it.
         #

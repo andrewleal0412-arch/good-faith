@@ -114,7 +114,7 @@ async function facts(ws) {
   const ids = tens.map((t) => t.id);
   const [ded, pay, disp, turns, sets, runs, links] = await Promise.all([
     db.from("deductions").select("id, tenancy_id, item, room, category, work, performer, billed, hours, hourly_rate, item_age_years, useful_life_years, proration, amount, math").in("tenancy_id", ids).order("created_at"),
-    db.from("payments").select("id, tenancy_id, kind, paypal_id, amount, status, raw").in("tenancy_id", ids).order("created_at"),
+    db.from("payments").select("id, tenancy_id, kind, paypal_id, amount, status, raw, created_at").in("tenancy_id", ids).order("created_at"),
     db.from("disputes").select("id, tenancy_id, status, deduction_ids, advocate_status, negotiation_outcome").in("tenancy_id", ids),
     db.from("negotiation_turns").select("dispute_id, n, side, actor, move, amount_back, total_keep").in("tenancy_id", ids).order("n"),
     db.from("settlements").select("id, tenancy_id, dispute_id, amount, status, rail, paypal_id, paypal_status").in("tenancy_id", ids),
