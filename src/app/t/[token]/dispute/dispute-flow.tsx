@@ -8,7 +8,7 @@ import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { WorkingDots } from "@/components/motion";
-import { NegotiationThread, Position } from "@/components/negotiation-thread";
+import { CheckedMark, NegotiationThread, Position } from "@/components/negotiation-thread";
 import { useRefresh } from "@/components/refresh";
 import { LineMark, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import { useWatch } from "@/components/watch";
@@ -414,12 +414,17 @@ function CaseView({ c, view, notLegalAdvice }: { c: AdvocateCase; view: TenantDi
           {view.statementRefund > 0 ? "from" : "From"} the {usd(view.totals.retained)} deducted.
         </p>
         <p className="mt-3 text-ink-2">{c.summary}</p>
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-3">
-          Not legal advice
-          <InfoTip title="How this was checked">
-            {notLegalAdvice} The app checked every amount against what the law and the record allow{changed.length ? ` and changed ${changed.length} of the advocate's answers to fit: ${changed.join(" ")}` : "."}
+        {/* The same green mark every turn of the thread carries, here before the case is sent: the first thing the
+            advocate writes is also held to the lawful range before the tenants see it, and the mark says so without
+            a click. Its tip is the one the thread's marks open, with this case's own changes. */}
+        <p className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink-3">
+          <InfoTip title="Checked by code" trigger={<CheckedMark />}>
+            Code held every amount in this case to each charge&apos;s lawful range before this page showed it
+            {changed.length ? `: ${changed.join(" ")}` : ". Every figure was inside it, so nothing was changed."}
             {c.support ? ` ${CHECKED_NOTE}` : ""}{c.adjustments.includes(INJECTION_NOTE) ? ` ${INJECTION_NOTE}` : ""}
+            {" "}{notLegalAdvice.replace(/^Not legal advice\.\s*/, "")}
           </InfoTip>
+          <span>Not legal advice</span>
         </p>
       </section>
       <section className="mt-6 border-t border-line pt-5">
