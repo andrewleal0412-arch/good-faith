@@ -6,7 +6,7 @@ The steps, in order, to take the app from a laptop to a URL the judges can open,
 
 - Accounts: GitHub (the repo goes public, with the MIT license in `LICENSE`), Render (a web service on the $7 plan, `0.5c-512mb`, since 2026-10-22; step 6), Supabase (free), PayPal Developer (sandbox), and the Anthropic console (an API key with a spend limit).
 - **The hosted app sits behind an access code** (section 8): every landlord page and API route needs the session the `/access` page sets, and the Claude jobs, sandbox invoices and new demo copies have daily limits. Each browser that enters the judges' code gets its own private copy of the demo landlord (section 9), so judges never see or change each other's work, or yours. The code is shared by the judges, so it is a demo gate, not a landlord sign-in: host the fictional demo data only, never a real tenant, and keep `PAYPAL_ENVIRONMENT=SANDBOX`. The close-out routes still refuse `LIVE` (`src/lib/agent.ts`). The tenants' pages (`/t/<token>`) stay open to their token, as before.
-- The laptop keeps two jobs: filling the pool of pre-paid sandbox deposits (`npm run demo:pool`, section 9), which pays PayPal invoices with Playwright, and, until a cron job does it, removing old demo copies (`npm run demo:sweep`).
+- The laptop keeps one job: filling the pool of pre-paid sandbox deposits (`npm run demo:pool`, section 9), which pays PayPal invoices with Playwright. Removing old demo copies (`npm run demo:sweep`) is Render's cron job `good-faith-sweep` (section 9).
 
 ## 1. Supabase
 
