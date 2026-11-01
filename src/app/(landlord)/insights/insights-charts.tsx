@@ -16,7 +16,9 @@ import type { Category, SeriesPoint } from "@/lib/insights";
 // tooltip. Color does one job per chart: navy is the series a chart is about, gray the context beside it (emphasis;
 // 4.4:1 between the two, so they part by lightness alone); the deductions keep the colors their findings have
 // everywhere in the app (damage red, cleaning amber, rent gray). Every chart has a legend or a single series its title
-// names, labels on the bars, a tooltip per mark, and the grid below as its table.
+// names, labels on the bars, a tooltip per mark, and the grid below as its table. A chart with nothing to draw (every
+// value zero: a state filter on a unit that has returned nothing, a workspace with no deduction yet) says so in one
+// line in its place, rather than a canvas of $0.00 bars on an axis to $100.
 
 const MODULES = [CartesianChartModule, AreaSeriesModule, BarSeriesModule, CategoryAxisModule, NumberAxisModule, LegendModule];
 
@@ -68,6 +70,13 @@ export function InsightsCharts(p: {
   }, []);
 
   const t = useMemo(() => (font ? theme(font) : null), [font]);
+  /** The line a chart shows in its place when every value it would draw is zero. */
+  const none = (values: number[], line: string) => (values.every((v) => v === 0) ? line : null);
+  const heldEmpty = none(p.series.map((x) => x.held), "Nothing held.");
+  const returnedEmpty = none(p.series.flatMap((x) => [x.refunds, x.settlements]), "Nothing returned yet.");
+  const catsEmpty = none(p.categories.map((c) => c.amount), "No deductions on file.");
+  const statesEmpty = none(p.states.map((s) => s.held), "Nothing held.");
+  const statesHeight = Math.max(140, 64 + p.states.length * 44);
   const labels = useMemo(() => new Map(p.series.map((x) => [x.key, x.label])), [p.series]);
   const last = p.series[p.series.length - 1];
   const backTotal = p.series.reduce((s, x) => s + x.refunds + x.settlements, 0);
@@ -119,7 +128,7 @@ export function InsightsCharts(p: {
 
   const byHeld = [...p.states].sort((a, b) => b.held - a.held);
   const states: AgCartesianChartOptions | null = t && {
-    theme: t, data: byHeld, height: Math.max(140, 64 + p.states.length * 44), padding,
+    theme: t, data: byHeld, height: statesHeight, padding,
     series: [{
       type: "bar", direction: "horizontal", xKey: "name", yKey: "held", yName: "Held", fill: BRAND, cornerRadius: 3, width: 22,
       label: { enabled: true, placement: "outside-end", color: INK, formatter: ({ value }) => usd(Number(value)) },
@@ -142,27 +151,35 @@ export function InsightsCharts(p: {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <ChartCard title="Deposits held" meta={`By ${by}`} tip="What was collected, less what went back and what a statement that went out kept, at the end of each period."
-        summary={`Deposits held by ${by}. ${last ? `At the end of the ${by} of ${last.label}: ${usd(last.held)}.` : ""}`} options={held} />
+        summary={`Deposits held by ${by}. ${last ? `At the end of the ${by} of ${last.label}: ${usd(last.held)}.` : ""}`} options={held} empty={heldEmpty} height={232} />
       <ChartCard title="Returned to tenants" meta={`By ${by}`} tip="Refunds and Payouts (PayPal's refunds through a dispute among them), and what a settled dispute sent back on top."
-        summary={`Refunds and settlements by ${by}, ${usd(backTotal)} in all.`} options={returned} />
+        summary={`Refunds and settlements by ${by}, ${usd(backTotal)} in all.`} options={returned} empty={returnedEmpty} height={232} />
       <ChartCard title="Deductions by category" meta="Every statement" tip="Every deduction on file, drafts included, by what it was for. Wear and tear is never charged, so it isn't here."
-        summary={`Deductions: ${p.categories.map((c) => `${c.label} ${usd(c.amount)}`).join(", ")}.`} options={cats} />
+        summary={`Deductions: ${p.categories.map((c) => `${c.label} ${usd(c.amount)}`).join(", ")}.`} options={cats} empty={catsEmpty} height={196} />
       <ChartCard title="Held by state" meta={`${p.states.length} state${p.states.length === 1 ? "" : "s"}`} tip="What each state's properties hold now. Hover a bar for what was collected, returned and kept there."
-        summary={`Held by state: ${p.states.map((s) => `${s.name} ${usd(s.held)}`).join(", ")}.`} options={states} />
+        summary={`Held by state: ${p.states.map((s) => `${s.name} ${usd(s.held)}`).join(", ")}.`} options={states} empty={statesEmpty} height={statesHeight} />
     </div>
   );
 }
 
 const grainWord = (g: string) => (g === "week" ? "Week" : g === "quarter" ? "Quarter" : "Month");
 
-function ChartCard({ title, meta, tip, summary, options }: { title: string; meta: string; tip: string; summary: string; options: AgCartesianChartOptions | null }) {
+/** One chart's card. `empty` is the line shown in the chart's place, at the chart's height, when it has nothing to
+ *  draw; then the summary is that line, so a screen reader hears it once. */
+function ChartCard({ title, meta, tip, summary, options, empty, height }: { title: string; meta: string; tip: string; summary: string; options: AgCartesianChartOptions | null; empty: string | null; height: number }) {
   return (
     <Card>
       <CardHead title={title} meta={meta} right={<InfoTip align="end" title={title}>{tip}</InfoTip>} />
       <div className="px-3 pb-3 pt-2">
-        <p className="sr-only">{summary} The table below lists every property&apos;s figures.</p>
-        {/* AG Charts names every chart "interactive chart"; the group says which one a screen reader has entered. */}
-        {options ? <div role="group" aria-label={title}><AgCharts options={options} modules={MODULES} /></div> : <div style={{ height: options === null ? 232 : 0 }} aria-hidden />}
+        {empty ? (
+          <p className="flex items-center justify-center text-sm text-ink-3" style={{ height }}>{empty}</p>
+        ) : (
+          <>
+            <p className="sr-only">{summary} The table below lists every property&apos;s figures.</p>
+            {/* AG Charts names every chart "interactive chart"; the group says which one a screen reader has entered. */}
+            {options ? <div role="group" aria-label={title}><AgCharts options={options} modules={MODULES} /></div> : <div style={{ height }} aria-hidden />}
+          </>
+        )}
       </div>
     </Card>
   );
