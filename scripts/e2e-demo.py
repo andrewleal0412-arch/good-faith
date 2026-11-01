@@ -1124,6 +1124,18 @@ def walk(base, setup, shots, check, facts):
         page.get_by_role("button", name=re.compile("^Texas")).first.click()
         page.wait_for_timeout(800)
         sees("Insights, Texas only", page, f"Deposits held\n{usd(TXF['held'])}", f"Collected\n{usd(TXF['collected'])}", f"Returned\n{usd(TXF['returned'])}", f"Kept as deductions\n{usd(TXF['kept'])}")
+        # A chart with nothing to draw says so in one line in its place, instead of a canvas of $0.00 bars: here the
+        # Texas unit holds its deposit, has returned nothing and has no deduction on file (drafts count, so the rows
+        # are read, not TXF's kept, which is 0 until a statement goes out), so two of the four charts are words and
+        # two are drawn.
+        tx_ids = {t["id"] for t in f3["tenancies"] if ((t.get("properties") or {}).get("state") or "CA") == "TX"}
+        if TXF["returned"] == 0 and TXF["held"] > 0 and not [d for d in f3["deductions"] if d["tenancy_id"] in tx_ids]:
+            page.wait_for_timeout(400)
+            tx_charts = page.locator(".ag-charts-wrapper canvas, canvas").count()
+            tx_text = text(page)
+            check("Insights, Texas only: the two charts with nothing to draw say so in words, and only the other two are drawn",
+                  "Nothing returned yet." in tx_text and "No deductions on file." in tx_text and tx_charts == 2,
+                  f"{tx_charts} canvases; {'Nothing returned yet.' in tx_text}, {'No deductions on file.' in tx_text}")
         shot(page, "insights-texas")
 
         # 11. The same lease twice: this copy already has a tenancy for the demo lease, so Start tenancy opens that
