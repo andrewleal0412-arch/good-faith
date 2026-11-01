@@ -85,8 +85,9 @@ to a PayPal dispute are each claimed once in the database and recomputed from th
 the call, so a double click cannot pay twice.
 
 The path a judge takes through the demo is also an automated test. It builds the app, walks the demo script in a real
-browser on a production build, and works every dollar on screen out again from the demo copy's own rows: 105 checks. A
-second script holds every page to WCAG 2.2 AA at 1280 and 390 px, with the three things still open written down.
+browser on a production build, and works every dollar on screen out again from the demo copy's own rows: 132 checks. A
+second script holds every page to WCAG 2.2 AA at 1280 and 390 px, 397 checks, with the three things still open written
+down.
 
 ## What we learned
 
@@ -134,7 +135,15 @@ https://good-faith.onrender.com, PayPal sandbox only. No real money moves.
    about a minute.
 2. Your browser gets a private copy of a small landlord with three units, dated to today, with a guide at the top of
    each page linking to each step. Start over, in the account menu, gives a fresh one.
-3. Open 1140 E. Juniper Hollow Ln and its Move-out tab for Claude's boxes. Review refund, Prepare refund, then Send
-   refund: a real sandbox refund of $3,790.00 from your copy's own deposit.
-4. For the two agents: on the receipt, press Send statement, then Record delivery, then Open the tenant's view and
-   dispute a charge.
+3. Open 1140 E. Juniper Hollow Ln and its Move-out tab for Claude's boxes and the three deductions. Review refund,
+   Prepare refund (the close-out agent, under a minute), then Send refund: a real sandbox refund of $3,790.00 from your
+   copy's own deposit, with PayPal's refund ID on the receipt.
+4. For the two agents: on the receipt, press Send statement, then Record delivery, then Open the tenant's view. On the
+   tenants' page, Dispute it: tick the carpet, say why, pick a name, Ask my advocate (about a minute), then Send to
+   Teddy Buettner and confirm.
+5. Back on the landlord's Move-out tab, Let my negotiator answer: the two agents trade offers, up to three exchanges,
+   each turn checked by code. Then pick a name and Accept settlement on the tenants' page, and Approve and pay on the
+   Move-out tab (each asks once more): PayPal refunds the agreed amount against the same deposit payment, and the
+   statement becomes the amended statement.
+6. Properties, then 2317 Mesquite Bend Dr, Unit 3: the same engine under Texas law, with the Rules chip under the
+   address.
