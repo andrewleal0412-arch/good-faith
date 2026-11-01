@@ -637,7 +637,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
       </div>
 
       <Drawer open={!!open} onClose={() => { setOpen(null); setSelectId(null); }} title={open ? `${TYPE[open.kind]}, ${shortDate(open.date)}` : ""} sub={open ? `${open.unit}, ${open.tenants}` : undefined}>
-        {open && <Details r={open} d={details[open.id]} status={statusOf(open, back)} at={(ts) => atFor(open, ts)} selectId={selectId} />}
+        {open && <Details r={open} d={details[open.id]} status={statusOf(open, back)} at={(ts) => atFor(open, ts)} zone={zones.get(open.tenancyId) ?? PACIFIC} selectId={selectId} />}
       </Drawer>
     </>
   );
@@ -645,7 +645,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
 
 /** One row in full: the amount and its status, what it was and the rule behind it, every PayPal id with a copy button,
  *  where the status came from, and what PayPal's webhook said about it. */
-function Details({ r, d, status, at, selectId }: { r: LedgerRow; d: LedgerDetail | undefined; status: string; at: (ts: string) => string;
+function Details({ r, d, status, at, zone, selectId }: { r: LedgerRow; d: LedgerDetail | undefined; status: string; at: (ts: string) => string; zone: string;
   /** The PayPal id a Copy the browser refused was for: it arrives selected, ready to copy by hand. */
   selectId?: string | null }) {
   const section = "mt-6 border-t border-line-2 pt-4";
@@ -677,7 +677,7 @@ function Details({ r, d, status, at, selectId }: { r: LedgerRow; d: LedgerDetail
       {/* PayPal's own answer for the row's refund, Payout batch or invoice, read when the section is opened. */}
       {d?.record && (
         <div className={section}>
-          <PayPalRecordSection tenancyId={r.tenancyId} kind={d.record.kind} id={d.record.id} />
+          <PayPalRecordSection tenancyId={r.tenancyId} kind={d.record.kind} id={d.record.id} zone={zone} />
         </div>
       )}
 

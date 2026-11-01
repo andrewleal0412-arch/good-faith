@@ -545,7 +545,7 @@ function Sent({ v, statute, zone }: { v: RefundView; statute: string; zone: stri
       {/* PayPal's own answer for this refund or Payout, read when the section is opened: beside the receipt's figures. */}
       {s.paypalId && (
         <div data-moment="fade" data-delay="220" className="mt-6">
-          <PayPalRecordSection tenancyId={v.tenancyId} kind={s.kind === "payout" ? "payout" : "refund"} id={s.paypalId} />
+          <PayPalRecordSection tenancyId={v.tenancyId} kind={s.kind === "payout" ? "payout" : "refund"} id={s.paypalId} zone={zone} />
         </div>
       )}
 

@@ -5,6 +5,8 @@
 // payer and note, an invoice's recipients, invoicer and items, which name the unit, a Payout's items, which name the
 // receivers). scripts/e2e-stubs-check.mjs feeds them answers full of such fields and checks that none comes through.
 
+import { atTextIn } from "./dates";
+
 export type RecordKind = "refund" | "payout" | "invoice";
 
 export type PayPalRecord =
@@ -70,17 +72,34 @@ export function pickInvoice(raw: unknown): PayPalRecord | null {
 export const pickRecord = (kind: RecordKind, raw: unknown): PayPalRecord | null =>
   (kind === "refund" ? pickRefund(raw) : kind === "payout" ? pickPayout(raw) : pickInvoice(raw));
 
-/** The record as the screens list it: a label, PayPal's value as it wrote it (or "Not given"), and whether the value is
- *  an id to copy. Every label says whose value it is. An invoice's times are listed only when PayPal gives them. */
-export function recordRows(r: PayPalRecord): { label: string; value: string; id?: boolean }[] {
+/** A moment as PayPal writes it, with its zone: "2026-11-01T23:02:27.053Z" or "2026-11-01T16:02:27-07:00". A date alone
+ *  (an invoice's payment_date, "2026-10-29") is not one: it names no instant, so no clock can be put beside it. */
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
+
+/** A time of PayPal's on the property's own clock ("Nov 1, 2026 at 3:02 PM"; "6:02 PM EST" outside Pacific time),
+ *  for the screen to put beside PayPal's stamp, which stays as PayPal wrote it. Null for anything but an instant. */
+export function localTime(value: string | null, zone: string): string | null {
+  if (!value || !INSTANT.test(value) || Number.isNaN(Date.parse(value))) return null;
+  return atTextIn(value, zone);
+}
+
+/** The record as the screens list it: a label, PayPal's value as it wrote it (or "Not given"), whether the value is
+ *  an id to copy, and, given the property's time zone, the same moment on its clock beside each of PayPal's times
+ *  (`local`; PayPal's stamps are UTC, and a refund sent at 8:01 PM reads as the next day's date in them). Every label
+ *  says whose value it is. An invoice's times are listed only when PayPal gives them. */
+export function recordRows(r: PayPalRecord, zone?: string): { label: string; value: string; id?: boolean; local?: string }[] {
   const v = (x: string | null) => x ?? "Not given";
+  const t = (label: string, x: string | null) => {
+    const local = zone ? localTime(x, zone) : null;
+    return { label, value: v(x), ...(local ? { local } : {}) };
+  };
   if (r.kind === "refund") {
     return [
       { label: "PayPal's refund ID", value: r.id, id: true },
       { label: "PayPal's status", value: r.status },
       { label: "PayPal's amount", value: v(r.amount) },
-      { label: "PayPal's create time", value: v(r.createTime) },
-      { label: "PayPal's update time", value: v(r.updateTime) },
+      t("PayPal's create time", r.createTime),
+      t("PayPal's update time", r.updateTime),
       { label: "PayPal's payment refunded", value: v(r.captureId), id: !!r.captureId },
     ];
   }
@@ -89,8 +108,8 @@ export function recordRows(r: PayPalRecord): { label: string; value: string; id?
       { label: "PayPal's batch ID", value: r.id, id: true },
       { label: "PayPal's status", value: r.status },
       { label: "PayPal's amount", value: v(r.amount) },
-      { label: "PayPal's create time", value: v(r.createTime) },
-      { label: "PayPal's completed time", value: v(r.completedTime) },
+      t("PayPal's create time", r.createTime),
+      t("PayPal's completed time", r.completedTime),
     ];
   }
   return [
@@ -101,9 +120,9 @@ export function recordRows(r: PayPalRecord): { label: string; value: string; id?
     { label: "PayPal's paid amount", value: v(r.paid) },
     { label: "PayPal's refunded amount", value: v(r.refunded) },
     { label: "PayPal's payment ID", value: v(r.paymentId), id: !!r.paymentId },
-    { label: "PayPal's payment date", value: v(r.paymentDate) },
-    ...(r.createTime ? [{ label: "PayPal's create time", value: r.createTime }] : []),
-    ...(r.updateTime ? [{ label: "PayPal's update time", value: r.updateTime }] : []),
+    t("PayPal's payment date", r.paymentDate),
+    ...(r.createTime ? [t("PayPal's create time", r.createTime)] : []),
+    ...(r.updateTime ? [t("PayPal's update time", r.updateTime)] : []),
   ];
 }
 

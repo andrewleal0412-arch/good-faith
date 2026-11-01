@@ -255,6 +255,17 @@ stubsOn(true);
   eq("record: a value PayPal didn't give reads \"Not given\"", rows.map((r) => r.value), ["R1", "PENDING", "Not given", "Not given", "Not given", "Not given"]);
   eq("record: an invoice's times are listed only when PayPal gives them",
     record.recordRows(record.pickInvoice({ id: "INV2-1", status: "PAID" })).map((r) => r.label).filter((l) => /time/.test(l)), []);
+  // Given the property's zone, each of PayPal's times carries the same moment on that clock; a date alone (an invoice's
+  // payment_date names no instant), a value PayPal didn't give and the ids and amounts carry none. Without a zone, none.
+  // (Nov 2, 2026, 03:01 UTC is Nov 1, 7:01 PM PST: clocks went back on Nov 1.)
+  const inv = record.pickInvoice({ id: "INV2-1", status: "PAID", payments: { transactions: [{ payment_id: "P1", payment_date: "2026-10-29" }] },
+    detail: { metadata: { create_time: "2026-11-02T03:01:47.442Z" } } });
+  eq("record: the property's clock beside each of PayPal's times, and nothing else",
+    Object.fromEntries(record.recordRows(inv, "America/Los_Angeles").filter((r) => r.local).map((r) => [r.label, r.local])), { "PayPal's create time": "Nov 1, 2026 at 7:01 PM" });
+  eq("record: another state's clock carries its zone, and no zone means no clock",
+    [record.recordRows(record.pickRefund({ id: "R1", status: "COMPLETED", create_time: "2026-11-02T03:01:47Z" }), "America/New_York")[3].local,
+      record.recordRows(record.pickRefund({ id: "R1", status: "COMPLETED", create_time: "2026-11-02T03:01:47Z" }))[3].local],
+    ["Nov 1, 2026 at 10:01 PM EST", undefined]);
   // The reads behind the section go to the fake, and an id that isn't PayPal's shape is refused before any call.
   stubsOn(true);
   let missing = null;
