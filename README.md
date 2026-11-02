@@ -217,8 +217,8 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | `state-packs` 316, `zone` 118, `lawful-range` 147, `negotiation` 136, `paypal-webhook` 168, `grid` 70, `demo-welcome` 25, `chargeback` 121, `jev` 166, `reconcile` 87, `cache` 295, `thumbs` 169, `e2e-stubs` 62, `page-weight` 164 | All passed | CI, every push |
 | `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
-| `e2e-demo.py` on a production build | 145 of 145 | By hand, 2026-11-01 |
-| `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-01 |
+| `e2e-demo.py` on a production build | 150 of 150 | By hand, 2026-11-02 |
+| `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-02 |
 | `align-check.py` on a production build | 8 of 8: 2,319 marks beside text, 919 glyphs in frames and 698 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-11-01 |
 
 What each script checks, and how the end-to-end test builds and stubs: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#checks-and-the-end-to-end-test).
