@@ -219,6 +219,7 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
 | `e2e-demo.py` on a production build | 145 of 145 | By hand, 2026-11-01 |
 | `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-01 |
+| `npm audit --omit=dev --audit-level=critical` | Clean; 12 advisories below critical, in the toolkit's tree and `zod` 3 ([Security](#security)) | By hand, 2026-11-02 |
 | `align-check.py` on a production build | 8 of 8: 2,319 marks beside text, 919 glyphs in frames and 698 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-11-01 |
 
 What each script checks, and how the end-to-end test builds and stubs: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#checks-and-the-end-to-end-test).
@@ -235,7 +236,7 @@ The full list, with PayPal's tool gaps, accessibility's open items and the depen
 
 ### Security
 
-`npm audit --omit=dev` (2026-10-16) lists 10 vulnerable packages (5 high, 2 moderate, 3 low), all inside `@paypal/agent-toolkit` 1.11.0's own dependencies. The app loads only the toolkit's MCP entry, `@paypal/agent-toolkit/mcp`. That entry never loads `@langchain/core`, `langsmith`, `uuid`, `jsondiffpatch` or the nested `ai` 4 packages; those belong to its LangChain and AI SDK entries. It loads `mathjs` only to round invoice totals. npm's only fix for most is a downgrade to the toolkit's 1.3.5, a breaking change, and the `mathjs` fix (15.2.0) is outside the toolkit's `^14` range. The app's own code has no advisory; the rest of `npm audit` is lint tooling. Dependabot will list the same advisories, plus one in the lint tooling.
+`npm audit --omit=dev` (2026-11-02) lists 12 vulnerable packages (11 high, 1 moderate, none critical): the toolkit, `@paypal/agent-toolkit` 1.11.0, with ten of its own dependencies, and `zod` 3, which the app and the toolkit (`^3.24.2`) both declare. The app loads only the toolkit's MCP entry, `@paypal/agent-toolkit/mcp`. That entry never loads `@langchain/core`, `langsmith`, `uuid`, `jsondiffpatch`, `openai` or the nested `ai` 4 and AI SDK packages; those belong to its LangChain and AI SDK entries. It loads `mathjs` only to round invoice totals. npm's only fix for those is a downgrade to the toolkit's 1.3.5, a breaking change, and the `mathjs` fix (15.2.0) is outside the toolkit's `^14` range. The `zod` advisory (a large array sent to a schema with no length limit exhausts memory) is fixed in zod 4, outside the toolkit's range; the app's own schemas read Claude's structured output and one signed-in route's JSON body, which `src/proxy.ts` caps at about 4.5 MB and whose arrays all carry `.max()`. Everything else `npm audit` had come to list by 2026-11-02 was moved to its fixed release that day, with no breaking change: Next.js 16.4.4 (two critical and one high advisory in 16.0.0 to 16.4.0), `undici` 7.30.1, `@modelcontextprotocol/sdk` 1.32.2 and six packages beneath the MCP SDK and the toolkit, so `npm audit --omit=dev --audit-level=critical` is clean. The rest of `npm audit` is lint tooling. Dependabot will list the same advisories, plus the lint tooling's.
 
 ## Setup
 
