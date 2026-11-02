@@ -19,9 +19,9 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 
 ![The move-out unit's Move-out tab: the move-in and move-out photos of the bedroom side by side, Claude's boxes on the carpet stain (damage, $720.00) and the wall holes (wear and tear, $0.00), and the deposit, deductions and refund due above them](docs/img/move-out.png)
 
-![The negotiation on the landlord's Move-out tab: the tenants' advocate asks $360.00 back, the landlord's negotiator counters with $120.00, the advocate asks $270.00 and the negotiator concedes; Approve and pay $270.00 waits for the tenants to accept](docs/img/negotiation.png)
+![The negotiation on the landlord's Move-out tab: the tenants' advocate asks $360.00 back, the landlord's negotiator counters with $120.00, the advocate asks $270.00 and the negotiator concedes, each turn with a green Checked mark; Approve and pay $270.00 waits for the tenants to accept](docs/img/negotiation.png)
 
-<sub>Screenshots from the end-to-end test on a production build; the live demo fills the same screens with real Claude and PayPal sandbox calls.</sub>
+<sub>Both pictures are written by the end-to-end test on a production build (`readme-*.png` in its `--shots` folder) and copied in from a run; the live demo fills the same screens with real Claude and PayPal sandbox calls.</sub>
 
 ## Try it
 
