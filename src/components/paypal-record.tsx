@@ -24,7 +24,10 @@ const agoWords = (readAt: number, now: number) => {
   return m < 1 ? "just now" : m === 1 ? "1 minute ago" : `${m} minutes ago`;
 };
 
-export function PayPalRecordSection({ tenancyId, kind, id }: { tenancyId: string; kind: RecordKind; id: string }) {
+/** `zone` is the property's time zone (its state pack's): each of PayPal's times, the stamp as PayPal wrote it (UTC, in
+ *  practice), gets the same moment on that clock beside it, in gray, so a refund sent in the evening isn't read as
+ *  tomorrow's. */
+export function PayPalRecordSection({ tenancyId, kind, id, zone }: { tenancyId: string; kind: RecordKind; id: string; zone: string }) {
   const [s, setS] = useState<State>({ status: "idle" });
   const [now, setNow] = useState(0);
   const word = recordWord(kind);
@@ -52,6 +55,8 @@ export function PayPalRecordSection({ tenancyId, kind, id }: { tenancyId: string
   }, [readAt]);
 
   const record = "record" in s ? s.record : undefined;
+  const rows = record ? recordRows(record, zone) : [];
+  const clocks = rows.some((x) => x.local);
   return (
     // The first read happens when the section is opened, never before.
     <details className="group/pp" onToggle={(e) => { if (e.currentTarget.open && s.status === "idle") void read(); }}>
@@ -61,10 +66,18 @@ export function PayPalRecordSection({ tenancyId, kind, id }: { tenancyId: string
         <Icon name="chev-down" className="size-3.5 text-ink-4 transition-transform group-open/pp:rotate-180" />
       </summary>
       <div className="mt-2">
-        <p className="text-xs text-ink-3">What PayPal returns for this {word} when asked now, in PayPal&apos;s own words. Not the app&apos;s copy.</p>
+        <p className="text-xs text-ink-3">What PayPal returns for this {word} when asked now, in PayPal&apos;s own words. Not the app&apos;s copy.{clocks && " The property's clock follows each of its times."}</p>
         {s.status === "error" && <Notice className="mt-3">{s.error}</Notice>}
         {record && (
-          <KV className="mt-3" rows={recordRows(record).map((x) => [x.label, x.id ? <CopyId key={x.label} text={x.value} label={`Copy ${x.label}`} /> : <span className="tabular-nums">{x.value}</span>])} />
+          <KV className="mt-3" rows={rows.map((x) => [x.label, x.id ? <CopyId key={x.label} text={x.value} label={`Copy ${x.label}`} /> : (
+            // PayPal's value first, as it wrote it; the property's clock after it, where the value is a time. Plain
+            // inline spans with a space between, so the cell's break-words still holds a long stamp at phone width,
+            // and the two read and copy as separate words.
+            <span key={x.label}>
+              <span data-paypal-value="" className="tabular-nums">{x.value}</span>
+              {x.local && <>{" "}<span data-paypal-local="" className="ml-1 tabular-nums text-ink-3">{x.local}</span></>}
+            </span>
+          )])} />
         )}
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
           <span role="status">

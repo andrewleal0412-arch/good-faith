@@ -79,7 +79,9 @@ import sys
 import tempfile
 import time
 import urllib.request
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 REPO = Path(__file__).resolve().parent.parent
 PORT = 3211  # the default; --port picks another, for a run beside one already on 3211
@@ -345,6 +347,12 @@ def money_words(amount):
     return f"{amount:.2f} USD"
 
 
+def pacific_at(ts):
+    """A UTC stamp as the app writes the same moment in Pacific time (src/lib/dates.ts, atTextIn): "Nov 1, 2026 at 3:02 PM"."""
+    d = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ZoneInfo("America/Los_Angeles"))
+    return f"{d:%b} {d.day}, {d.year} at {d.hour % 12 or 12}:{d:%M} {d:%p}"
+
+
 def record_want_refund(row, capture):
     """PayPal's record of a refund as the screen must list it, from the fake PayPal's own answer when the refund was made
     (the payments row's raw holds that answer verbatim, and the fake's read of the refund returns the same)."""
@@ -458,7 +466,14 @@ def walk(base, setup, shots, check, facts):
     # opened and lists the fields PayPal returned, each labelled as PayPal's. `scope` is the page or the row's dialog.
     def record_rows(scope):
         det = scope.locator("details", has_text="PayPal's record").first
-        return dict(det.evaluate("d => [...d.querySelectorAll('dl > div')].map((x) => [x.querySelector('dt').innerText.trim(), x.querySelector('dd').innerText.trim()])"))
+        # PayPal's value is its own element ([data-paypal-value]); the property's clock beside a time is the app's, not
+        # PayPal's, and is read apart (record_clocks).
+        return dict(det.evaluate("d => [...d.querySelectorAll('dl > div')].map((x) => [x.querySelector('dt').innerText.trim(), (x.querySelector('dd [data-paypal-value]') ?? x.querySelector('dd')).innerText.trim()])"))
+
+    def record_clocks(scope):
+        """The property's clock beside each of PayPal's times in the opened record, by label."""
+        det = scope.locator("details", has_text="PayPal's record").first
+        return dict(det.evaluate("d => [...d.querySelectorAll('dl > div')].filter((x) => x.querySelector('dd [data-paypal-local]')).map((x) => [x.querySelector('dt').innerText.trim(), x.querySelector('dd [data-paypal-local]').innerText.trim()])"))
 
     def open_record(scope):
         scope.locator("summary", has_text="PayPal's record").first.click()
@@ -850,6 +865,14 @@ def walk(base, setup, shots, check, facts):
         check("Refund sent: PayPal's record lists the refund's fields as the fake PayPal returned them, a completed refund of the copy's own deposit",
               rec == want and want.get("PayPal's status") == "COMPLETED" and want.get("PayPal's amount") == money_words(E["refund"]),
               f"shown {json.dumps(rec)}, the fake returned {json.dumps(want)}")
+        # PayPal's times are UTC stamps; beside each, the record shows the same moment on the property's clock (the unit is
+        # in California, so Pacific time with no zone suffix, as the receipt's own timeline reads), so a refund sent in
+        # the evening isn't read as tomorrow's. The capture id and the amount are not times, so they get no clock.
+        raw = refunds[0]["raw"] if refunds else {}
+        clocks = record_clocks(page)
+        want_clocks = {k: pacific_at(raw[f]) for k, f in [("PayPal's create time", "create_time"), ("PayPal's update time", "update_time")] if raw.get(f)}
+        check("Refund sent: PayPal's record puts the property's clock beside each of PayPal's UTC times, and nothing else",
+              bool(want_clocks) and clocks == want_clocks, f"shown {json.dumps(clocks)}, wanted {json.dumps(want_clocks)}")
         # Check again asks the route again and shows the same record.
         since = time.time()
         page.get_by_role("button", name="Check again").click()
