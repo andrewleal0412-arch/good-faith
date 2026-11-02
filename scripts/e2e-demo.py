@@ -44,6 +44,12 @@ of its own, and a demo session signed locally with the test server's secret, nev
 demo_copy_usage row, none of the day's 60 copies). Everything the test makes is removed at the end, failed or not:
 the daily-limit units it took go back to the day's totals, then its fake deposit, its copy's rows and files.
 
+The README's two pictures come from the walk too: readme-move-out.png (the Move-out tab's header through the first
+room's card, after step 4) and readme-negotiation.png (the Negotiation card as the agents left it, after step 8) are
+written in --shots at the walk's 1440 px window with the main column scaled to 1600 px, the demo guide hidden, so a
+retake for docs/img/ is one run of this script (`cp <shots>/readme-move-out.png docs/img/move-out.png`, the same for
+negotiation).
+
   # The whole run (the checklist's): a temporary worktree of HEAD with this checkout's uncommitted changes laid over
   # it, node_modules cloned in (APFS), .env.local copied, next build, next start on 3211 (or --port) with the stubs on,
   # the walk, then everything removed. The worktree's directory must not exist yet.
@@ -74,6 +80,7 @@ import re
 import secrets
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -566,6 +573,38 @@ def walk(base, setup, shots, check, facts):
         page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text[:200]}") if m.type == "error" else None)
         page.set_default_timeout(30_000)
 
+        # The README's two pictures (docs/img/move-out.png and docs/img/negotiation.png), taken from this copy the way
+        # the README has always shown them: the page at this walk's 1440 px window, in a second browser whose pixel
+        # ratio makes the main column come out README_PX wide (the pictures' size), the demo guide hidden by its own
+        # cookie as the recording notes say, and a fresh load, so every motion moment is at rest. Each is written
+        # beside its step's screenshot as readme-<name>.png, so a retake after a change is one run of this script
+        # rather than a hand-framed screenshot.
+        README_PX = 1600
+        COLUMN_JS = ("() => { const m = document.getElementById('main'); const s = getComputedStyle(m);"
+                     " return m.getBoundingClientRect().width - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight); }")
+
+        def readme_shot(name, path, ready, frame):
+            """The picture of `frame` on `path`, once `ready(page)` has waited for what it shows: `frame` is a list of
+            selectors, each naming one element, and the picture is the box around all of them. Returns (the picture's
+            width in px, the page it was taken on, the second browser) so the caller can look at the page before
+            closing it."""
+            # The main column's content width in this walk's window (the demo guide sits inside the column, so hiding
+            # it changes nothing here; the width check below holds that). The ratio makes the column README_PX wide.
+            column = page.evaluate(COLUMN_JS)
+            c2 = browser.new_context(viewport={"width": 1440, "height": 1000}, device_scale_factor=README_PX / column, reduced_motion="reduce")
+            c2.add_cookies([{"name": setup["cookie"]["name"], "value": setup["cookie"]["value"], "url": base},
+                            {"name": "gf_guide", "value": "off", "url": base}])
+            p2 = c2.new_page()
+            p2.set_default_timeout(30_000)
+            p2.goto(base + path, wait_until="load")  # not networkidle: a page that asks for the other side's news never goes idle
+            ready(p2)
+            box = p2.evaluate("(frame) => { const els = frame.map((sel) => { const e = document.querySelector(sel); if (!e) throw new Error('no element for ' + sel); return e; });"
+                              " const rs = els.map((e) => e.getBoundingClientRect());"
+                              " const x = Math.min(...rs.map((r) => r.left)), y = Math.min(...rs.map((r) => r.top));"
+                              " return { x: x + scrollX, y: y + scrollY, width: Math.max(...rs.map((r) => r.right)) - x, height: Math.max(...rs.map((r) => r.bottom)) - y }; }", frame)
+            png = p2.screenshot(path=str(shots / f"readme-{name}.png"), full_page=True, clip=box)
+            return struct.unpack(">I", png[16:20])[0], p2, c2
+
         # 0. The welcome (components/demo-welcome.tsx): a browser that hasn't seen it meets the card on Properties, in
         # words read off the copy's own units; its tour rings the live unit, the next steps, the Texas unit and the
         # guide, in that order, each ring around its own part of the page; its last button opens the move-out photos;
@@ -755,6 +794,21 @@ def walk(base, setup, shots, check, facts):
               all(usd(a) in gtext for a in line_amounts) and "Not deductible" in gtext and "$0.00" in gtext, gtext[:500])
         only_amounts("Move-out", t, [E["deposit"], E["deductions"], E["refund"], *line_amounts, 0.0, 1800.0, 50.0])
         shot(page, "move-out")
+        # The README's first picture: the unit's header through the first room's card, boxes drawn and photos loaded.
+        def move_out_ready(p):
+            p.locator("#photos section[aria-label]").first.scroll_into_view_if_needed()
+            p.wait_for_function("() => { const room = document.querySelector('#photos section[aria-label]'); const xs = room ? [...room.querySelectorAll('img')] : [];"
+                                " return xs.length >= 2 && xs.every((i) => i.complete && i.naturalWidth > 0) && room.querySelectorAll('.gf-mark').length >= 2; }", timeout=30_000)
+            p.evaluate("() => window.scrollTo(0, 0)")
+            p.wait_for_timeout(200)
+        # The unit's header row is the first thing in the tab page's own wrapper (tab-state.tsx); the room card is the
+        # first section under the photo comparison.
+        w, p2, c2 = readme_shot("move-out", f"/tenancy/{mo}?tab=move-out", move_out_ready,
+                                ["#main .gf-page.contents > div.flex", "#photos section[aria-label]"])
+        guide_gone = p2.locator("[data-tour=guide]").count() == 0
+        c2.close()
+        check(f"README picture: the Move-out tab's header through the first room's card, {README_PX} px wide, with the demo guide hidden",
+              abs(w - README_PX) <= 4 and guide_gone, f"{w} px wide; guide {'hidden' if guide_gone else 'shown'}")
 
         # 5. Review refund (beat 4): the agent's plan and steps, the approval, PayPal's (fake) refund.
         go(page, f"/tenancy/{mo}/refund")
@@ -945,6 +999,23 @@ def walk(base, setup, shots, check, facts):
         check(f"Negotiation: the carpet's Why? gives the lawful range's top, {usd(E['carpet'])}, with a citation from the pack",
               f"support for it: {usd(E['carpet'])}" in why and "Civ. Code 1950.5" in why, why[:300] or "no such tip")
         shot(page, "negotiation")
+        # The README's second picture: the Negotiation card as the agents left it, waiting for the tenants to accept,
+        # the negotiator's first turn opened to its figures, every turn with its Checked mark.
+        def negotiation_ready(p):
+            card = p.locator("#negotiation")
+            card.get_by_text("Agreed back").first.wait_for()
+            # Every turn's figures sit in the page folded, so what counts is a "kept of" line that can be seen, not
+            # the first one in the markup (which stays hidden in a turn that was not opened).
+            shown = card.get_by_text("kept of").filter(visible=True)
+            if shown.count() == 0:
+                card.get_by_text("Reasoning and figures").nth(1).click()
+                shown.first.wait_for(state="visible")
+            p.wait_for_timeout(200)
+        w, p2, c2 = readme_shot("negotiation", f"/tenancy/{mo}?tab=move-out", negotiation_ready, ["#negotiation"])
+        marks2 = p2.locator("#negotiation").get_by_role("button", name=re.compile(r"^Checked$")).count()
+        c2.close()
+        check(f"README picture: the Negotiation card, {README_PX} px wide, with the Checked mark on all {want_turns} turns",
+              abs(w - README_PX) <= 4 and marks2 == want_turns, f"{w} px wide; {marks2} marks")
         f2 = facts()
         turns = [cents(x["amount_back"]) for x in f2["turns"] if x["n"] > 1 and x["dispute_id"] in {d["id"] for d in f2["disputes"] if d["tenancy_id"] == mo}]
         check(f"Negotiation: the turns recorded give back {', '.join(usd(x) for x in E['turns_back'])}", turns == E["turns_back"], f"{turns}")
