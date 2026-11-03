@@ -253,7 +253,7 @@ The other four states' sources are in their specs under [rules/](rules/README.md
 
 ## The hosted demo
 
-[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. It is on Render, and the first page after a quiet spell can take up to a minute while the server wakes.
+[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. It is on Render's paid plan, so the server stays awake and the first page is a normal page load.
 
 ![Properties: two California units and one in Texas, each with its status and the next step its state's law asks for, the deposits held, and the nearest statement deadline](img/properties.png)
 
