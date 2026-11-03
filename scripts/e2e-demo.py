@@ -1284,6 +1284,15 @@ def walk(base, setup, shots, check, facts):
         irows = " | ".join(page.locator(".ag-row").evaluate_all("rs => rs.map(r => r.innerText.replace(/\\s+/g, ' ').trim())"))
         check(f"Insights: the property grid's total row agrees ({usd(PF['collected'])} collected, {usd(PF['held'])} held)",
               usd(PF["collected"]) in irows and usd(PF["held"]) in irows and usd(PF["kept"]) in irows, irows[:600])
+        # The strip's Returned counts the settlements ("$540.00 of it in settlements"); the grid gives them a column of
+        # their own, so its column of refunds and Payouts is Refunded, and the page carries one Returned figure, not a
+        # second one in the total row that is smaller by the settlements.
+        heads = page.locator(".ag-header-cell-text").evaluate_all("hs => hs.map(h => h.innerText.trim())")
+        total = " | ".join(page.locator(".ag-row-pinned").evaluate_all("rs => rs.map(r => r.innerText.replace(/\\s+/g, ' ').trim())"))
+        refunded = cents(PF["returned"] - PF["settled"])
+        check(f"Insights: the grid's refunds column is Refunded, none is Returned, and the total row reads {usd(refunded)} refunded and {usd(PF['settled'])} settled beside the strip's Returned {usd(PF['returned'])}",
+              "Refunded" in heads and "Settled" in heads and "Returned" not in heads and usd(refunded) in total and usd(PF["settled"]) in total,
+              f"headers {heads}, total row {total[:300]!r}")
         shot(page, "insights")
         TXF = E["by_state"]["TX"]
         page.get_by_role("button", name=re.compile("^Texas")).first.click()
