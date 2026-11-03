@@ -20,7 +20,9 @@ the words that matter and every money figure against what the code computes, sav
    6. The itemized statement and its delivery, then the tenants' page (before beat 5)
    7. The tenants' dispute and their advocate's case (beat 5)
    8. The two agents' negotiation (beat 6)
-   9. The settlement: the tenants accept, the landlord approves and pays, the amended statement (beat 7)
+   9. The settlement: the tenants accept, the landlord approves and pays, the amended statement (beat 7); then the
+      tenants' side of it: their dispute page once paid, with the amended statement linked, and their deposit page
+      with the settled total, the settlement's PayPal id and the amended PDF
       In 8 and 9 the two pages stay open side by side, as in the demo: each shows what the other side did without a
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger), with PayPal's record in the details of the refund, the settlement and the deposit
@@ -71,7 +73,8 @@ negotiation).
   python scripts/e2e-demo.py --leftovers [--apply]
 
 Prints one line per check, "PASS <name>" or "FAIL <name>: <detail>", and exits 1 if any failed (2 if it couldn't run).
-Needs Playwright for Python with Chromium, and Node for the build and scripts/e2e-demo-db.mjs.
+Needs Playwright for Python with Chromium, pypdf (for the words of the tenants' statement PDF), and Node for the build
+and scripts/e2e-demo-db.mjs.
 """
 import argparse
 import json
@@ -124,6 +127,17 @@ def check(name, ok, detail=""):
 
 def usd(n):
     return f"${n:,.2f}"
+
+
+def pdf_words(body):
+    """The words a PDF draws, in reading order, every run of white space one space, read with pypdf (pip install pypdf).
+    None when pypdf is missing, which fails the check that reads them rather than passing it."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return None
+    import io
+    return re.sub(r"\s+", " ", " ".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(body)).pages)).strip()
 
 
 def cents(n):
@@ -1143,12 +1157,24 @@ def walk(base, setup, shots, check, facts):
         else:
             go(page, f"/tenancy/{mo}?tab=move-out")
         stay(tenant)
+        # The tenants' statement PDF the moment before the payment: the statement itself, not yet amended.
+        tenant_pdf = f"/api{setup['tenantPath']}/statement.pdf"
+        pdf_before = tenant.request.get(base + tenant_pdf)
+        pdf_before_size = len(pdf_before.body()) if pdf_before.ok else 0
+        pdf_before_words = pdf_words(pdf_before.body()) if pdf_before.ok else ""
+        (shots / "tenants-statement-before.pdf").write_bytes(pdf_before.body())
+        check("Tenants' statement PDF before the payment: served, a PDF, with the statement's refund and no amendment",
+              pdf_before.ok and pdf_before.headers.get("content-type", "").startswith("application/pdf") and pdf_before_words is not None
+              and R in pdf_before_words and "AMENDED" not in pdf_before_words and "amended statement" not in pdf_before_words,
+              f"status {pdf_before.status}, {pdf_before.headers.get('content-type')!r}, {pdf_before_size} bytes; words: "
+              + ("pypdf is not installed (pip install pypdf)" if pdf_before_words is None else repr(pdf_before_words[:200])))
         watch_button(page, r"^Approve and pay|^Sending\.\.\.$")
         page.get_by_role("button", name=re.compile(r"^Approve and pay")).first.click()
         dlg = page.get_by_role("alertdialog")
         check("Approve and pay: asks first, naming the amount", f"Send {usd(E['settled'])} to Luke Jones and Lane Forti?" in dlg.inner_text(), dlg.inner_text()[:200])
         dlg.get_by_role("button", name="Approve and pay").click()
         page.get_by_text(f"Settled: {usd(E['settled'])} back").first.wait_for(timeout=90_000)
+        settled_day = datetime.now(ZoneInfo("America/Los_Angeles"))  # the day the settlement went, where the property is
         no_flash("Approve and pay", page, r"^Approve and pay")
         f3 = facts()
         sets = [x for x in f3["settlements"] if x["tenancy_id"] == mo]
@@ -1168,10 +1194,36 @@ def walk(base, setup, shots, check, facts):
         check("Side by side: the tenants' page, left open, shows the settlement paid without a reload", live, text(tenant)[:300])
         if live:
             sees("Side by side: the tenants' page once paid", tenant, f"Settled\n{usd(E['settled'])}", "Sent by PayPal", sid)
+        else:
+            go(tenant, f"{setup['tenantPath']}/dispute")
+        # The sentence that names the amended statement opens it: the tenants' own PDF, in a new tab.
+        amended = tenant.get_by_role("link", name="amended statement")
+        check("Tenants' page once paid: 'amended statement' is a link to their statement's PDF, in a new tab",
+              amended.count() == 1 and amended.first.get_attribute("href") == tenant_pdf and amended.first.get_attribute("target") == "_blank",
+              f"{amended.count()} links; href {amended.first.get_attribute('href') if amended.count() else None!r}")
+        shot(tenant, "tenants-settled")
         done = time.time()
         page.wait_for_timeout(9000)
         check("Side by side: once it is settled, neither page asks again", asks(asked_l, done)[0] == 0 and asks(asked_t, done)[0] == 0,
               f"landlord {asks(asked_l, done)[0]}, tenants {asks(asked_t, done)[0]} status requests in 9 s")
+        # Their deposit page: everything returned, the statement's refund and the settlement apart, both PayPal ids,
+        # and the dispute's one line with what they asked back.
+        go(tenant, setup["tenantPath"])
+        t = sees("Tenants' deposit page, settled", tenant, "Your deposit refund", f"Refund amount\n\n{usd(E['returned'])}",
+                 f"Settled {settled_day:%b} {settled_day.day}, {settled_day.year}",
+                 f"{R} with the statement and {usd(E['settled'])} under the settlement you accepted, both by PayPal.",
+                 f"Refund\n{R}", f"Settlement\n{usd(E['settled'])}", "Settlement refund ID", sid, rid, f"Returned in all\n{usd(E['returned'])}", "Itemized statement")
+        only_amounts("Tenants' deposit page, settled", t, [E["returned"], E["refund"], E["settled"], E["case_back"], E["deposit"], E["deductions"], *line_amounts, 50.0, 125.0])
+        shot(tenant, "tenants-deposit-settled")
+        pdf_after = tenant.request.get(base + tenant_pdf)
+        pdf_after_words = pdf_words(pdf_after.body()) if pdf_after.ok else ""
+        (shots / "tenants-statement-amended.pdf").write_bytes(pdf_after.body())
+        check("Tenants' statement PDF after the payment: the amended statement, with its Amended line, the settlement section and both amounts",
+              pdf_after.ok and pdf_after.headers.get("content-type", "").startswith("application/pdf") and pdf_after_words is not None
+              and f"AMENDED {settled_day:%B} {settled_day.day}, {settled_day.year}" in pdf_after_words and "Settlement (amended statement)" in pdf_after_words
+              and f"{usd(E['settled'])} more back to the tenants" in pdf_after_words and usd(E["returned"]) in pdf_after_words and sid in pdf_after_words,
+              f"status {pdf_after.status}, {pdf_after.headers.get('content-type')!r}, {len(pdf_after.body())} bytes; words: "
+              + ("pypdf is not installed (pip install pypdf)" if pdf_after_words is None else repr(pdf_after_words[:300])))
         go(page, f"/tenancy/{mo}/statement")
         t = sees("Amended statement", page, "Amended", f"Returned in all\n{usd(E['returned'])}", f"kept {usd(E['settled_keep'])} of {usd(E['carpet'])}",
                  f"Deductions on the statement\n{P}", f"Agreed adjustment\n−{usd(E['settled'])}", f"Deductions as settled\n{usd(E['kept'])}",
