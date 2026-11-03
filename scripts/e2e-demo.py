@@ -1188,6 +1188,11 @@ def walk(base, setup, shots, check, facts):
         # statement's total under them, and the hero is everything returned, the refund and the settlement together.
         sees("Settled: the strip reads the deductions as settled", page, f"Deductions as settled\n{usd(E['kept'])}", f"{usd(E['deductions'])} less {usd(E['settled'])} settled")
         sees("Settled: the strip's hero is everything returned", page, f"Returned\n{usd(E['returned'])}", f"{usd(E['refund'])} refund, {usd(E['settled'])} settlement")
+        # The Refund card under the grid knows the settlement too, with the settlement's own PayPal id (before, it read
+        # only the statement's refund while the strip above it counted both).
+        card = re.sub(r"\s+", " ", page.locator("#refund").inner_text())
+        check("Settled: the Refund card carries the settlement with its PayPal id",
+              f"Refund of {usd(E['refund'])} sent" in card and f"Also {usd(E['settled'])} under the settlement" in card and sid in card, card[:400])
         shot(page, "settled")
         # The tenants' page, open since they accepted, shows the payment; then neither page asks again.
         live = arrives(tenant, lambda: tenant.get_by_text("Sent by PayPal").first.is_visible())

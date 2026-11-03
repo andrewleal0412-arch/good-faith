@@ -22,6 +22,11 @@ export function CloseOut(p: {
   // Refunds made in PayPal that the landlord recorded as this deposit's refund (`due` is already less them), and the
   // ones still waiting for the landlord's decision, which hold the refund.
   outside?: { amount: number; count: number } | null;
+  // A dispute's settlement paid (settlement.ts; a Payout still pending counts, as the ledger counts it): the strip
+  // above counts it in what went back, so the card says so too, with PayPal's id for it when PayPal moved it (the
+  // demo example's settlement moved no money and has none). On top of the refund, a line under it; where no refund
+  // was owed, the settlement is all that went back and takes the card.
+  settlement?: { amount: number; id: string | null; on: string; kind: "refund" | "payout" } | null;
   waiting?: { count: number; amount: number } | null;
   // A demo copy's tenants' page (one person plays both sides), shown once the refund went: whether the statement is
   // out, which the tenants need before they can dispute it, and whether they already did.
@@ -47,10 +52,27 @@ export function CloseOut(p: {
           {p.returned.id && <p className="break-all text-xs text-ink-3">{inPayPal ? `Recorded as this deposit's refund, PayPal refund ${p.returned.id}${(p.outside?.count ?? 1) > 1 ? ` and ${(p.outside?.count ?? 1) - 1} more` : ""}` : `PayPal ${viaDispute ? "dispute" : p.returned.kind === "payout" ? "payout" : "refund"} ${p.returned.id}`}{viaDispute && p.viaDispute?.notKept ? `. More than the refund owed, so ${usd(p.viaDispute.notKept)} of the deductions is not kept.` : ""}</p>}
           {!viaDispute && p.viaDispute && <p className="text-xs text-ink-3">Also {usd(p.viaDispute.amount)} through the PayPal dispute</p>}
           {!inPayPal && p.outside && <p className="text-xs text-ink-3">Also {usd(p.outside.amount)} refunded in PayPal</p>}
+          {p.settlement && <p className="break-all text-xs text-ink-3">Also {usd(p.settlement.amount)} under the settlement, sent {shortDate(p.settlement.on)}{p.settlement.id ? `, PayPal ${p.settlement.kind === "payout" ? "payout" : "refund"} ${p.settlement.id}` : ""}</p>}
         </div>
         <div className="ml-auto flex items-center gap-3">
           <Link href={`/tenancy/${p.tenancyId}/statement`} className="text-sm font-medium text-brand hover:underline">Itemized statement</Link>
           <ButtonLink href={viaDispute ? `/tenancy/${p.tenancyId}?tab=payments#paypal-dispute` : inPayPal ? payments : href}>{viaDispute ? "View dispute" : inPayPal ? "View payments" : "View receipt"}</ButtonLink>
+        </div>
+      </>
+    );
+  } else if (p.settlement && p.due <= 0 && !awaiting && p.run?.status !== "running") {
+    // Paid where no refund was owed (the deductions took the deposit, so there was no close-out to run): the
+    // settlement is all that went back, and the strip above reads it alone.
+    body = (
+      <>
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-green-bg text-green"><Icon name="check" className="size-3.5" /></span>
+        <div className="min-w-0 flex-[1_1_14rem]">
+          <p className="text-sm font-medium">Settlement of <Money value={p.settlement.amount} /> sent {shortDate(p.settlement.on)}</p>
+          <p className="break-all text-xs text-ink-3">{p.settlement.id ? `PayPal ${p.settlement.kind === "payout" ? "payout" : "refund"} ${p.settlement.id}. ` : ""}No refund was owed with the statement: the deductions took the deposit.</p>
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          <Link href={`/tenancy/${p.tenancyId}/statement`} className="text-sm font-medium text-brand hover:underline">Itemized statement</Link>
+          <ButtonLink href={payments}>View payments</ButtonLink>
         </div>
       </>
     );

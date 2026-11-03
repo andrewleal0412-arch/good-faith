@@ -274,8 +274,11 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   // The Move-out strip then reads as the unit's Payments tab does (money.tsx): the deductions as settled, with the
   // statement's total under them, and everything returned. Forfeited deductions keep nothing, so a settlement there is
   // money toward the whole deposit and the forfeited cells stand (summary.settledBack, below).
-  const settledPaid = Math.round(paymentRows.filter((p) => (p.kind === "settlement_refund" || p.kind === "settlement_payout") && !returnFailed(p.status as string | null))
-    .reduce((s, p) => s + Number(p.amount), 0) * 100) / 100;
+  const settlementRows = paymentRows.filter((p) => (p.kind === "settlement_refund" || p.kind === "settlement_payout") && !returnFailed(p.status as string | null));
+  const settledPaid = Math.round(settlementRows.reduce((s, p) => s + Number(p.amount), 0) * 100) / 100;
+  // The latest of them (loadTenancy orders the payments by created_at), for the Refund card's line about the
+  // settlement: its day and PayPal id; the amount is the sum.
+  const lastSettlement = settlementRows[settlementRows.length - 1];
   const notKept = notKeptAfterDispute(summary);
   const delivery = t.statement_delivery ? (t.statement_delivery as DeliveryRecord) : null;
   // New York after day 14 (the statement's standing): the deductions stay as claimed and the whole deposit is owed back.
@@ -584,6 +587,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             returned={returned ? { amount: Number(returned.amount), kind: returned.kind, id: returned.paypal_id as string, on: dayOf(returned.created_at) } : null}
             viaDispute={via ? { amount: via.amount, id: via.disputeId, notKept } : null}
             outside={outside ? { amount: outside.amount, count: outside.refunds.length } : null}
+            settlement={lastSettlement ? { amount: settledPaid, id: (lastSettlement.paypal_id as string | null) ?? null, on: dayOf(lastSettlement.created_at as string), kind: lastSettlement.kind === "settlement_payout" ? "payout" : "refund" } : null}
             waiting={waiting.length ? { count: waiting.length, amount: waitingAmount } : null}
             run={run ? { status: run.status as string, error: run.error as string | null, at: run.created_at ? dayOf(run.created_at as string) : null, pendingAmount } : null}
             tenantView={tenantPath ? { href: tenantPath, delivered: !!t.statement_delivered_at, disputed: !!dispute } : null}
