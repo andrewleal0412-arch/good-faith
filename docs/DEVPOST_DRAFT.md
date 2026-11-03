@@ -134,15 +134,19 @@ https://good-faith.onrender.com, PayPal sandbox only. No real money moves.
 1. Enter the access code: `<ACCESS CODE GOES HERE>`.
 2. Your browser gets a private copy of a small landlord with three units, dated to today, with a guide at the top of
    each page linking to each step. Start over, in the account menu, gives a fresh one.
-3. Open 1140 E. Juniper Hollow Ln and its Move-out tab for Claude's boxes and the three deductions. Review refund,
-   Prepare refund (the close-out agent, under a minute), then Send refund: a real sandbox refund of $3,790.00 from your
-   copy's own deposit, with PayPal's refund ID on the receipt.
-4. For the two agents: on the receipt, press Send statement, then Record delivery, then Open the tenant's view. On the
+3. Check a lease, in the sidebar, then Check the sample lease: one click, no Claude call, and the code flags a deposit
+   over the cap, a "nonrefundable" fee and the lawful amount to collect. To watch Claude read it live (about 20
+   seconds), open the sample from the link beside the button and drop the PDF on the page.
+4. Properties, then 1140 E. Juniper Hollow Ln. Its Overview shows the deposit paid through a PayPal invoice and the
+   tenants' signed refund agreement; its Move-out tab shows Claude's boxes and the three deductions. Review refund,
+   Prepare refund (the close-out agent, under a minute), then Send refund: a real sandbox refund of $3,790.00 from
+   your copy's own deposit, with PayPal's refund ID on the receipt.
+5. For the two agents: on the receipt, press Send statement, then Record delivery, then Open the tenant's view. On the
    tenants' page, Dispute it: tick the carpet, say why, pick a name, Ask my advocate (about a minute), then Send to
    Teddy Buettner and confirm.
-5. Back on the landlord's Move-out tab, Let my negotiator answer: the two agents trade offers, up to three exchanges,
+6. Back on the landlord's Move-out tab, Let my negotiator answer: the two agents trade offers, up to three exchanges,
    each turn checked by code. Then pick a name and Accept settlement on the tenants' page, and Approve and pay on the
    Move-out tab (each asks once more): PayPal refunds the agreed amount against the same deposit payment, and the
    statement becomes the amended statement.
-6. Properties, then 2317 Mesquite Bend Dr, Unit 3: the same engine under Texas law, with the Rules chip under the
+7. Properties, then 2317 Mesquite Bend Dr, Unit 3: the same engine under Texas law, with the Rules chip under the
    address.
