@@ -1,6 +1,6 @@
 import { audit, db } from "@/lib/db";
 import { takeAllowance } from "@/lib/limits";
-import { InvoiceNotCreated, sendDepositInvoice } from "@/lib/paypal";
+import { InvoiceNotCreated, SANDBOX, sendDepositInvoice } from "@/lib/paypal";
 import { lawfulDeposit, type LeaseTerms } from "@/lib/rules";
 import { packFor } from "@/lib/states";
 import { routeTenancy } from "@/lib/workspace";
@@ -16,6 +16,9 @@ export const runtime = "nodejs";
 // and the invoice (paypal.ts, depositInvoiceNumber), which PayPal refuses to repeat. A second request (a double click,
 // a second tab, a retry after a lost answer or a row that wasn't saved) finds that invoice instead of making another.
 export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/deposit-invoice">) {
+  // Money in is held to the same rule as money out (agent.ts, refuseLiveWithoutSignIn): until the landlord pages have
+  // a real sign-in, a LIVE PayPal environment is refused here, before the session or the database is read.
+  if (!SANDBOX) return Response.json({ error: "This build has no landlord sign-in, so it won't send a live PayPal invoice. Set PAYPAL_ENVIRONMENT=SANDBOX (docs/DEPLOY.md)." }, { status: 409 });
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;

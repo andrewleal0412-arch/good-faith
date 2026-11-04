@@ -11,7 +11,10 @@
 //     that isn't the test's own is refused, through the REST path and through the Agent Toolkit's MCP server, and
 //     the webhook check and dispute evidence never reach PayPal;
 //   - PayPal's record (src/lib/paypal-record.ts): the picks over PayPal's answers keep the fields the screens list and
-//     drop every email, name and address, and the reads behind them go to the fake.
+//     drop every email, name and address, and the reads behind them go to the fake;
+//   - live PayPal is refused where the money comes in: the deposit invoice route, loaded with PAYPAL_ENVIRONMENT=LIVE,
+//     answers 409 before it reads the session or the database, as the close-out, the settlement and the dispute
+//     response refuse it, and in the sandbox it goes past that gate.
 // Exit 1 if any fails.
 //
 //   node scripts/e2e-stubs-check.mjs
@@ -281,7 +284,40 @@ stubsOn(true);
   stubsOn(false);
 }
 
+/* ---------- 6. Live PayPal is refused where money comes in, as where it goes out ---------- */
+/** The deposit invoice route's answer to one POST with PAYPAL_ENVIRONMENT set to `env`: loaded by a jiti of its own
+ *  with no module cache, since paypal.ts reads the environment when it loads; the variable is put back afterwards. */
+async function askDepositInvoice(env) {
+  process.env.PAYPAL_ENVIRONMENT = env;
+  try {
+    const fresh = createJiti(import.meta.url, { moduleCache: false, alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
+    const route = await fresh.import(join(ROOT, "src/app/api/tenancies/[id]/deposit-invoice/route.ts"));
+    const res = await route.POST(new Request("http://localhost/api/tenancies/t-check/deposit-invoice", { method: "POST" }), { params: Promise.resolve({ id: "t-check" }) });
+    return { status: res.status, error: (await res.json()).error };
+  } catch (e) {
+    return { threw: String(e).slice(0, 200) };
+  } finally {
+    process.env.PAYPAL_ENVIRONMENT = "SANDBOX";
+  }
+}
+{
+  // The close-out (agent.ts), the settlement (settlement.ts) and the dispute response (chargeback-store.ts) refuse
+  // PAYPAL_ENVIRONMENT=LIVE until the app has a landlord sign-in. The deposit invoice route collects the money, so it
+  // must refuse too, before it reads the session or the database. SANDBOX is read when paypal.ts loads, so the route
+  // is loaded again by a jiti of its own, with LIVE set, and asked once; the fetch trap above would catch any call out.
+  const answer = await askDepositInvoice("LIVE");
+  check("live PayPal: the deposit invoice route refuses with 409 before any read (nothing below reaches the session or the database)", answer.status === 409, JSON.stringify(answer));
+  check("live PayPal: the refusal says why (no landlord sign-in, live) and where (DEPLOY.md)", /sign-in/.test(answer.error ?? "") && /live/i.test(answer.error ?? "") && /DEPLOY\.md/.test(answer.error ?? ""), JSON.stringify(answer));
+}
+
 eq("nothing left the process (fetch, http, https)", leaks, []);
+
+// The gate the right way round: in the sandbox the same request goes past it, to the workspace read, which has no
+// database here and fails on its own (after the leaks check, since that read tries the database and the trap counts it).
+{
+  const answer = await askDepositInvoice("SANDBOX");
+  check("sandbox: the deposit invoice route goes past the live gate", answer.status !== 409 || !/live PayPal invoice/.test(answer.error ?? ""), JSON.stringify(answer));
+}
 check("every stubbed model call and fake PayPal answer said so in the log", ["a lease call", "a close_out call", "a advocate call", "a negotiator call", "refused a refund of capture", "Agent Toolkit create_refund -> 422"].every((w) => stubLines.some((l) => l.includes(w))), `${stubLines.length} lines`);
 
 console.log(`e2e-stubs-check: ${pass} passed, ${fail} failed`);
