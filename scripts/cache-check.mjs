@@ -101,6 +101,7 @@ const KEPT = {
   "src/lib/thumbs.ts bundled": "the index of the demo templates' thumbnails made ahead (data/template-thumbs, from the repo): the same read-only list for every workspace, handed out only through thumbnail() after a route's own check",
   "src/lib/deposit.ts lastRead": "PayPal's deposit invoice as a property page last read it, for a minute, keyed by the session's workspace id, the invoice row and a digest of that tenancy's payment records (checked below), so only the same workspace's next view of the same records reads it back",
   "src/lib/paypal.ts cached": "the app's own PayPal OAuth token, not a workspace's data",
+  "src/lib/paypal.ts signingIn": "the sign-in for that token while it runs, shared by the requests that wait for it; the same token for every workspace",
   "src/lib/chargeback-store.ts lastCheck": "when Check PayPal last ran per tenancy, a throttle: a time, no data",
   "src/lib/access-throttle.ts tries": "wrong access codes per address, a throttle",
   "src/lib/access-throttle.ts all": "wrong access codes in all, a throttle",

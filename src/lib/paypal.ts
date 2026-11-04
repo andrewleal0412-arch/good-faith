@@ -12,6 +12,8 @@ const BASE = process.env.PAYPAL_ENVIRONMENT === "LIVE" ? "https://api-m.paypal.c
 const WEB = process.env.PAYPAL_ENVIRONMENT === "LIVE" ? "https://www.paypal.com" : "https://www.sandbox.paypal.com";
 
 let cached: { token: string; until: number } | null = null;
+/** The sign-in under way, shared by every request that finds no token while it runs. */
+let signingIn: Promise<string> | null = null;
 
 export const SANDBOX = process.env.PAYPAL_ENVIRONMENT !== "LIVE";
 
@@ -24,15 +26,26 @@ export class PayPalRefused extends Error {
   }
 }
 
-/** How long a PayPal call may take before the app stops waiting (a webhook delivery must finish well inside the five
- *  minutes after which claim_paypal_event hands its event to the next delivery). */
+/** How long a PayPal call may take before the app stops waiting, unless the caller says otherwise: every call here
+ *  carries it, the writes included (a webhook delivery must finish well inside the five minutes after which
+ *  claim_paypal_event hands its event to the next delivery; without it, undici's own five-minute limit was the only
+ *  bound on a write that hung). */
 const TIMEOUT_MS = 20_000;
 
-/** OAuth access token (client credentials), cached until a minute before it expires. */
+/** OAuth access token (client credentials), cached until a minute before it expires. Cold requests that arrive at once
+ *  share one sign-in rather than each making one. PayPal answering 401 to a call made with the token (the secret was
+ *  rotated, or PayPal revoked it) drops it (forgetToken), so the next call signs in again instead of failing with it
+ *  until it would have expired or the process restarts. The Agent Toolkit (agent.ts) is handed this token too. */
 export async function accessToken(): Promise<string> {
   // The judges'-path test (src/lib/e2e-switch.ts, never on Render) talks to the fake PayPal, which needs no sign-in.
   if (e2eStubs()) return "e2e-stub-token-not-valid-at-paypal";
   if (cached && Date.now() < cached.until) return cached.token;
+  signingIn ??= signIn().finally(() => { signingIn = null; });
+  return signingIn;
+}
+
+/** One sign-in with PayPal. A refusal is thrown and not kept: the next call signs in again. */
+async function signIn(): Promise<string> {
   const r = await keepAliveFetch(`${BASE}/v1/oauth2/token`, {
     method: "POST",
     headers: {
@@ -48,11 +61,19 @@ export async function accessToken(): Promise<string> {
   return cached.token;
 }
 
+/** PayPal answered 401 to a call made with `token`: forget it, unless a newer one has replaced it already. */
+function forgetToken(token: string) {
+  if (cached?.token === token) cached = null;
+}
+
 /** A REST call. Every write passes `requestId`, sent as PayPal-Request-Id, always derived from our own record (the
  *  tenancy, the claim, the run), never random. PayPal's Payments and Payouts APIs answer the same request sent again
  *  with the first result instead of acting twice. Its Invoicing API ignores the header (tried in the sandbox on
  *  2026-10-05: two creates with one key made two invoices), so the deposit invoice is made once by its invoice number
- *  instead (depositInvoiceNumber). `timeoutMs` stops waiting on a read that hangs. */
+ *  instead (depositInvoiceNumber). `timeoutMs` is how long each send may take, TIMEOUT_MS unless given. A 401 means
+ *  PayPal refused the token before acting, so the call signs in again (TIMEOUT_MS) and goes once more, the same
+ *  request and the same PayPal-Request-Id; a 401 to that is PayPal's refusal, like any other error status, and that
+ *  token is forgotten too. */
 export async function paypal<T = Record<string, unknown>>(method: string, path: string, body?: unknown, o: { requestId?: string; timeoutMs?: number } = {}): Promise<T> {
   // The judges'-path test: the same request, answered by the fake PayPal in this process (src/lib/e2e-paypal.ts).
   if (e2eStubs()) {
@@ -61,18 +82,27 @@ export async function paypal<T = Record<string, unknown>>(method: string, path: 
     if (a.status >= 300) throw new PayPalRefused(`PayPal ${method} ${path} -> ${a.status}: ${text.slice(0, 300)}`, a.status, text.slice(0, 4000));
     return a.body as T;
   }
-  const r = await keepAliveFetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json",
-      ...(o.requestId ? { "PayPal-Request-Id": o.requestId } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    ...(o.timeoutMs ? { signal: AbortSignal.timeout(o.timeoutMs) } : {}),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new PayPalRefused(`PayPal ${method} ${path} -> ${r.status}: ${text.slice(0, 300)}`, r.status, text.slice(0, 4000));
-  return (text ? JSON.parse(text) : {}) as T;
+  const send = async () => {
+    const token = await accessToken();
+    const r = await keepAliveFetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`, "Content-Type": "application/json",
+        ...(o.requestId ? { "PayPal-Request-Id": o.requestId } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(o.timeoutMs ?? TIMEOUT_MS),
+    });
+    return { status: r.status, ok: r.ok, text: await r.text(), token };
+  };
+  let a = await send();
+  if (a.status === 401) {
+    forgetToken(a.token);
+    a = await send();
+    if (a.status === 401) forgetToken(a.token);
+  }
+  if (!a.ok) throw new PayPalRefused(`PayPal ${method} ${path} -> ${a.status}: ${a.text.slice(0, 300)}`, a.status, a.text.slice(0, 4000));
+  return (a.text ? JSON.parse(a.text) : {}) as T;
 }
 
 /** PayPal refused the invoice before creating it: nothing exists in the sandbox. */
@@ -275,13 +305,15 @@ export function evidenceBody(input: unknown, files: EvidenceFile[], boundary = `
 export async function sendDisputeEvidence(id: string, o: { route: "provide-evidence" | "provide-supporting-info"; input: unknown; files: EvidenceFile[]; requestId: string }) {
   if (e2eStubs()) throw new PayPalRefused("The e2e fake PayPal doesn't take dispute evidence.", 501);
   const { body, contentType } = evidenceBody(o.input, o.files);
+  const token = await accessToken();
   const r = await fetch(`${BASE}${disputePath(id, o.route)}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${await accessToken()}`, "PayPal-Request-Id": o.requestId, "Content-Type": contentType },
+    headers: { Authorization: `Bearer ${token}`, "PayPal-Request-Id": o.requestId, "Content-Type": contentType },
     body: new Blob([body]),
     signal: AbortSignal.timeout(60_000),
   });
   const text = await r.text();
+  if (r.status === 401) forgetToken(token);
   if (!r.ok) throw new PayPalRefused(`PayPal POST ${o.route} -> ${r.status}: ${text.slice(0, 300)}`, r.status, text.slice(0, 4000));
   return (text ? JSON.parse(text) : {}) as Record<string, unknown>;
 }
@@ -301,12 +333,16 @@ export async function verifyWebhookSignature(rawBody: string, headers: Headers, 
   // The judges'-path test's server never asks PayPal: no delivery is genuine there.
   if (e2eStubs()) return "FAILURE";
   const body = `${JSON.stringify(fields).slice(0, -1)},"webhook_event":${rawBody}}`;
+  const token = await accessToken();
   const r = await fetch(`${BASE}/v1/notifications/verify-webhook-signature`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
+  // A 401 is the token's, not the delivery's: it is dropped, the delivery is answered with an error, and the one
+  // PayPal sends again signs in anew.
+  if (r.status === 401) forgetToken(token);
   if (r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 429) return "FAILURE";
   if (!r.ok) throw new Error(`PayPal couldn't check the webhook signature: ${r.status}`);
   const j = (await r.json().catch(() => null)) as { verification_status?: string } | null;
