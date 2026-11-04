@@ -299,11 +299,15 @@ async function locate(e: PayPalEvent, refs: Refs, store: WebhookStore): Promise<
 /* ---------- Statuses only move forward ---------- */
 
 const INVOICE_RANK: Record<string, number> = {
-  DRAFT: 0, SCHEDULED: 0, SENT: 1, UNPAID: 1, CANCELLED: 1, PAYMENT_PENDING: 2, PARTIALLY_PAID: 2,
-  PAID: 3, MARKED_AS_PAID: 3, PARTIALLY_REFUNDED: 4, REFUNDED: 5, MARKED_AS_REFUNDED: 5,
+  DRAFT: 0, SCHEDULED: 0, SENT: 1, UNPAID: 1, PAYMENT_PENDING: 2, PARTIALLY_PAID: 2, CANCELLED: 3,
+  PAID: 4, MARKED_AS_PAID: 4, PARTIALLY_REFUNDED: 5, REFUNDED: 6, MARKED_AS_REFUNDED: 6,
 };
 /** The invoice's status after news of `incoming`: an older event (PAID after the refund made it PARTIALLY_REFUNDED)
- *  never moves it back. */
+ *  never moves it back. Statuses of one rank are one stage (SENT and UNPAID trade places as the due date passes).
+ *  CANCELLED ends an invoice PayPal lets the sender cancel (sent, unpaid, a payment pending or partly paid), so it
+ *  stands above every stage before PAID (a late SENT can't revive it) and below PAID (PayPal cancels no paid invoice,
+ *  so a late CANCELLED can't unpay one). A status this map doesn't know ranks with SENT, so it never replaces a
+ *  cancelled or paid one. */
 export const invoiceForward = (stored: string, incoming: string) => ((INVOICE_RANK[incoming] ?? 1) >= (INVOICE_RANK[stored] ?? 1) ? incoming : stored);
 
 /** A refund's or Payout's status by how final it is: still moving, done, or refused or undone. */
