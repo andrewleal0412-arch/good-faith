@@ -52,14 +52,15 @@ export function mcpJson(out: unknown): Record<string, unknown> | null {
 }
 
 /** The close-out refund's idempotency key (PayPal-Request-Id), from our own records: the tenancy, the amount, and how
- *  many earlier attempts PayPal refused outright (refund_failed with `refused` in the audit log). A retry after an
- *  answer that never came (a new run with the same plan) is the same request, so PayPal answers with the refund it
- *  already made (it keeps refund keys 45 days) instead of making a second; an attempt after a clear refusal, or with
- *  another amount, is a new request. A refund that went without an answer and a plan that then changed is caught by
- *  closeOutState instead: PayPal's invoice shows a refund the app has no record of, and that blocks the close-out. */
+ *  many earlier attempts PayPal refused outright (refund_failed with `refused` in the audit log; a Payout's refusal,
+ *  marked `payout`, is the Payout's own, keyed by its batch id, and doesn't count). A retry after an answer that never
+ *  came (a new run with the same plan) is the same request, so PayPal answers with the refund it already made (it
+ *  keeps refund keys 45 days) instead of making a second; an attempt after a clear refusal, or with another amount,
+ *  is a new request. A refund that went without an answer and a plan that then changed is caught by closeOutState
+ *  instead: PayPal's invoice shows a refund the app has no record of, and that blocks the close-out. */
 export async function closeOutRefundKey(tenancyId: string, amount: string): Promise<string> {
   const { count } = await db.from("audit_log").select("id", { count: "exact", head: true })
-    .eq("tenancy_id", tenancyId).eq("action", "refund_failed").eq("detail->>refused", "true");
+    .eq("tenancy_id", tenancyId).eq("action", "refund_failed").eq("detail->>refused", "true").is("detail->>payout", null);
   const cents = Math.round(Number(amount) * 100);
   return `closeout-${tenancyId}-${cents}${count ? `-r${count}` : ""}`;
 }
