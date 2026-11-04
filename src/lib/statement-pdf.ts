@@ -72,6 +72,9 @@ const WHY_SHORT: Record<Why, string> = { missing: "File not found", unsupported:
 type Embedded = { image: PDFImage } | { why: Why };
 type InvoicePlan = { pages: PDFPage[] } | { image: PDFImage } | { why: Why };
 type PhotoSlot = { photo: StatementPhoto; embedded: Embedded };
+type RowOpts = { size?: number; bold?: boolean; color?: Color };
+/** A label, its value and how to draw them, for the rows kept together on one page. */
+type Row = [string, string, RowOpts?];
 
 /** A cursor that writes wrapped text down the page and starts a new page when it runs out of room. */
 class Writer {
@@ -129,8 +132,14 @@ class Writer {
     this.y -= o.after ?? 0;
   }
 
+  /** The height text() will take for this, so a block of lines can be kept on one page with need(). */
+  textHeight(raw: string, o: { size?: number; font?: PDFFont; x?: number; lead?: number; after?: number } = {}): number {
+    const size = o.size ?? 10, x = o.x ?? M, lead = o.lead ?? size * 1.4;
+    return this.wrap(winAnsi(raw), o.font ?? this.font, size, TEXT_W - (x - M)).length * lead + (o.after ?? 0);
+  }
+
   /** A label on the left and a value on the right, on one baseline. */
-  row(label: string, value: string, o: { size?: number; bold?: boolean; color?: Color } = {}) {
+  row(label: string, value: string, o: RowOpts = {}) {
     const size = o.size ?? 10, font = o.bold ? this.bold : this.font, lead = size * 1.5;
     const v = winAnsi(value), vw = font.widthOfTextAtSize(v, size);
     const lines = this.wrap(winAnsi(label), font, size, TEXT_W - vw - 12);
@@ -140,6 +149,15 @@ class Writer {
       this.page.drawText(line, { x: M, y: this.y - size, size, font, color: o.color ?? INK });
       this.y -= lead;
     }
+  }
+
+  /** The height row() will take for each of these, so a block of rows (the totals) can be kept on one page. */
+  rowsHeight(rows: Row[]): number {
+    return rows.reduce((h, [label, value, o = {}]) => {
+      const size = o.size ?? 10, font = o.bold ? this.bold : this.font;
+      const vw = font.widthOfTextAtSize(winAnsi(value), size);
+      return h + size * 1.5 * this.wrap(winAnsi(label), font, size, TEXT_W - vw - 12).length;
+    }, 0);
   }
 
   /** Two columns of label and value pairs, as on the statement's header. */
@@ -160,7 +178,9 @@ class Writer {
   }
 
   heading(n: number, title: string, cite?: string) {
-    this.need(48);
+    // The heading takes 48, and room for the first lines of its section comes with it (28: two lines of body text),
+    // so a heading is never the last thing on a page. A section whose first block reserves more asks for it first.
+    this.need(48 + 28);
     this.y -= 12;
     this.rule();
     this.y -= 12;
@@ -344,7 +364,9 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.text("No security deposit was collected through PayPal for this tenancy.", { color: INK2 });
   }
 
-  // 2. Deductions, one block each (items 3 to 8). Numbered "Item n" so they never read as section numbers.
+  // 2. Deductions, one block each (items 3 to 8). Numbered "Item n" so they never read as section numbers. Each
+  // block reserves 70 below, so the heading reserves that much with itself and is never left alone at a page's foot.
+  w.need(48 + 70);
   w.heading(++n, "Deductions", sec.deductions.cite);
   // How the claim stands, when it is not a plain deduction (Florida: disputed; New York: kept after day 14).
   if (s.standing) w.text(`${s.standing.label}. ${s.standing.note}`, { size: 9.5, color: WARN, after: 8 });
@@ -385,30 +407,35 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     for (const x of s.wear) w.row(`${x.item} (${x.room})`, usd(0), { size: 9.5, color: INK2 });
     w.space(6);
   }
-  w.space(2);
-  w.rule(INK, 1);
-  w.space(10);
+  // The totals, gathered first and then kept on one page with the rule over them: paged row by row, "Refunded
+  // $3,790.00" could open a page alone, cut off from the two lines that add up to it.
   // Forfeited deductions (New York after day 14) stay listed as claimed, come back off here, and leave the whole
   // security owed; a claim over the deposit is then a separate matter, so no balance is totalled.
   const forfeits = !!s.standing?.forfeits;
   const sent = s.refund.state === "sent";
-  w.row("Security held", usd(s.totals.depositHeld));
-  w.row(s.standing && !forfeits ? s.standing.label : "Total deductions", s.totals.deductions ? `-${usd(s.totals.deductions)}` : usd(0));
-  if (forfeits) w.row(s.standing!.label, `+${usd(s.totals.deductions)}`);
+  const totals: Row[] = [];
+  totals.push(["Security held", usd(s.totals.depositHeld)]);
+  totals.push([s.standing && !forfeits ? s.standing.label : "Total deductions", s.totals.deductions ? `-${usd(s.totals.deductions)}` : usd(0)]);
+  if (forfeits) totals.push([s.standing!.label, `+${usd(s.totals.deductions)}`]);
   // PayPal's refund through the tenants' PayPal dispute: past the refund owed, the deductions it covered aren't kept.
   const via = s.viaDispute;
   // Refunds made in PayPal and recorded as this deposit's refund: the refund itself when they cover it (asRefund),
   // else a line before it.
   const outside = s.outside && !s.outside.asRefund ? s.outside : null;
   const prior = (via?.amount ?? 0) + (outside?.amount ?? 0);
-  if (via && via.notKept > 0) w.row("Not kept, after the PayPal dispute", `+${usd(via.notKept)}`);
-  if (s.outside && s.outside.notKept > 0) w.row("Not kept, after the refund in PayPal", `+${usd(s.outside.notKept)}`);
-  if (via) w.row("Returned through the PayPal dispute", `-${usd(via.amount)}`);
-  if (outside) w.row("Refunded in PayPal", `-${usd(outside.amount)}`);
-  if (s.balanceClaimed && !forfeits) w.row("Balance claimed", usd(s.balanceClaimed.amount), { bold: true, size: 11.5 });
-  else w.row(sent ? "Refunded" : forfeits ? "Owed back" : prior ? "Left to refund" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 });
+  if (via && via.notKept > 0) totals.push(["Not kept, after the PayPal dispute", `+${usd(via.notKept)}`]);
+  if (s.outside && s.outside.notKept > 0) totals.push(["Not kept, after the refund in PayPal", `+${usd(s.outside.notKept)}`]);
+  if (via) totals.push(["Returned through the PayPal dispute", `-${usd(via.amount)}`]);
+  if (outside) totals.push(["Refunded in PayPal", `-${usd(outside.amount)}`]);
+  if (s.balanceClaimed && !forfeits) totals.push(["Balance claimed", usd(s.balanceClaimed.amount), { bold: true, size: 11.5 }]);
+  else totals.push([sent ? "Refunded" : forfeits ? "Owed back" : prior ? "Left to refund" : "Refund", usd(s.refund.amount), { bold: true, size: 11.5 }]);
   const stillOwed = forfeits && sent ? Math.max(0, Math.round((s.totals.depositHeld - s.refund.amount - (s.settlement?.amount ?? 0) - prior) * 100) / 100) : 0;
-  if (stillOwed > 0) w.row("Still owed", usd(stillOwed));
+  if (stillOwed > 0) totals.push(["Still owed", usd(stillOwed)]);
+  w.need(2 + 10 + w.rowsHeight(totals));
+  w.space(2);
+  w.rule(INK, 1);
+  w.space(10);
+  for (const [label, value, o] of totals) w.row(label, value, o);
 
   // 3. Documents (item 9): the rule, then exactly what this packet holds and what it does not.
   w.heading(++n, "Documents", pack.statement.documentsCite(s.documents.required));
@@ -469,21 +496,28 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.text(s.balanceClaimed.text, { color: INK2 });
   }
 
-  // 7. Delivery (item 13).
-  w.heading(++n, "Delivery", sec.delivery.cite);
-  w.text(s.delivery
+  // 7. Delivery (item 13), kept on one page with the closing lines under it: the attachments line and the section F
+  // lines that speak to both parties. Paged on their own, those four lines of fine print could land alone on a page
+  // of their own between the statement and Exhibit A.
+  const delivered = s.delivery
     ? `Delivered by ${describeDelivery(s.delivery, s.deliveryRecordedOn)}${s.delivery.to && s.delivery.method !== "personal" ? `, addressed to ${s.delivery.to}` : ""}.`
-    : "To be recorded when the statement goes out.", { color: s.delivery ? INK2 : INK3 });
-
-  // Attachments and the section F lines that speak to both parties.
+    : "To be recorded when the statement goes out.";
+  const attachedLine = attached.length > 1 ? `Exhibits A through ${[...photoExhibit.values(), ...invoiceExhibit.values()].pop()} follow this statement.`
+    : attached.length ? "Exhibit A follows this statement." : "No attachments.";
+  const closing: [string, { size: number; lead?: number; after?: number }][] = [
+    [attachedLine, { size: 9, after: 6 }],
+    [pack.copy.preparedUnder, { size: 8, lead: 11 }],
+    [pack.copy.disclaimers[1], { size: 8, lead: 11 }],
+    [pack.copy.disclaimers[3], { size: 8, lead: 11 }],
+  ];
+  w.need(48 + w.textHeight(delivered) + 14 + 10 + closing.reduce((h, [line, o]) => h + w.textHeight(line, o), 0));
+  w.heading(++n, "Delivery", sec.delivery.cite);
+  w.text(delivered, { color: s.delivery ? INK2 : INK3 });
   w.space(14);
   w.rule();
   w.space(10);
-  w.text(attached.length > 1 ? `Exhibits A through ${[...photoExhibit.values(), ...invoiceExhibit.values()].pop()} follow this statement.`
-    : attached.length ? "Exhibit A follows this statement." : "No attachments.", { size: 9, color: INK2, after: 6 });
-  w.text(pack.copy.preparedUnder, { size: 8, color: INK3, lead: 11 });
-  w.text(pack.copy.disclaimers[1], { size: 8, color: INK3, lead: 11 });
-  w.text(pack.copy.disclaimers[3], { size: 8, color: INK3, lead: 11 });
+  w.text(attachedLine, { size: 9, color: INK2, after: 6 });
+  for (const [line, o] of closing.slice(1)) w.text(line, { ...o, color: INK3 });
 
   // Photo exhibits: the move-in, before and after photos of one deduction in a row, as on screen, each row as tall
   // as its tallest photo. Exhibits follow one another down the page and start a new one only when the next would

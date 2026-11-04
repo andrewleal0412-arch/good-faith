@@ -22,7 +22,8 @@ the words that matter and every money figure against what the code computes, sav
    8. The two agents' negotiation (beat 6)
    9. The settlement: the tenants accept, the landlord approves and pays, the amended statement (beat 7); then the
       tenants' side of it: their dispute page once paid, with the amended statement linked, and their deposit page
-      with the settled total, the settlement's PayPal id and the amended PDF
+      with the settled total, the settlement's PayPal id and the amended PDF; both PDFs read page by page, the totals
+      block on one page and the closing lines on the Delivery section's page
       In 8 and 9 the two pages stay open side by side, as in the demo: each shows what the other side did without a
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger), with PayPal's record in the details of the refund, the settlement and the deposit
@@ -129,15 +130,22 @@ def usd(n):
     return f"${n:,.2f}"
 
 
-def pdf_words(body):
-    """The words a PDF draws, in reading order, every run of white space one space, read with pypdf (pip install pypdf).
-    None when pypdf is missing, which fails the check that reads them rather than passing it."""
+def pdf_pages(body):
+    """The words each page of a PDF draws, in reading order, every run of white space one space, one string per page,
+    read with pypdf (pip install pypdf). None when pypdf is missing, which fails the check that reads them rather than
+    passing it."""
     try:
         from pypdf import PdfReader
     except ImportError:
         return None
     import io
-    return re.sub(r"\s+", " ", " ".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(body)).pages)).strip()
+    return [re.sub(r"\s+", " ", p.extract_text() or "").strip() for p in PdfReader(io.BytesIO(body)).pages]
+
+
+def pdf_words(body):
+    """The words a whole PDF draws, as pdf_pages gives them, joined; None when pypdf is missing."""
+    pages = pdf_pages(body)
+    return None if pages is None else re.sub(r"\s+", " ", " ".join(pages)).strip()
 
 
 def cents(n):
@@ -1229,6 +1237,21 @@ def walk(base, setup, shots, check, facts):
               and f"{usd(E['settled'])} more back to the tenants" in pdf_after_words and usd(E["returned"]) in pdf_after_words and sid in pdf_after_words,
               f"status {pdf_after.status}, {pdf_after.headers.get('content-type')!r}, {len(pdf_after.body())} bytes; words: "
               + ("pypdf is not installed (pip install pypdf)" if pdf_after_words is None else repr(pdf_after_words[:300])))
+        # Both PDFs page by page: the totals block (Security held, Total deductions, Refunded) on one page, and the
+        # closing lines (the exhibits line and the fine print) on the Delivery section's page, never alone on a page
+        # of their own. The writer once paged row by row, so "Refunded $3,790.00" opened page 2 of the statement by
+        # itself and the amended statement's page 3 held four lines of fine print and nothing else.
+        both = (("before", pdf_pages(pdf_before.body()) if pdf_before.ok else None), ("amended", pdf_pages(pdf_after.body()) if pdf_after.ok else None))
+        totals = {name: next((p for p in pages or [] if "Security held" in p), "") for name, pages in both}
+        check("Tenants' statement PDFs: the totals (Security held, Total deductions, Refunded) sit on one page, before and amended",
+              all(pages is not None for _, pages in both)
+              and all("Total deductions" in p and f"{R} Refunded" in p for p in totals.values()),
+              "; ".join(f"{name}: {'no page holds Security held' if not p else repr(p[:160])}" for name, p in totals.items()))
+        closing = {name: next((p for p in pages or [] if "follow this statement." in p or "follows this statement." in p), "") for name, pages in both}
+        check("Tenants' statement PDFs: the closing lines share a page with the Delivery section, before and amended",
+              all(pages is not None for _, pages in both)
+              and all(re.search(r"\b\d\. Delivery\b", p) for p in closing.values()),
+              "; ".join(f"{name}: {'no page holds the exhibits line' if not p else repr(p[:160])}" for name, p in closing.items()))
         go(page, f"/tenancy/{mo}/statement")
         t = sees("Amended statement", page, "Amended", f"Returned in all\n{usd(E['returned'])}", f"kept {usd(E['settled_keep'])} of {usd(E['carpet'])}",
                  f"Deductions on the statement\n{P}", f"Agreed adjustment\n−{usd(E['settled'])}", f"Deductions as settled\n{usd(E['kept'])}",
