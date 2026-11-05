@@ -49,13 +49,14 @@ the daily-limit units it took go back to the day's totals, then its fake deposit
 The README's two pictures come from the walk too: readme-move-out.png (the Move-out tab's header through the first
 room's card, after step 4) and readme-negotiation.png (the Negotiation card as the agents left it, after step 8) are
 written in --shots at the walk's 1440 px window with the main column scaled to 1600 px, the demo guide hidden, so a
-retake for docs/img/ is one run of this script (`cp <shots>/readme-move-out.png docs/img/move-out.png`, the same for
-negotiation).
+retake for docs/img/ is one run of this script in Chromium, the engine the pictures have always come from (`cp
+<shots>/readme-move-out.png docs/img/move-out.png`, the same for negotiation).
 
   # The whole run (the checklist's): a temporary worktree of HEAD with this checkout's uncommitted changes laid over
   # it, node_modules cloned in (APFS), .env.local copied, next build, next start on 3211 (or --port) with the stubs on,
   # the walk, then everything removed. The worktree's directory must not exist yet.
   /path/to/python scripts/e2e-demo.py --worktree /tmp/gf-e2e-wt --shots /tmp/gf-e2e-shots
+  /path/to/python scripts/e2e-demo.py --worktree /tmp/gf-e2e-wt --shots /tmp/gf-e2e-shots --browser webkit   # Safari's engine
 
   # The same in steps, to walk one build several times: build it, serve it with the stubs on and keep it up, walk it.
   # A worktree kept this way (--prepare, --keep-worktree) holds a copy of .env.local, real secrets included, until it
@@ -73,8 +74,9 @@ negotiation).
   python scripts/e2e-demo.py --leftovers [--apply]
 
 Prints one line per check, "PASS <name>" or "FAIL <name>: <detail>", and exits 1 if any failed (2 if it couldn't run).
-Needs Playwright for Python with Chromium, pypdf (for the words of the tenants' statement PDF), and Node for the build
-and scripts/e2e-demo-db.mjs.
+Needs Playwright for Python with Chromium (and with WebKit for --browser webkit, Safari's engine, which walks the same
+path and holds the same checks; the README's two pictures are copied in from a Chromium run), pypdf (for the words of
+the tenants' statement PDF), and Node for the build and scripts/e2e-demo-db.mjs.
 """
 import argparse
 import json
@@ -289,6 +291,28 @@ DEMO = {
     "rent": 2400.0, "deposit": 4800.0, "lease_total": 5100.0, "over_cap": 300.0, "late_fee": 120.0,
     "carpet": 720.0, "wall": 140.0, "range": 150.0, "deductions": 1010.0, "refund": 3790.0,
 }
+# The page's shown text with a break around each block, the same in Chromium and WebKit (see text() in the walk).
+READ_JS = """() => {
+  const BLOCK = /^(block|flex|grid|list-item|flow-root|-webkit-box|table|table-row|table-row-group|table-header-group|table-footer-group|table-cell|table-caption)$/;
+  const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+  const out = [];
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) { out.push(node.data); return; }
+    if (node.nodeType !== Node.ELEMENT_NODE || SKIP.has(node.tagName) || node instanceof SVGElement) return;
+    if (node.tagName === 'BR') { out.push('\\n'); return; }
+    const s = getComputedStyle(node);
+    if (s.display === 'none' || s.visibility === 'hidden' || s.visibility === 'collapse') return;
+    const block = BLOCK.test(s.display);
+    if (block) out.push('\\n');
+    // A closed details shows its summary and nothing else.
+    const children = node.tagName === 'DETAILS' && !node.open ? [...node.children].filter((c) => c.tagName === 'SUMMARY') : node.childNodes;
+    for (const child of children) walk(child);
+    if (block) out.push('\\n');
+  };
+  walk(document.querySelector('main') || document.body);
+  return out.join('');
+}"""
+
 MONEY = re.compile(r"\$([0-9][0-9,]*\.[0-9]{2})")
 
 
@@ -442,7 +466,7 @@ def expected(facts, units):
 
 # ---------- The walk ----------
 
-def walk(base, setup, shots, check, facts):
+def walk(base, setup, shots, check, facts, engine="chromium"):
     from playwright.sync_api import sync_playwright
 
     U = setup["units"]
@@ -457,8 +481,13 @@ def walk(base, setup, shots, check, facts):
         page.screenshot(path=str(shots / f"{n[0]:02d}-{name}.png"), full_page=True)
 
     def text(page):
-        """The page's words as a reader sees them, every run of white space one space."""
-        return re.sub(r"\s+", " ", page.evaluate("() => (document.querySelector('main') || document.body).innerText")).strip()
+        """The page's words as a reader sees them, every run of white space one space: the text of every element that
+        is shown (display none, visibility hidden and a closed details' body are skipped, as a reader skips them) with
+        a break around each block, read by the script itself rather than by the engine's innerText. The two engines
+        break innerText differently: WebKit runs a block's last words into the next block when the block ends with an
+        inline-flex element, so a tile whose label ends with an info icon read "Deposits held$1,850.00" there and the
+        figure went missing, while Chromium puts the break in. This reads the same in both."""
+        return re.sub(r"\s+", " ", page.evaluate(READ_JS)).strip()
 
     def sees(step, page, *wanted):
         t = text(page)
@@ -605,7 +634,7 @@ def walk(base, setup, shots, check, facts):
     line_amounts = [E["carpet"], E["wall"], E["range"]]
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch()
+        browser = getattr(pw, engine).launch()
         ctx = browser.new_context(viewport={"width": 1440, "height": 1000}, reduced_motion="reduce")
         ctx.add_cookies([{"name": setup["cookie"]["name"], "value": setup["cookie"]["value"], "url": base}])
         page = ctx.new_page()
@@ -1418,6 +1447,7 @@ def main():
     ap.add_argument("--port", type=int, default=PORT, help=f"the port --worktree and --serve start the server on (default {PORT})")
     ap.add_argument("--base", help="walk a server already running with the stubs on (needs its GOOD_FAITH_SESSION_SECRET and GOOD_FAITH_ACCESS_CODE)")
     ap.add_argument("--shots", type=Path, help="where the screenshots and the server's log go (default: a new temporary folder)")
+    ap.add_argument("--browser", choices=["chromium", "webkit"], default="chromium", help="the engine the walk runs in: Chromium (default) or WebKit, Safari's (playwright install webkit)")
     ap.add_argument("--prepare", action="store_true", help="with --worktree: make and build it, then stop (serve it later with --serve)")
     ap.add_argument("--hold", action="store_true", help="with --serve: start the server and keep it up for --base runs (its test codes go to <shots>/codes.json)")
     ap.add_argument("--codes", type=Path, help="with --base: the codes.json a --hold server wrote")
@@ -1511,7 +1541,7 @@ def main():
         check("the test's copy has its three units, its closed unit's history and a tenant link for the move-out unit",
               len(setup["units"]) == 3 and setup.get("history", 0) >= 1 and bool(setup.get("tenantPath")), json.dumps({k: setup.get(k) for k in ("units", "history", "keyed")}))
 
-        walk(base=base, setup=setup, shots=shots, check=check, facts=lambda: helper("facts", setup["ws"], root=root))
+        walk(base=base, setup=setup, shots=shots, check=check, facts=lambda: helper("facts", setup["ws"], root=root), engine=a.browser)
     except Exception as e:
         check("the run finished without an error", False, f"{type(e).__name__}: {e}")
     finally:
