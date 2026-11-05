@@ -18,7 +18,7 @@ const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
 const [states, range, edit, deductions, insights, ledger, status] = await Promise.all(["states/server", "lawful-range", "deduction-edit", "deductions", "insights", "ledger", "dispute-status"].map(lib));
 const { packFor } = states;
 const { lawfulRanges } = range;
-const { checkEdit, editableFields, editRowOf, limitsFor, rangeBreach, storedColumns, parseInput } = edit;
+const { checkEdit, checkAdd, editableFields, editRowOf, limitsFor, rangeBreach, storedColumns, parseInput } = edit;
 const CA = packFor("CA"), NY = packFor("NY"), WA = packFor("WA");
 
 let pass = 0, fail = 0;
@@ -60,6 +60,37 @@ eq("fields: unpaid rent has none", editableFields(editRowOf(ded({ id: "rent", ca
 eq("parse: $1,800.50", parseInput("$1,800.50"), 1800.5);
 check("parse: three decimals are refused", Number.isNaN(parseInput("1.234")));
 check("parse: words are refused", Number.isNaN(parseInput("ten")));
+
+/* ---------- The add form's inputs, held as an edit is (checkAdd; POST /api/tenancies/[id]/deductions) ---------- */
+{
+  const CITE = CA.copy.guidanceCite;
+  const item = "Bedroom carpet near center of room";
+  const vendor = (o) => ({ category: "damage", work: "replace", performer: "vendor", proration: "useful_life", invoiceTotal: "1800", itemAgeYears: "6", usefulLifeYears: "10", ...o });
+  const ok = checkAdd(item, vendor({}), CITE);
+  eq("add: the demo's carpet comes to $720 by chargeable()'s own math", ok.ok && [ok.amount, ok.math, ok.guidance], [720, "$1,800.00 × 4 years left of a 10-year useful life (6 years old) = $720.00", true]);
+  eq("add: and the inputs are the numbers the form sent", ok.ok && ok.input, { category: "damage", work: "replace", performer: "vendor", proration: "useful_life", invoiceTotal: 1800, itemAgeYears: 6, usefulLifeYears: 10 });
+  const over = checkAdd(item, vendor({ usefulLifeYears: "12" }), CITE);
+  check("add: a carpet over a 12-year life is refused as the grid refuses it", !over.ok && /Over the lawful range/.test(over.reason) && /\$720\.00 at most/.test(over.reason), JSON.stringify(over));
+  eq("add: with the guidance's citation and the field", !over.ok && [over.cite, over.field], ["DRE guide p. 84 (guidance, not statute)", "usefulLifeYears"]);
+  eq("add: the same sentence the grid's edit gives", over.ok ? "the add went through" : over.reason, (() => { const r = checkEdit(editRowOf(carpet()), { usefulLifeYears: 12 }, limitsOf(CA, [carpet(), wall(), stove()], "carpet")); return r.ok ? "the edit went through" : r.reason; })());
+  check("add: a rug with no guidance of its own takes a 12-year life", checkAdd("Bedroom rug", vendor({ usefulLifeYears: "12" }), CITE).ok);
+  check("add: 1e400 is not an invoice total", (() => { const r = checkAdd(item, vendor({ invoiceTotal: "1e400" }), CITE); return !r.ok && /from \$0\.00 to \$100,000\.00/.test(r.reason) && r.field === "invoiceTotal"; })());
+  check("add: a negative invoice is refused", !checkAdd(item, vendor({ invoiceTotal: "-5" }), CITE).ok);
+  check("add: three decimals are refused", !checkAdd(item, vendor({ invoiceTotal: "1800.555" }), CITE).ok);
+  check("add: an invoice over $100,000 is refused", !checkAdd(item, vendor({ invoiceTotal: "100000.01" }), CITE).ok);
+  check("add: a 101-year life is refused", !checkAdd(item, vendor({ usefulLifeYears: "101", itemAgeYears: "6" }), CITE).ok && !checkAdd("Bedroom rug", vendor({ usefulLifeYears: "101" }), CITE).ok);
+  check("add: words are refused", !checkAdd(item, vendor({ itemAgeYears: "six" }), CITE).ok);
+  check("add: $1,800.50 with the dollar sign is read", (() => { const r = checkAdd(item, vendor({ invoiceTotal: "$1,800.50" }), CITE); return r.ok && r.input.invoiceTotal === 1800.5; })());
+  eq("add: an empty invoice is chargeable()'s own refusal", (() => { const r = checkAdd(item, vendor({ invoiceTotal: "" }), CITE); return !r.ok && [r.reason, r.cite, r.field]; })(), ["Enter the invoice total.", null, null]);
+  eq("add: an empty age on a prorated line too", (() => { const r = checkAdd(item, vendor({ itemAgeYears: "   " }), CITE); return !r.ok && r.reason; })(), "Enter the item's age and its useful life.");
+  const labor = (o) => ({ category: "cleaning", work: "clean", performer: "own_labor", proration: "none", hours: "3", hourlyRate: "50", invoiceTotal: "999999", ...o });
+  eq("add: the landlord's own cleaning, with the invoice the method doesn't read dropped", (() => { const r = checkAdd("Range", labor({}), CITE); return r.ok && [r.amount, r.math, r.input.invoiceTotal]; })(), [150, "3 hours × $50.00/hour = $150.00", undefined]);
+  check("add: 0 hours is refused", (() => { const r = checkAdd("Range", labor({ hours: "0" }), CITE); return !r.ok && r.field === "hours"; })());
+  check("add: 201 hours is refused", !checkAdd("Range", labor({ hours: "201" }), CITE).ok);
+  check("add: a $1,001 rate is refused", (() => { const r = checkAdd("Range", labor({ hourlyRate: "1001" }), CITE); return !r.ok && r.field === "hourlyRate"; })());
+  check("add: an age the method doesn't read is dropped, not refused", (() => { const r = checkAdd("Range", labor({ itemAgeYears: "-3" }), CITE); return r.ok && r.input.itemAgeYears === undefined; })());
+  eq("add: a repair prorated by the paint schedule reads the age only", (() => { const r = checkAdd("Wall", { category: "damage", work: "repair", performer: "vendor", proration: "paint_schedule", invoiceTotal: "300", itemAgeYears: "0.75", usefulLifeYears: "12" }, CITE); return r.ok && [r.amount, r.input.usefulLifeYears]; })(), [200, undefined]);
+}
 
 /* ---------- California ---------- */
 {
