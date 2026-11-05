@@ -619,7 +619,8 @@ function harness(faults = {}) {
   const limited = rate.rateLimiter({ perAddress: 3, total: 5, ms: 60_000 });
   const t0 = 1_000_000;
   eq("rate limit: three from one address pass, the fourth doesn't", [1, 2, 3, 4].map((i) => limited("1.1.1.1", t0 + i)), [false, false, false, true]);
-  eq("rate limit: the ceiling across addresses (five in all, then no address passes)", [limited("2.2.2.2", t0 + 5), limited("3.3.3.3", t0 + 6)], [false, true]);
+  eq("rate limit: a refused address can't spend the ceiling (ten more from it, all refused)", Array.from({ length: 10 }, (_, i) => limited("1.1.1.1", t0 + 10 + i)), Array(10).fill(true));
+  eq("rate limit: the ceiling across addresses counts what passed (five in all, then no address passes)", [limited("2.2.2.2", t0 + 30), limited("3.3.3.3", t0 + 31), limited("4.4.4.4", t0 + 32)], [false, false, true]);
   eq("rate limit: a new minute starts over", limited("1.1.1.1", t0 + 61_000), false);
 }
 

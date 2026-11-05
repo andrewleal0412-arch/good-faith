@@ -11,7 +11,10 @@
 //     that isn't the test's own is refused, through the REST path and through the Agent Toolkit's MCP server, and
 //     the webhook check and dispute evidence never reach PayPal;
 //   - PayPal's record (src/lib/paypal-record.ts): the picks over PayPal's answers keep the fields the screens list and
-//     drop every email, name and address, and the reads behind them go to the fake.
+//     drop every email, name and address, and the reads behind them go to the fake;
+//   - the three tenant-link routes that build per request (the statement packet, a move-in photo and a dispute photo
+//     at full size) refuse a flood from one address before any read, don't count the page's thumbs, and still serve
+//     another address after it.
 // Exit 1 if any fails.
 //
 //   node scripts/e2e-stubs-check.mjs
@@ -282,6 +285,53 @@ stubsOn(true);
 }
 
 eq("nothing left the process (fetch, http, https)", leaks, []);
+
+/* ---------- 6. The public link routes' rate limits ---------- */
+// The tenants' statement packet, a move-in photo at full size and a dispute photo at full size are built per request
+// from a link that needs no session, so each route counts its callers by address before it reads anything
+// (src/lib/rate-limit.ts). Here each route is loaded as the app loads it and asked by one address until it refuses,
+// with a database stand-in in fetch's place that records every read and answers an empty table (so a token nobody has
+// is a 404 after one read, with no retry): the calls the limit lets through each make that read, the first refused
+// call answers 429 with Retry-After and no read at all, the page's own ?size=thumb tiles are not counted, another
+// address is still served, a refused address looping on can't use up the ceiling for that other address, and the
+// limit is the route's own number.
+{
+  const trapFetch = globalThis.fetch;
+  const reads = [];
+  globalThis.fetch = async (url) => { reads.push(String(url).slice(0, 80)); return new Response("[]", { status: 200, headers: { "content-type": "application/json", "content-range": "*/0" } }); };
+  try {
+    const route = (p) => jiti.import(join(ROOT, "src/app/api/t/[token]", p));
+    const [pdf, photo, evidence] = await Promise.all([route("statement.pdf/route.ts"), route("photos/[photoId]/route.ts"), route("dispute/evidence/[evidenceId]/route.ts")]);
+    const call = async (mod, url, params, address) => {
+      const before = reads.length;
+      let res = null, threw = null;
+      try { res = await mod.GET(new Request(url, { headers: { "x-forwarded-for": address } }), { params: Promise.resolve(params) }); } catch (e) { threw = e.message; }
+      return { status: res?.status ?? null, retry: res?.headers.get("retry-after") ?? null, body: res ? await res.json().catch(() => null) : null, threw, read: reads.length > before };
+    };
+    const token = "E2EstubsCheckToken" + "x".repeat(25); // a token of the real shape (43 base64url characters), so the lookup is reached
+    const id = "12345678-1234-1234-1234-123456789abc";
+    const served = (r) => r.status === 404 && r.read && !r.threw;
+    for (const [name, mod, url, params, perAddress, total] of [
+      ["the statement packet", pdf, `http://localhost/api/t/${token}/statement.pdf`, { token }, 40, 200],
+      ["a move-in photo at full size", photo, `http://localhost/api/t/${token}/photos/${id}`, { token, photoId: id }, 60, 600],
+      ["a dispute photo at full size", evidence, `http://localhost/api/t/${token}/dispute/evidence/${id}`, { token, evidenceId: id }, 60, 600],
+    ]) {
+      const first = [];
+      for (let i = 0; i < perAddress; i++) first.push(await call(mod, url, params, "203.0.113.7"));
+      check(`${name}: the first ${perAddress} calls from one address in a minute are looked up, not refused`, first.every(served), JSON.stringify(first.filter((r) => !served(r)).slice(0, 2)));
+      const over = await call(mod, url, params, "203.0.113.7");
+      eq(`${name}: call ${perAddress + 1} answers 429 before any read, with Retry-After`, [over.status, over.retry, over.read, over.threw, /too many times.*Try again in a minute/.test(over.body?.error ?? "")], [429, "60", false, null, true]);
+      if (mod !== pdf) eq(`${name}: the page's own ?size=thumb tiles are not counted (looked up from the refused address)`, served(await call(mod, `${url}?size=thumb`, params, "203.0.113.7")), true);
+      for (let i = 0; i < total; i++) await call(mod, url, params, "203.0.113.7"); // a loop on the URL, every call refused
+      const other = await call(mod, url, params, "203.0.113.8");
+      eq(`${name}: another address is still served after ${total} refused calls from the first`, [other.status, other.read], [404, true]);
+    }
+    check("the stand-in saw only the token lookups", reads.every((r) => /\/rest\/v1\/tenant_links\?/.test(r)), reads.filter((r) => !/tenant_links/.test(r)).slice(0, 3).join("; "));
+  } finally {
+    globalThis.fetch = trapFetch;
+  }
+}
+
 check("every stubbed model call and fake PayPal answer said so in the log", ["a lease call", "a close_out call", "a advocate call", "a negotiator call", "refused a refund of capture", "Agent Toolkit create_refund -> 422"].every((w) => stubLines.some((l) => l.includes(w))), `${stubLines.length} lines`);
 
 console.log(`e2e-stubs-check: ${pass} passed, ${fail} failed`);

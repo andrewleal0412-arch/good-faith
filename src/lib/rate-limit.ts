@@ -1,7 +1,9 @@
-// A fixed-window count in memory, for a public route that must not be flooded (the PayPal webhook): so many requests
-// a minute from one address, and so many from all of them together. One Render instance keeps one count; a restart
-// clears it. The ceiling across addresses keeps a flood from many addresses from making the app ask PayPal to check
-// thousands of signatures; PayPal retries anything refused, so a real event refused here arrives later.
+// A fixed-window count in memory, for a public route that must not be flooded (the PayPal webhook, the tenant-link
+// routes that build per request): so many requests a minute from one address, and so many from all of them together.
+// One Render instance keeps one count; a restart clears it. The ceiling across addresses keeps a flood from many
+// addresses from making the app ask PayPal to check thousands of signatures, or build thousands of statement packets;
+// a request refused for its own address's count doesn't count toward it, so one address looping on a route can't
+// use the ceiling up for everyone else. PayPal retries anything refused, so a real event refused here arrives later.
 
 export type Window = { perAddress: number; total: number; ms: number };
 
@@ -16,9 +18,10 @@ export function rateLimiter(w: Window) {
       total = 0;
       counts.clear();
     }
-    total++;
     const mine = (counts.get(address) ?? 0) + 1;
     if (counts.size < 10_000 || counts.has(address)) counts.set(address, mine);
-    return mine > w.perAddress || total > w.total;
+    if (mine > w.perAddress) return true;
+    total++;
+    return total > w.total;
   };
 }
