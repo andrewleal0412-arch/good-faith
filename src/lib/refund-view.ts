@@ -82,7 +82,7 @@ export type RefundView = {
     method: string | null; // how the tenants paid, PayPal's code
     blockers: string[];
     warnings: string[];
-    // A demo copy that holds no sandbox deposit of its own (made when the day's pre-paid deposits were used up, or the
+    // A demo copy that holds no sandbox deposit of its own (made when the pre-paid deposits were used up, or the
     // Texas unit, whose deposit is always its template's): everything works but sending the money. demoBlock is the
     // sentence it shows, present only then.
     poolEmpty: boolean;

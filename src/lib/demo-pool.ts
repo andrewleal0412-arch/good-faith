@@ -11,12 +11,17 @@ import { db } from "./db";
  *  supabase/migrations, and scripts/demo-pool.mjs, which carry the same number). */
 export const POOL_FRESH_DAYS = 170;
 
-/** The plain sentence a demo copy shows, and the close-out facts carry as a blocker, when it has no deposit of its own. */
-export const POOL_EMPTY = "Today's sandbox deposits for the demo are used up, so this copy can't send a refund. Everything else works.";
+/** The plain sentence a demo copy shows, and the close-out facts carry as a blocker, when it has no deposit of its own.
+ *  The pool is not a day's allowance: a copy made with it empty stays without a deposit, and only a fresh copy (Start
+ *  over, once the pool is filled again) takes one, which the refund page's caption says. The settlement and the PayPal
+ *  dispute's answer are held by the same block: settlement.ts, negotiation.ts and chargeback-store.ts replace "send its
+ *  refund" with their own words, so both sentences carry that phrase and promise only what works
+ *  (scripts/demo-welcome-check.mjs holds them to it). */
+export const POOL_EMPTY = "The demo's pre-paid sandbox deposits are used up, so this copy can't send its refund. Everything that doesn't touch the deposit at PayPal still works.";
 
 /** The same for a unit that is copied without a deposit of its own by design (the Texas unit, copied at the notice):
  *  its deposit is the template's sandbox payment, which every copy shows. */
-export const SHARED_DEPOSIT = "In the demo this unit's deposit is one sandbox payment every copy shares, so this copy can't send its refund. Everything else works.";
+export const SHARED_DEPOSIT = "In the demo this unit's deposit is one sandbox payment every copy shares, so this copy can't send its refund. Everything that doesn't touch the deposit at PayPal still works.";
 
 /** The sentences above: a blocker that stops only a demo copy's refund, never a real tenancy's. */
 export const DEMO_REFUND_BLOCKS = [POOL_EMPTY, SHARED_DEPOSIT];

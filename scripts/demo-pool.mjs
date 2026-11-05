@@ -1,6 +1,6 @@
 // The pre-paid PayPal sandbox deposits behind the hosted demo's private copies (the demo_deposit_pool table). Each
 // visitor's copy of the move-out unit takes one when it is made, so its Send refund returns a real sandbox payment of
-// its own; a copy made when the pool is empty still works, and its refund page says the day's sandbox deposits are
+// its own; a copy made when the pool is empty still works, and its refund page says the pre-paid sandbox deposits are
 // used up. A deposit is the same invoice the demo seed sends (the move-out template's amount, landlord and address,
 // to the sandbox tenant), paid by the sandbox tenant through PayPal's checkout with scripts/pay_invoice.py.
 //

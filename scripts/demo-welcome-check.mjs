@@ -2,8 +2,9 @@
 // Unit checks for the welcome a judge's copy opens with (src/lib/demo-welcome.ts): the card's words and the tour's four
 // stops, read off the copy's own units the way the demo guide reads them (the unit beat 2 of docs/DEMO_SCRIPT.md names,
 // and the one in a second state), so the welcome and the guide always point at the same two units. Every figure and
-// date in the words comes from those units and their state's pack, never from the demo's own numbers. Pure: no
-// database, no PayPal, no Claude. Exit 1 if any fails.
+// date in the words comes from those units and their state's pack, never from the demo's own numbers. Also the two
+// sentences a copy with no sandbox deposit of its own shows (src/lib/demo-pool.ts), held to the phrase the settlement's
+// and the dispute's code reword. Pure: no database, no PayPal, no Claude. Exit 1 if any fails.
 //
 //   node scripts/demo-welcome-check.mjs
 
@@ -14,7 +15,10 @@ import { createJiti } from "jiti";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
-const [welcome, guide] = await Promise.all(["demo-welcome", "demo-guide"].map(lib));
+// demo-pool.ts reads the database only inside its functions; its client wants the variables at load.
+process.env.SUPABASE_URL ??= "http://127.0.0.1:9";
+process.env.SUPABASE_SECRET_KEY ??= "test-secret";
+const [welcome, guide, pool] = await Promise.all(["demo-welcome", "demo-guide", "demo-pool"].map(lib));
 const { welcomeOf } = welcome;
 
 let pass = 0, fail = 0;
@@ -108,6 +112,29 @@ eq("held: not once any of it went back (a refund, the tenants' PayPal dispute, a
   [false, false, false, false, false, false, false]);
 eq("words: a copy with no tenancy has no welcome", welcomeOf({ units: [], account: "Harbor View Rentals", today, sandbox: true }), null);
 check("words: no em dash anywhere", !JSON.stringify(w).includes("—"));
+
+/* ---------- The sentences a copy with no sandbox deposit of its own shows (src/lib/demo-pool.ts) ---------- */
+// The pool is not a day's allowance (a copy made with it empty stays without a deposit; the refund page's caption says
+// Start over takes one once the pool is filled again), and the same block holds the settlement and the PayPal dispute's
+// answer, each of which replaces "send its refund" with its own words (settlement.ts, negotiation.ts, chargeback-store.ts),
+// so the sentence must promise only what works whatever the verb.
+{
+  const { POOL_EMPTY, SHARED_DEPOSIT, DEMO_REFUND_BLOCKS } = pool;
+  eq("blocks: the two sentences, the pool's and the shared deposit's", DEMO_REFUND_BLOCKS, [POOL_EMPTY, SHARED_DEPOSIT]);
+  const reworded = [["the settlement's", "send this settlement"], ["the negotiation's", "pay a settlement"], ["the dispute answer's", "answer its PayPal dispute"], ["the dispute check's", "check PayPal for disputes of its deposit"]];
+  for (const [name, text] of [["the pool's", POOL_EMPTY], ["the shared deposit's", SHARED_DEPOSIT]]) {
+    check(`blocks: ${name} carries "send its refund" for the settlement's and the dispute's own words`, text.includes(", so this copy can't send its refund. "), text);
+    for (const [site, verb] of reworded) {
+      const r = text.replace("send its refund", verb);
+      check(`blocks: ${name}, as ${site} code shows it, reads "this copy can't ${verb}."`, r.includes(`so this copy can't ${verb}. `) && !r.includes("send its refund"), r);
+    }
+    check(`blocks: ${name} doesn't call the pool a day's`, !/today|the day's/i.test(text), text);
+    check(`blocks: ${name} doesn't promise that everything else works (the settlement is held by the same block)`, !/everything else works/i.test(text), text);
+    check(`blocks: ${name} says what still works, true whatever the verb`, /Everything that doesn't touch the deposit at PayPal still works\.$/.test(text), text);
+    check(`blocks: ${name} has no em dash`, !text.includes("—"));
+  }
+  check("blocks: the pool's names the pool, not the day", /pre-paid sandbox deposits are used up/.test(POOL_EMPTY), POOL_EMPTY);
+}
 
 console.log(`${pass} passed, ${fail} failed`);
 for (const f of failures) console.log(`  FAIL ${f}`);

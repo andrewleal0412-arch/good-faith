@@ -229,7 +229,7 @@ What each script checks, and how the end-to-end test builds and stubs: [docs/HOW
 - **Sandbox only.** Live PayPal is refused until there is a per-landlord sign-in; the hosted demo's shared access code is not one.
 - **Five states, statutes only.** Other states are refused. City rules are warnings, and some rules in the verified state specs are not in code yet ([known gaps](docs/rules/README.md#known-gaps)).
 - **One small server.** The hosted demo is one Render instance with half a CPU (Render's paid plan, which does not sleep), and every page is rendered on it; the screens that read PayPal live before they show (the statement, the refund review) are the slow ones.
-- **Daily limits.** The advocate runs three times a day per unit and the negotiator three times a day per browser; if the day's pre-paid sandbox deposits run out, the Review refund page says so and the rest of the copy still works.
+- **Daily limits.** The advocate runs three times a day per unit and the negotiator three times a day per browser; if the pre-paid sandbox deposits run out, the Review refund page says so and everything that doesn't touch the deposit at PayPal still works.
 - **Demo data.** The Texas deposit is dated after its notice, since PayPal dates the sandbox payment the day the demo was built, and the closed unit's settled dispute is a recorded example with no PayPal money behind it.
 
 The full list, with PayPal's tool gaps, accessibility's open items and the dependency advisories: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#known-limits).
