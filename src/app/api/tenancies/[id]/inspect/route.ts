@@ -72,7 +72,10 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
     // The suggested findings are replaced and the ones the landlord added by hand stay, in one locked step, so a
     // finding added while the comparison ran isn't lost.
     const { error } = await db.rpc("replace_suggested_findings", { p_tenancy: id, p_findings: findings });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error("findings replace failed", error.message);
+      throw new Error("Couldn't save the findings.");
+    }
     await audit(id, "agent", "move_out_inspected", {
       rooms: ready.map(([room]) => room),
       wear_and_tear: findings.filter((f) => f.classification === "wear_and_tear").length,

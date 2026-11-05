@@ -72,7 +72,10 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]
 
   // Stored only if the row is still the one checked (its math names every input): two tabs can't both land.
   const { data: saved, error } = await db.from("deductions").update(cols).eq("id", did).eq("tenancy_id", id).eq("math", d.math).select("id");
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("deduction edit failed", error.message);
+    return Response.json({ error: "Couldn't save the change. Try again." }, { status: 500 });
+  }
   if (!saved?.length) return Response.json({ error: "This deduction changed since the page loaded. Refresh to see it." }, { status: 409 });
 
   const changed = (Object.keys(changes) as EditField[]).filter((f) => before[f] !== r.row[f]);

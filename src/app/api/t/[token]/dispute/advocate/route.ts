@@ -44,7 +44,11 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/t/[token]/disp
     const stored = { ...c, basis: disputeBasis(dispute, facts) };
     const { data: saved, error } = await db.from("disputes").update({ advocate: stored, advocate_status: "done", advocate_error: null, updated_at: new Date().toISOString() })
       .eq("id", dispute.id).eq("status", "draft").select("id");
-    if (error) throw new Error(error.message);
+    if (error) {
+      // The catch below keeps the thrown message for the page, so the database's own words stay in the log.
+      console.error("advocate case save failed", error.message);
+      throw new Error("Couldn't save the case.");
+    }
     if (!saved?.length) {
       // Sent while the case was being written (only after a stale claim: send_dispute refuses during a run).
       await release(dispute.advocate ? "done" : null, null);

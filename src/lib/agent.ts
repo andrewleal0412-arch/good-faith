@@ -209,7 +209,11 @@ export function refuseLiveWithoutSignIn() {
 export async function startCloseOut(tenancyId: string) {
   refuseLiveWithoutSignIn();
   const { data: run, error } = await db.from("agent_runs").insert({ tenancy_id: tenancyId, kind: "close_out", status: "running" }).select("id").single();
-  if (error || !run) throw new Error(error?.message ?? "couldn't start the run");
+  if (error || !run) {
+    // The close-out route answers with this message, so the database's own words stay in the log.
+    console.error("agent run insert failed", error?.message);
+    throw new Error("The agent couldn't start. Try again.");
+  }
   await audit(tenancyId, "agent", "close_out_started", { run_id: run.id });
   const messages: ModelMessage[] = [{ role: "user", content: "Close out the security deposit for this tenancy." }];
   return { runId: run.id as string, ...(await advance(run.id, tenancyId, messages)) };

@@ -102,13 +102,19 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     const ext = receiptType.slice(receiptType.indexOf("/") + 1);
     receiptPath = `${uploadPrefix(ws)}${id}/${crypto.randomUUID()}.${ext}`;
     const up = await db.storage.from("receipts").upload(receiptPath, receiptBytes, { contentType: receiptType });
-    if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
+    if (up.error) {
+      console.error("receipt upload failed", up.error.message);
+      return Response.json({ error: "Couldn't store the receipt. Try again." }, { status: 500 });
+    }
   }
   const afterPaths: string[] = [];
   for (const { bytes, type } of afterFiles) {
     const path = `${uploadPrefix(ws)}${id}/move_out_after/${crypto.randomUUID()}.${type.slice("image/".length)}`;
     const up = await db.storage.from("photos").upload(path, bytes, { contentType: type });
-    if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
+    if (up.error) {
+      console.error("after-repair photo upload failed", up.error.message);
+      return Response.json({ error: "Couldn't store the after-repair photo. Try again." }, { status: 500 });
+    }
     afterPaths.push(path);
   }
   if (afterPaths.length) {
@@ -131,7 +137,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     amount: c.amount, math: c.math, is_estimate: form.get("isEstimate") === "true",
     receipt_path: receiptPath, after_photo_paths: afterPaths,
   }).select("id").single();
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("deduction insert failed", error.message);
+    return Response.json({ error: "Couldn't save the deduction. Try again." }, { status: 500 });
+  }
 
   await audit(id, "landlord", "deduction_added", { item: finding.item, room: finding.room, category: input.category, amount: c.amount, math: c.math, guidance: c.guidance });
   return Response.json({ id: row.id, amount: c.amount, math: c.math });
@@ -158,7 +167,10 @@ export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[i
   }
   // Only the lines read above; a receipt and an entry only for a line that did go.
   const { data: gone, error } = await db.from("deductions").delete().eq("tenancy_id", id).in("id", rows.map((d) => d.id)).select("id");
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("deductions delete failed", error.message);
+    return Response.json({ error: "Couldn't remove the deductions. Try again." }, { status: 500 });
+  }
   const removed = rows.filter((d) => (gone ?? []).some((g) => g.id === d.id));
   const receipts: string[] = [];
   for (const d of removed) if (d.receipt_path && (await mayRemove(ws, id, d.receipt_path))) receipts.push(d.receipt_path);
