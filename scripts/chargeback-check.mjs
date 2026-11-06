@@ -298,6 +298,23 @@ const ctxFor = (pos, dispute) => {
   eq("webhook: on the activity as the dispute's refund, not as a refund made outside the app", log1, [["refund_status", "dispute_refund", "COMPLETED", 4800]]);
   info1.rows[0] = clone(pendingRow);
   eq("webhook: the same report again changes nothing", (await wh.processEvent(e, { store: storeWith(info1, []), ...at })).status, "recorded");
+  // A refund the landlord made by hand in PayPal while the claim's refund was still on its way: another figure, so
+  // not the claim's. It is held for the landlord as one made outside the app, and the pending record waits for its
+  // own refund untouched; a report with no amount can't be told apart and still completes the record.
+  // (pendingRow itself was completed above, so this one is the record as the accepted claim left it.)
+  const waiting = { ...clone(pendingRow), status: "PENDING", raw: { dispute_id: "PP-D-1" } };
+  eq("webhook: a refund of another amount is not the pending claim's", wh.matchDisputeRefund("5MANUAL", 100, { rows: [waiting], disputes: [] }), null);
+  eq("webhook: the claim's own amount still completes the pending record", wh.matchDisputeRefund("2R2338934U992034C", 4800, { rows: [waiting], disputes: [] }), { row: waiting });
+  eq("webhook: a report with no amount still goes to the pending record", wh.matchDisputeRefund("2R2338934U992034C", null, { rows: [waiting], disputes: [] }), { row: waiting });
+  const logW = [];
+  const byHand = clone(e); byHand.resource.id = "5MANUAL"; byHand.resource.amount.value = "100.00";
+  const outW = await wh.processEvent(byHand, { store: storeWith({ rows: [waiting], disputes: [info1.disputes[0]] }, logW), ...at });
+  eq("webhook: a refund made by hand while the claim's refund is on its way is held as one made outside the app", [outW.status, logW.map((x) => x[0])], ["applied", ["paypal_refund_unrecorded"]]);
+  eq("webhook: and the pending record waits for the claim's own refund untouched", [waiting.status, waiting.raw.refund_ids], ["PENDING", undefined]);
+  // The same once PayPal has resolved the dispute with the claim's amount refunded: nothing is missing from the
+  // record for the by-hand refund to fit in, so it is still one made outside the app.
+  const resolvedClaim = { id: "PP-D-1", status: "RESOLVED", raw: { dispute_outcome: { outcome_code: "RESOLVED_BUYER_FAVOUR", amount_refunded: { value: "4800.00" } } } };
+  eq("webhook: a refund of another amount is not the claim's once PayPal resolved it at the claim's amount either", wh.matchDisputeRefund("5MANUAL", 100, { rows: [waiting], disputes: [resolvedClaim] }), null);
 
   // PayPal decided for the tenants after the landlord sent evidence: no record yet, the resolved dispute lists the
   // refund (or its outcome has more refunded than is on record): a new record for that dispute.
