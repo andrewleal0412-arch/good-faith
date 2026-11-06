@@ -107,12 +107,6 @@ export function GridTip(p: CustomTooltipProps) {
   return <div className="gf-tip max-w-[300px] rounded-md bg-ink px-3 py-2 text-sm text-white shadow-md">{String(p.value ?? "")}</div>;
 }
 
-/** Spreadsheets run a cell that starts with = + - @ or a tab as a formula, so such a value gets a leading apostrophe. */
-export const csvSafe = (v: unknown) => {
-  const s = v == null ? "" : String(v);
-  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
-};
-
 /** A value saved in this browser only (a grid's columns, a chosen view): read and written in try/catch, since a
  *  private window or blocked site data can throw, and the page works the same without it. */
 export const browserStore = {

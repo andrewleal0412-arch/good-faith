@@ -118,7 +118,7 @@ Not legal advice: the agent drafts, code bounds, the landlord decides.
 
 ## Built with AG Grid
 
-Three grids and four charts, all from the free Community builds (`ag-grid-community` and `ag-grid-react` 36.2, `ag-charts-community` and `ag-charts-react` 14.2, MIT licensed): no Enterprise module and no license key. They share one Quartz theme set from the design tokens through the Theming API, the app's dark tooltip and a CSV guard (`src/components/grid.tsx`), and the modules go in through `AgGridProvider`, so nothing registers on the server.
+Three grids and four charts, all from the free Community builds (`ag-grid-community` and `ag-grid-react` 36.2, `ag-charts-community` and `ag-charts-react` 14.2, MIT licensed): no Enterprise module and no license key. They share one Quartz theme set from the design tokens through the Theming API, the app's dark tooltip (`src/components/grid.tsx`) and a CSV guard (`csvSafe`, beside the ledger's pure code in `src/lib/ledger.ts`), and the modules go in through `AgGridProvider`, so nothing registers on the server.
 
 ![The deductions grid on the Move-out tab: the carpet's useful life typed as 12 years is refused in its cell, with the reason and the citation in a tip under it](img/grid-deductions.png)
 
@@ -146,7 +146,7 @@ Three grids and four charts, all from the free Community builds (`ag-grid-commun
 **Insights** (`/insights`, `src/app/(landlord)/insights/`)
 - A grid of every property grouped by state, and by property where one has held more than one tenancy, with each group's totals in the same columns (Collected, Returned, Settled, Kept, Held) and the statement deadline. Groups open and close with a chevron or Enter (remembered in the browser) and stay together under any sort (`postSortRows`). A filter box, a pinned total for every tenancy the filter matches, and a CSV of those tenancies (a closed group's too) with that total, so the file adds up.
 - Four AG Charts: deposits held over time (a deduction counts from the day its statement went out, as the ledger counts it), refunds and settlements over time, deductions by category, and what each state holds. Hanken Grotesk and the ink colors; navy is the series a chart is about and gray the context beside it, and the deductions keep the colors their findings have everywhere in the app (damage red, cleaning amber). A state filter narrows the figures, the charts and the grid at once.
-- Every figure comes from the Payments ledger's own rows (`src/lib/insights.ts`), so Insights, Payments and Properties agree. `node scripts/grid-check.mjs` checks that, and the deduction edits against the lawful range in three states.
+- Every figure comes from the Payments ledger's own rows (`src/lib/insights.ts`), so Insights, Payments and Properties agree. `node scripts/grid-check.mjs` checks that, the deduction edits against the lawful range in three states, and the Payments CSV's amounts (the screen's sign, so the column sums as the ledger does) and its formula guard.
 
 ## Architecture, piece by piece
 
@@ -283,7 +283,7 @@ node scripts/zone-check.mjs         # each state's time zone: an evening that is
 node scripts/lawful-range-check.mjs # disputes: the lawful range in five states and the advocate against a stubbed model
 node scripts/negotiation-check.mjs  # the negotiation: turn checks, offers and the loop's stops, both agents stubbed
 node scripts/paypal-webhook-check.mjs  # PayPal's webhooks: a sample of every event through the handler, replays, forgeries, other workspaces (add --db to run them against Supabase with throwaway rows)
-node scripts/grid-check.mjs         # the grids: deduction edits against the lawful range in three states, the grid and the route agreeing on every edit, when the deductions are final, Insights against the ledger
+node scripts/grid-check.mjs         # the grids: deduction edits against the lawful range in three states, the grid and the route agreeing on every edit, when the deductions are final, Insights against the ledger, the Payments CSV's signed amounts and formula guard
 node scripts/chargeback-check.mjs   # PayPal disputes: a real sandbox dispute read, the bounds, the agent's checks, the evidence request, the agent stubbed (add --db for prepare, approve and send with throwaway rows and a stubbed PayPal)
 node scripts/jev-check.mjs          # Jev stubbed: the quick read's request and thresholds, failures, the read's seal, the reasons check, no personal data in any request (add --live to ask the real Jev)
 node scripts/reconcile-check.mjs    # refunds made in PayPal, PayPal stubbed: noted and announced once, never on a capture the tenancy doesn't own, counted once everywhere (add --db for the same against Supabase with throwaway rows)

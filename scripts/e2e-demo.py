@@ -26,7 +26,8 @@ the words that matter and every money figure against what the code computes, sav
       In 8 and 9 the two pages stay open side by side, as in the demo: each shows what the other side did without a
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger), with PayPal's record in the details of the refund, the settlement and the deposit
-      rows, each against what the fake PayPal holds, and Insights (beat 3b)
+      rows, each against what the fake PayPal holds, its CSV downloaded and summed (saved in --shots), and Insights
+      (beat 3b)
   11. The same lease twice: Start tenancy on a lease the copy already has opens that tenancy, and makes no second one
   12. The demo guide's own ground: a move-out date set on the Texas unit leaves every step where it was (the unit each
       beat runs on is the address the demo script names, not the copy's latest move-out); its route answers with the
@@ -77,6 +78,7 @@ Needs Playwright for Python with Chromium, pypdf (for the words of the tenants' 
 and scripts/e2e-demo-db.mjs.
 """
 import argparse
+import csv
 import json
 import os
 import re
@@ -1256,6 +1258,28 @@ def walk(base, setup, shots, check, facts):
         for what, amt in (("the refund", E["refund"]), ("the settlement", E["settled"]), ("the deposit", E["deposit"])):
             check(f"Payments ledger: a grid row for {what}, {usd(amt)}", usd(amt) in rtext, rtext[:600])
         shot(page, "ledger")
+        # The CSV, on the All view (payments, money back, settlements): each row's Amount carries the sign the screen
+        # shows (a refund or a settlement with a minus), so the column sums to what PayPal still holds, collected less
+        # returned (expected()'s returned counts a refund still on its way too, as grid-check's "less returned and
+        # pending" does); every money row of the copy is in it, and the whole file is saved beside the screenshots.
+        with page.expect_download() as dl:
+            page.get_by_role("button", name="Export", exact=True).click()
+        csv_path = os.path.join(shots, "payments-all.csv")
+        dl.value.save_as(csv_path)
+        with open(csv_path, newline="", encoding="utf-8-sig") as fh:  # AG Grid writes a BOM for Excel
+            csv_rows = list(csv.DictReader(fh))
+        csv_amounts = [r.get("Amount", "") for r in csv_rows]
+        csv_sum = cents(sum(float(a) for a in csv_amounts if a))
+        check(f"Payments CSV: {len(csv_rows)} rows with Date, Type, Property, Tenants, Amount, PayPal ID and Status columns",
+              len(csv_rows) >= 6 and all(c in (csv_rows[0] if csv_rows else {}) for c in ("Date", "Type", "Property", "Tenants", "Amount", "PayPal ID", "Status")),
+              f"columns {list(csv_rows[0].keys()) if csv_rows else []}")
+        check("Payments CSV: every amount is a plain two-decimal number", all(re.fullmatch(r"-?\d+\.\d\d", a) for a in csv_amounts), f"csv_amounts {csv_amounts}")
+        back = [r for r in csv_rows if r.get("Type") in ("Refund", "Payout", "Settlement", "PayPal dispute")]
+        check(f"Payments CSV: the refund and the settlement rows carry a minus (-{E['refund']:.2f}, -{E['settled']:.2f})",
+              f"-{E['refund']:.2f}" in [r.get("Amount", "") for r in back] and f"-{E['settled']:.2f}" in [r.get("Amount", "") for r in back] and all(r.get("Amount", "").startswith("-") for r in back),
+              f"money back {[(r['Type'], r['Amount'], r['Status']) for r in back]}")
+        check(f"Payments CSV: the Amount column sums to collected less returned, {usd(cents(PF['collected'] - PF['returned']))}",
+              csv_sum == cents(PF["collected"] - PF["returned"]), f"sum {csv_sum}, csv_amounts {csv_amounts}")
         # PayPal's record in a row's details, for the three money rows of the move-out unit. The refund and the
         # settlement are read back from the fake PayPal and must be what it answered when each was made; the deposit is
         # the fake's invoice as it stands now: paid, partly refunded by the two, its payment the copy's fake capture.

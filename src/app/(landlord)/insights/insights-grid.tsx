@@ -7,7 +7,8 @@ import type {
   ColDef, GetRowIdParams, GridApi, IRowNode, ITooltipParams, PostSortRowsParams, ProcessCellForExportParams, RowClassParams, ValueGetterParams,
 } from "ag-grid-community";
 import { CsvExportModule, ExternalFilterModule, PinnedRowModule, RenderApiModule } from "ag-grid-community";
-import { browserStore, csvSafe, GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
+import { browserStore, GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
+import { csvSafe } from "@/lib/ledger";
 import { Icon } from "@/components/icons";
 import { Money, StatusChip, inlineInputClass } from "@/components/ui";
 import { shortDate } from "@/lib/dates";
