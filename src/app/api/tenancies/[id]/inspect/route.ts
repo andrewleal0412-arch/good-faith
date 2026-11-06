@@ -13,6 +13,12 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
+  // Once the deposit went back the record is final, as the findings routes hold it: a comparison run now would replace
+  // every suggested finding, the ones the statement's deductions point at included, under a statement already sent.
+  // The Move-out tab hides the button then; a request sent anyway is refused here, before the photos are read, before
+  // the day's allowance is taken and before Claude.
+  const { data: sent } = await db.from("payments").select("id").eq("tenancy_id", id).in("kind", ["refund", "payout"]).limit(1);
+  if (sent?.length) return Response.json({ error: "The deposit has already been returned, so the findings are final." }, { status: 409 });
   const [{ data: photos }, pack] = await Promise.all([
     db.from("photos").select("phase, room, storage_path, created_at").eq("tenancy_id", id).order("created_at"),
     tenancyPack(id),
