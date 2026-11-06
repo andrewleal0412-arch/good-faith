@@ -84,7 +84,7 @@ export const InsightsGrid = forwardRef<InsightsGridHandle, { tenancies: InsightR
   // Every group open to start; what the landlord closes is remembered in this browser.
   // (Read once, in the browser: the grid's rows only render there, so the server's markup has none to differ.)
   const [open, setOpen] = useState<Set<string>>(() => {
-    const closed = browserStore.get<string[]>("gf.insights.closed") ?? [];
+    const closed = browserStore.getList("gf.insights.closed", (x): x is string => typeof x === "string");
     return new Set(p.groups.map((g) => g.id).filter((id) => !closed.includes(id)));
   });
   const toggle = useCallback((id: string) => setOpen((s) => {
