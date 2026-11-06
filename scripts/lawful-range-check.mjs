@@ -367,6 +367,42 @@ function caseFileFor(deductions, pack, o = {}) {
   check("beyondInforming: a judge, a lawsuit, a threat are caught", ["A judge would agree.", "File a lawsuit.", "That is a threat.", "We guarantee it."].every(words.beyondInforming));
 }
 {
+  // A citation written into free text is held to the state's list too: a section number from memory can't ride inside
+  // a reason under the Checked mark, while a shortened form of an allowed citation passes.
+  const file = caseFileFor([carpet(), wall()], CA, { disputed: ["carpet"] });
+  const allowed = range.allowedCitations(CA, file.ranges);
+  check("strayCitation: the fixture's list holds the carpet's citation", allowed.includes("Civ. Code 1950.5(b)(2)"), JSON.stringify(allowed));
+  const stray = (s, a = allowed) => words.strayCitation(s, a);
+  eq("strayCitation: an allowed citation in a reason passes", stray("Under Civ. Code 1950.5(b)(2) the landlord may keep it."), null);
+  eq("strayCitation: shortened and spelled-out forms of an allowed one pass", [stray("Civ. Code 1950.5 allows it."), stray("Under section 1950.5(b), no."), stray("Civil Code 1950.5(b)(2) says so."), stray("See 1950.5(b)(2).")], [null, null, null, null]);
+  eq("strayCitation: a section from memory is caught", stray("Civ. Code 1941.1 requires habitability."), "Civ. Code 1941.1");
+  eq("strayCitation: a made-up subdivision of the right section is caught", stray("Under Civ. Code 1950.5(z)(9) it is fine."), "Civ. Code 1950.5(z)(9)");
+  eq("strayCitation: another state's code is caught", stray("RCW 59.18.280 says so."), "RCW 59.18.280");
+  eq("strayCitation: a bill not in the list is caught", stray("AB 1482 caps rent."), "AB 1482");
+  eq("strayCitation: the second reference is caught when the first is fine", stray("Civ. Code 1950.5(b)(2) and Civ. Code 1950.5(q) apply."), "Civ. Code 1950.5(q)");
+  eq("strayCitation: money, years, dates, hours and a lease's section are not citations", stray("$1,800.00 over 4 of 10 years, 6 years old, a 10-year life, 3 hours at $50.00/hour, 2 of 3 charges, Nov 5, 2026, on 2026-11-05, under section 3 of the lease."), null);
+  eq("strayCitation: a range's ends cover a subdivision inside it", [stray("1950.5(b)(3) bars it.", ["Civ. Code 1950.5(b)(2)-(3), (e)(2)(A)"]), stray("1950.5(b)(4) bars it.", ["Civ. Code 1950.5(b)(2)-(3), (e)(2)(A)"])], [null, "1950.5(b)(4)"]);
+  eq("strayCitation: a section inside a 'to' range is covered, one past it is not", [stray("Tex. Prop. Code 92.105 requires it.", ["Tex. Prop. Code 92.101 to 92.113"]), stray("Tex. Prop. Code 92.114 requires it.", ["Tex. Prop. Code 92.101 to 92.113"])], [null, "Tex. Prop. Code 92.114"]);
+  eq("strayCitation: New York's forms", [stray("GOL 7-108(1-a)(f) forfeits it.", ["N.Y. GOL 7-108(1-a)(e)-(f)"]), stray("General Obligations Law 7-108(1-a)(c) forfeits it.", ["N.Y. GOL 7-108(1-a)(e)-(f)"]), stray("RPL 235-g applies.", ["N.Y. RPL 235-g"])], [null, "General Obligations Law 7-108(1-a)(c)", null]);
+  eq("strayCitation: a whole section number only (92 is not 92.104)", stray("Section 92.1 says so.", ["Tex. Prop. Code 92.104(c)"]), "Section 92.1");
+  eq("strayCitation: another code of the same state is caught", stray("Cal. Penal Code 484 makes it theft."), "Cal. Penal Code 484");
+  eq("strayCitation: a code's name with 'section' before the number, in any case", [stray("Cal. Penal Code section 484 makes it theft."), stray("civil code section 1941 requires it."), stray("Civil Code Section 1950.5 allows it.")], ["Cal. Penal Code section 484", "civil code section 1941", null]);
+
+  const model = new MockLanguageModelV4({ doGenerate: [answer({
+    summary: "Your case rests on RCW 59.18.280, which the landlord ignored.",
+    lines: [
+      { line: 1, verdict: "weak", reason: "Civ. Code 1941.1 makes the landlord fix the carpet at its own cost.", citation: "Civ. Code 1950.5(b)(2)", keep: 360 },
+      { line: 2, verdict: "solid", reason: "Documented, and Civ. Code 1950.5 lets the landlord keep it.", citation: "Civ. Code 1950.5(b)(2)", keep: 140 },
+    ],
+  })] });
+  const c = await advocate.runAdvocate(file, CA, { model, loadPhoto: async () => null });
+  check("advocate: a reason citing a section from memory is replaced with the code's", !/1941/.test(c.lines[0].reason) && /comparison suggested cleaning/.test(c.lines[0].reason), c.lines[0].reason);
+  check("advocate: a reason with a shortened allowed citation stands", /Civ\. Code 1950\.5 lets/.test(c.lines[1].reason), c.lines[1].reason);
+  check("advocate: a summary citing another state's code is replaced", !/RCW/.test(c.summary) && /proposes \$360\.00 back/.test(c.summary), c.summary);
+  eq("advocate: the amounts stand (a citation can't move them)", [c.lines[0].keep, c.lines[1].keep], [360, 140]);
+  check("advocate: both replacements are listed with the citation", c.adjustments.filter((a) => /cites "Civ\. Code 1941\.1"|cites "RCW 59\.18\.280"/.test(a)).length === 2, JSON.stringify(c.adjustments));
+}
+{
   // The tenants' photos reach the model by number, never by file name (a name is their text).
   eq("advocate: tenant photos are labeled by number", words.tenantPhotoLabel(0), "The tenants' photo 1");
   const file = caseFileFor([carpet()], CA, { disputed: ["carpet"] });
