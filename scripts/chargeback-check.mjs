@@ -3,7 +3,8 @@
 // chargeback-store.ts): reading PayPal's dispute (a real sandbox dispute recorded in scripts/fixtures/paypal-dispute.json,
 // and the webhook's shape), what the rules leave the landlord to keep in each phase and state of the money, which
 // responses that leaves with PayPal's own options, the code's checks on the agent's proposal (amounts, the note's
-// figures and wording, the evidence, the citations), the approval hash, PayPal's evidence request (its JSON and its
+// figures and wording, the evidence, the citations), the words a failure leaves on the dispute card (PayPal's own from
+// its answer, a sentence of ours for an SDK's or a database's), the approval hash, PayPal's evidence request (its JSON and its
 // multipart body), the parties' details kept from the model, and the defense agent against a stubbed model (the AI
 // SDK's MockLanguageModelV4) and a stubbed PayPal: the tools it gets, the tenants' words fenced, and a proposal that
 // waits for approval and is never executed by the agent. No database, no PayPal, no Claude. Exit 1 if any fails.
@@ -236,6 +237,40 @@ const ctxFor = (pos, dispute) => {
   check("hash: changes with the note, the amount, the evidence", h !== cb.responseHash({ ...good, note: `${good.note} ` }) && h !== cb.responseHash({ ...good, amount: 1 }) && h !== cb.responseHash({ ...good, evidence: ["statement"] }));
   check("hash: 24 hex digits", /^[0-9a-f]{24}$/.test(h));
   eq("figures: read from a note", cb.figuresIn("Back $3,790.00 and $40, then $1,010.5 kept."), [3790, 40, 1010.5]);
+}
+
+/* ---------- 4b. The words a failure leaves on the page ---------- */
+{
+  // PayPalRefused's shape (paypal.ts): PayPal's status and its answer's body on the error.
+  const refusal = (status, body, message = `PayPal POST /v1/customer/disputes/PP-D-1/provide-evidence -> ${status}: ${body.slice(0, 300)}`) => Object.assign(new Error(message), { status, body });
+  const twice = { issue: "INVALID_PARAMETER", description: "The dispute is not in a state that allows evidence." };
+  const validation = refusal(422, JSON.stringify({ name: "VALIDATION_ERROR", message: "Invalid request - see details", details: [twice, { ...twice, issue: "OTHER" }], debug_id: "abc" }));
+  eq("failure words: PayPal's refusal reads as its detail's description, once, with none of the JSON", cb.failureWords(validation, "evidence"), "The dispute is not in a state that allows evidence.");
+  eq("failure words: a refusal with a message and no details reads as the message", cb.failureWords(refusal(404, JSON.stringify({ name: "INVALID_RESOURCE_ID", message: "Specified resource ID does not exist" })), "accept"), "Specified resource ID does not exist.");
+  eq("failure words: a refusal with a name only reads as the name", cb.failureWords(refusal(403, JSON.stringify({ name: "PERMISSION_DENIED" })), "offer"), "PERMISSION_DENIED.");
+  eq("failure words: a gateway's HTML answer reads as the status alone", cb.failureWords(refusal(503, "<html><body>Service Unavailable</body></html>"), "evidence"), "PayPal answered 503.");
+  eq("failure words: a refusal of ours with no body keeps its plain sentence", cb.failureWords(refusal(0, "", "Not a PayPal dispute id: PP-D-1"), "evidence"), "Not a PayPal dispute id: PP-D-1.");
+  eq("failure words: the e2e fake's refusal keeps its sentence", cb.failureWords(refusal(501, "", "The e2e fake PayPal doesn't take dispute evidence."), "evidence"), "The e2e fake PayPal doesn't take dispute evidence.");
+  eq("failure words: a refusal with no body whose message is a raw dump reads as the status alone", cb.failureWords(refusal(500, "", "PayPal POST /x -> 500: {}"), "evidence"), "PayPal answered 500.");
+  const long = cb.failureWords(refusal(422, JSON.stringify({ details: [{ description: "x".repeat(500) }] })), "evidence");
+  check("failure words: PayPal's words are cut to 160 characters and end as a sentence", long.length <= 161 && long.endsWith("."), `${long.length} characters`);
+  const flat = cb.failureWords(refusal(422, JSON.stringify({ message: "Line one\n\tline two" })), "evidence");
+  eq("failure words: control characters and line breaks in PayPal's words are flattened", flat, "Line one line two.");
+  const fetchFailed = cb.failureWords(new TypeError("fetch failed"), "evidence");
+  check("failure words: a fetch that failed on the evidence call is our sentence, not the runtime's", fetchFailed === "PayPal didn't answer the evidence request." && !/fetch/.test(fetchFailed), fetchFailed);
+  eq("failure words: the acceptance and the offer have their own", [cb.failureWords(new Error("socket hang up"), "accept"), cb.failureWords(new Error("socket hang up"), "offer")],
+    ["PayPal didn't answer the acceptance.", "PayPal didn't answer the offer."]);
+  const sdk = new Error('{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}');
+  const prepared = cb.failureWords(sdk, "prepare", { claude: true });
+  check("failure words: Claude's non-answer during the preparation says so, without the SDK's text", prepared === "Claude didn't answer, so nothing was prepared." && !/overloaded/i.test(prepared), prepared);
+  const pg = cb.failureWords(new Error('the response couldn\'t be stored: duplicate key value violates unique constraint "paypal_dispute_responses_pkey"'), "prepare");
+  check("failure words: a Postgres message during the preparation is our sentence", pg === "Something on our side failed while the response was being prepared." && !/constraint/.test(pg), pg);
+  eq("failure words: something of ours partway through a send (the files' build, the record) is one neutral sentence", [cb.failureWords(new Error("the PayPal step couldn't be recorded: timeout"), "partway"), cb.failureWords(new Error("Cannot find module 'pdf-lib'"), "partway")],
+    ["Something on our side failed partway.", "Something on our side failed partway."]);
+  eq("failure words: a paypal() refusal with no body reads as the status alone, not the call's path", cb.failureWords(refusal(500, "", "PayPal POST /v1/customer/disputes/PP-D-1/provide-evidence -> 500: "), "evidence"), "PayPal answered 500.");
+  eq("failure words: a detail with an issue and no description reads as the issue", cb.failureWords(refusal(422, JSON.stringify({ message: "Invalid request - see details", details: [{ issue: "EVIDENCE_NOT_ALLOWED" }] })), "evidence"), "EVIDENCE_NOT_ALLOWED.");
+  eq("failure words: a thrown non-error is our sentence too", cb.failureWords("failed", "prepare"), "Something on our side failed while the response was being prepared.");
+  eq("failure words: a refusal's status and body win over the claude flag", cb.failureWords(refusal(422, JSON.stringify({ message: "No." })), "prepare", { claude: true }), "No.");
 }
 
 /* ---------- 5. PayPal's evidence request ---------- */
