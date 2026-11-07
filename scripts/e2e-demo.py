@@ -714,24 +714,33 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
                      && b.width - a.width < 24 && b.height - a.height < 24,
                    seen: b.top >= 0 && b.top < innerHeight };
         }"""
+        def ring_settled(anchor, cap=5_000):
+            """The ring's reading once it is around the part on screen, or after cap ms if it never gets there: a window
+            resized moves the ring through a smooth scroll and a glide, which on a loaded machine takes over a second,
+            so a fixed wait read it mid-way. The reading is the same RING check either way, so a ring that never
+            moves still fails the check that reads it; only the wait's own timeout is caught, anything else is an error."""
+            from playwright.sync_api import TimeoutError as PlaywrightTimeout
+            try:
+                page.wait_for_function("(sel) => { const r = (" + RING + ")(sel); return !!(r && r.around && r.seen); }", arg=anchor, timeout=cap)
+            except PlaywrightTimeout:
+                pass
+            return page.evaluate(RING, anchor)
         stops = []
         for anchor in (f'[data-tour-unit="{mo}"]', '[data-tour="next-steps"]', f'[data-tour-unit="{tx}"]', '[data-tour="guide"]'):
             page.locator("[data-tour-stop]").wait_for()
-            page.wait_for_timeout(300)
+            ring = ring_settled(anchor)  # each stop glides from the last one's place, so the ring is read once it has landed
             pop = page.locator("[data-tour-stop]")
             stops.append({"stop": pop.get_attribute("data-tour-stop"), "title": pop.locator("h2").inner_text(),
-                          "count": pop.inner_text().split("\n")[0], "ring": page.evaluate(RING, anchor)})
+                          "count": pop.inner_text().split("\n")[0], "ring": ring})
             shot(page, f"tour-{len(stops)}")
             if len(stops) == 1:
                 # A unit is a table row on a computer and a card on a phone: a window that crosses between the two (a
                 # tablet turned, a window resized) moves the ring to the part now on screen, and back.
                 page.set_viewport_size({"width": 390, "height": 844})
-                page.wait_for_timeout(400)
-                narrow = page.evaluate(RING, anchor)
+                narrow = ring_settled(anchor)
                 page.screenshot(path=str(shots / "tour-1-phone.png"))  # the screen as it is, not shot()'s full page from the top
                 page.set_viewport_size({"width": 1440, "height": 1000})
-                page.wait_for_timeout(400)
-                wide = page.evaluate(RING, anchor)
+                wide = ring_settled(anchor)
                 check("Welcome tour: a window that crosses to phone width and back keeps the ring on the unit, card then row",
                       bool(narrow and narrow["around"] and narrow["seen"] and wide and wide["around"] and wide["seen"]),
                       json.dumps({"phone": narrow, "wide": wide}))
