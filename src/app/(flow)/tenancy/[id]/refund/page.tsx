@@ -350,7 +350,7 @@ async function LiveActions({ v, live }: { v: RefundView; live: Live }) {
         disabled={awaiting ? !!failedCheck : blocked || running}
         auth={awaiting
           ? `By clicking “Send ${word},” you authorize Good Faith to issue this PayPal ${payout ? "Payout" : "refund"}.`
-          : r.demoBlock ? (r.demoBlock === POOL_EMPTY ? "Preparing is off in this copy because today's sandbox deposits are used up." : "Preparing is off in this copy because its deposit is shared with every other copy.")
+          : r.demoBlock ? (r.demoBlock === POOL_EMPTY ? "Preparing is off in this copy because the demo's pre-paid sandbox deposits are used up. Start over, once the pool is filled again, gives a copy with a deposit of its own." : "Preparing is off in this copy because its deposit is shared with every other copy.")
             : "The agent verifies the deposit with PayPal first. Nothing is sent until you approve it."}
       />
     </>

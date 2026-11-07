@@ -12,9 +12,9 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  // A demo copy made when the day's sandbox deposits were used up, or the Texas unit's copy (its deposit is the
+  // A demo copy made when the pre-paid sandbox deposits were used up, or the Texas unit's copy (its deposit is the
   // template's), can't send its refund, so the agent isn't started for it (no Claude call is spent on a refund that
-  // would be blocked). Everything else on the copy still works. Nor while the tenants' PayPal dispute of the deposit
+  // would be blocked); the settlement and the PayPal dispute's answer are held by the same block. Nor while the tenants' PayPal dispute of the deposit
   // payment is open: its response is where money goes back then (src/lib/chargeback-store.ts).
   const blocked = (await tenancyDepositBlock(ws.id, id)) ?? (await openDisputeBlock(id));
   if (blocked) return Response.json({ error: blocked }, { status: 409 });

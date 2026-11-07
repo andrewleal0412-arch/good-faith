@@ -366,7 +366,7 @@ export async function checkPayPalDisputes(tenancyId: string, ws: Workspace, deps
   const capture = ((inv?.raw as { transactions?: { payment_id?: string }[] } | null)?.transactions?.[0]?.payment_id) ?? null;
   if (!inv?.paypal_id || !capture) return { ok: false, error: "No PayPal payment of the deposit is on file, so there's nothing to check.", status: 409 };
   const demo = await depositBlock(ws.id, inv.paypal_id);
-  if (demo) return { ok: false, error: demo.replace("send its refund", "check PayPal for disputes of it"), status: 409 };
+  if (demo) return { ok: false, error: demo.replace("send its refund", "check PayPal for disputes of its deposit"), status: 409 };
   const now = Date.now();
   if (!deps.listDisputes && (lastCheck.get(tenancyId) ?? 0) > now - 15_000) return { ok: false, error: "Checked a moment ago. Try again in a few seconds.", status: 429 };
   lastCheck.set(tenancyId, now);
