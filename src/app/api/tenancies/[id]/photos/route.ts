@@ -58,12 +58,18 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     // Under the workspace's own prefix, so a demo copy's uploads are its own to sign and the sweep's to remove.
     const path = `${uploadPrefix(ws)}${id}/${phase}/${crypto.randomUUID()}.${ext}`;
     const up = await db.storage.from("photos").upload(path, bytes, { contentType: type });
-    if (up.error) return Response.json({ error: up.error.message }, { status: 500 });
+    if (up.error) {
+      console.error("photo upload failed", up.error.message);
+      return Response.json({ error: "Couldn't store the photos. Try again." }, { status: 500 });
+    }
     rows.push({ tenancy_id: id, phase, room, storage_path: path, caption: file.name });
     stored.push({ path, bytes, type });
   }
   const { error } = await db.from("photos").insert(rows);
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("photo rows insert failed", error.message);
+    return Response.json({ error: "Couldn't save the photos. Try again." }, { status: 500 });
+  }
   // Their small versions for the grids (src/lib/thumbs.ts), from the bytes in hand, once this has answered.
   after(() => { for (const s of stored) warmThumbnail(s.path, s.bytes, s.type); });
   // The browser sends a big selection in several requests; "total" is the whole selection, so the log can say 4 of 6.

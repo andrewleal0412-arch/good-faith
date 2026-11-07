@@ -152,6 +152,20 @@ check("the tenants' dispute photo route finds the photo under the link's tenancy
 // The minute-old invoice read is kept per workspace and per state of the records.
 check("a reused invoice read is keyed by workspace and records", /const key = opts\.reuse \? `\$\{opts\.reuse\.workspaceId\}\|[^`]*\$\{opts\.reuse\.records\}`/.test(read(join(SRC, "lib/deposit.ts"))));
 
+// A database error's own words (a column, a constraint, a storage bucket's policy) never answer a request: every route
+// logs them and answers a fixed sentence. Not a cache, but the same question, what crosses from the server to a browser.
+// The pattern is a response body or a thrown Error made from the message of a value named like an error (error, pErr,
+// up.error, error?.message); `e.message` from an Error the app threw with its own words is the app's sentence, and is
+// not matched. The route files are read (a module a route calls may still throw a database message, which a route's
+// catch would forward; src/lib/agent.ts's run insert was one, now a fixed sentence too).
+const routes = files.filter((f) => /[\\/]app[\\/]api[\\/].*route\.ts$/.test(f));
+check("the API routes were found", routes.length >= 40, `${routes.length} files`);
+const dbMessage = /(?:\{\s*error:\s*|\bbad\(\s*|new Error\(\s*)(?:[\w$]+\??\.)*[\w$]*(?:[Ee]rr|[Ee]rror)\??\.message\b/g;
+for (const f of routes) {
+  const hits = [...read(f).matchAll(dbMessage)].map((m) => `offset ${m.index}`);
+  check(`no database error's words answer a request: ${rel(f)}`, !hits.length, hits.join(", "));
+}
+
 // React's cache() memoizes for one request only. List its uses, so a reader sees what is shared within a request.
 const perRequest = files.filter((f) => /\bcache\s*\(/.test(read(f)) && /from "react"/.test(read(f)) && !isClient(read(f))).map(rel);
 check("React cache() is used (per request)", perRequest.length > 0);

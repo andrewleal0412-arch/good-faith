@@ -287,7 +287,7 @@ node scripts/grid-check.mjs         # the grids: deduction edits against the law
 node scripts/chargeback-check.mjs   # PayPal disputes: a real sandbox dispute read, the bounds, the agent's checks, the evidence request, the agent stubbed (add --db for prepare, approve and send with throwaway rows and a stubbed PayPal)
 node scripts/jev-check.mjs          # Jev stubbed: the quick read's request and thresholds, failures, the read's seal, the reasons check, no personal data in any request (add --live to ask the real Jev)
 node scripts/reconcile-check.mjs    # refunds made in PayPal, PayPal stubbed: noted and announced once, never on a capture the tenancy doesn't own, counted once everywhere (add --db for the same against Supabase with throwaway rows)
-node scripts/cache-check.mjs        # nothing kept between requests can carry one workspace's data to another (add --live <base> to check two throwaway copies on a running build)
+node scripts/cache-check.mjs        # nothing kept between requests can carry one workspace's data to another, and no API route answers with a database error's own words (add --live <base> to check two throwaway copies on a running build)
 node scripts/thumbs-check.mjs       # the photo thumbnails made ahead for the templates match what the app would make
 node scripts/e2e-stubs-check.mjs    # the end-to-end test's stubs: on only for GOOD_FAITH_E2E_STUBS=1, never on Render, never with live PayPal; nothing leaves the process; the deposit invoice route refuses live PayPal
 node scripts/page-weight-check.mjs  # no page loads an agent: the model SDKs, PayPal's Agent Toolkit, the MCP SDK, the PDF writer and the image library stay on the paths that use them, off every page, the proxy and instrumentation (docs/PERFORMANCE.md)

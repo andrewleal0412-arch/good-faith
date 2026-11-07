@@ -98,7 +98,10 @@ export async function POST(req: Request) {
     workspace_id: ws.id, address: terms.propertyAddress, city: terms.city, state, owner_name: terms.landlordName, owner_type: terms.ownerType,
     owner_property_count: terms.ownerPropertyCount, owner_unit_count: terms.ownerUnitCount,
   }).select("id").single();
-  if (pErr) return Response.json({ error: pErr.message }, { status: 500 });
+  if (pErr) {
+    console.error("property insert failed", pErr.message);
+    return Response.json({ error: "Couldn't save the property. Try again." }, { status: 500 });
+  }
 
   const { data: tenancy, error: tErr } = await db.from("tenancies").insert({
     workspace_id: ws.id, property_id: property.id,
@@ -106,7 +109,10 @@ export async function POST(req: Request) {
     monthly_rent: terms.monthlyRent, deposit_amount: terms.securityDeposit, other_charges: terms.otherMoveInCharges,
     start_date: terms.tenancyStartDate, end_date: terms.leaseEndDate ?? null, lease_pdf_path: leasePath, lease_terms: terms, lease_flags: flags,
   }).select("id").single();
-  if (tErr) return Response.json({ error: tErr.message }, { status: 500 });
+  if (tErr) {
+    console.error("tenancy insert failed", tErr.message);
+    return Response.json({ error: "Couldn't save the tenancy. Try again." }, { status: 500 });
+  }
 
   await audit(tenancy.id, "agent", "lease_checked", {
     violations: flags.filter((f) => f.severity === "violation").map((f) => f.id),
