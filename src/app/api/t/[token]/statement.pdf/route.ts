@@ -1,11 +1,19 @@
+import { clientAddress } from "@/lib/access-throttle";
 import { audit, db } from "@/lib/db";
+import { rateLimiter } from "@/lib/rate-limit";
 import { buildStatement } from "@/lib/statement";
 import { buildStatementPdf } from "@/lib/statement-pdf";
-import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
+import { resolveTenantToken, tokenNotFound, tooManyRequests } from "@/lib/tenant-links";
 import { isTemplate } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+// The packet is built from scratch on every request (pdf-lib, every photo exhibit re-encoded; Cache-Control no-store),
+// from a link that is public past the gate, so one address gets so many a minute and everyone together so many,
+// counted before the token is looked up. The tenants open it a few times (a browser's PDF viewer may ask twice), and
+// an office behind one address shares the count; a loop on the URL is held to this.
+const limited = rateLimiter({ perAddress: 40, total: 200, ms: 60_000 });
 
 // The itemized statement packet for the tenants, by their link token: the same PDF the landlord sent, with the
 // photo exhibits and invoice copies (Civ. Code 1950.5(h)(2)). Only once it has been delivered; until then the
@@ -13,6 +21,7 @@ export const maxDuration = 60;
 // Opens in the browser; "?download=1" saves it instead.
 export async function GET(req: Request, ctx: RouteContext<"/api/t/[token]/statement.pdf">) {
   const { token } = await ctx.params;
+  if (limited(clientAddress(req.headers))) return tooManyRequests();
   const link = await resolveTenantToken(token);
   if (!link) return tokenNotFound();
   const download = new URL(req.url).searchParams.get("download") === "1";

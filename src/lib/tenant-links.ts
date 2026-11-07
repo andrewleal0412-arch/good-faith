@@ -123,3 +123,12 @@ export async function resolveTenantToken(token: string, opts: { touch?: boolean 
 
 /** The one answer every tenant route gives for a token it doesn't accept, and for anything it won't discuss. */
 export const tokenNotFound = () => Response.json({ error: "Not found." }, { status: 404 });
+
+/** The answer of a tenants' route asked too many times in a minute (src/lib/rate-limit.ts), with the minute named for
+ *  a browser that retries: the link is public past the gate, so a route that does real work per request (the
+ *  statement packet, a photo resized to full size) counts its callers by address before it reads anything. The
+ *  address is the one clientAddress trusts (CF-Connecting-IP on Render; docs/DEPLOY.md says how to check it). */
+export const tooManyRequests = () => Response.json(
+  { error: "This was opened too many times in the last minute. Try again in a minute." },
+  { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } },
+);

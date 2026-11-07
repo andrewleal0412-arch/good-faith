@@ -1,9 +1,17 @@
 import sharp from "sharp";
+import { clientAddress } from "@/lib/access-throttle";
 import { db } from "@/lib/db";
-import { resolveTenantToken, tokenNotFound } from "@/lib/tenant-links";
+import { rateLimiter } from "@/lib/rate-limit";
+import { resolveTenantToken, tokenNotFound, tooManyRequests } from "@/lib/tenant-links";
 import { thumbnail } from "@/lib/thumbs";
 
 export const runtime = "nodejs";
+
+// A photo at full size is downloaded and resized by sharp on every request (only the ?size=thumb version is kept in
+// the thumbnail cache), from a link that is public past the gate, so a full-size GET counts its callers by address
+// before it reads anything, as the dispute photo route does: the page's tiles are thumbs and don't count, a full size
+// opens on a click, and a loop on the URL is held to this.
+const limited = rateLimiter({ perAddress: 60, total: 600, ms: 60_000 });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,11 +28,13 @@ const CACHE_SECONDS = 600;
 export async function GET(req: Request, ctx: RouteContext<"/api/t/[token]/photos/[photoId]">) {
   const { token, photoId } = await ctx.params;
   if (!UUID_RE.test(photoId)) return tokenNotFound();
+  const thumb = new URL(req.url).searchParams.get("size") === "thumb";
+  if (!thumb && limited(clientAddress(req.headers))) return tooManyRequests();
   const link = await resolveTenantToken(token, { touch: false });
   if (!link) return tokenNotFound();
   const { data: p } = await db.from("photos").select("storage_path").eq("id", photoId).eq("tenancy_id", link.tenancyId).eq("phase", "move_in").maybeSingle();
   if (!p) return tokenNotFound();
-  if (new URL(req.url).searchParams.get("size") === "thumb") {
+  if (thumb) {
     const t = await thumbnail(p.storage_path);
     if (!t) return tokenNotFound();
     return new Response(t.bytes, { headers: { "Content-Type": t.type, "Content-Disposition": "inline", "Cache-Control": `private, max-age=${CACHE_SECONDS}` } });
