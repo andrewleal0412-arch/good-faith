@@ -37,7 +37,8 @@ import type { Workspace } from "./workspace";
 // template's shared payment), the dispute still open and on this deposit's payment, the response still one the rules
 // and PayPal allow at the same amount. Each PayPal write carries a PayPal-Request-Id from the response (gf-dispute-<id>-
 // <step>). A step PayPal never answered leaves the response unconfirmed; "Check with PayPal" reads the dispute and
-// sends only what didn't go, with the same keys. Every step is in the audit log.
+// sends only what didn't go, with the same keys, and a step still to go passes the rules-and-PayPal guard again first.
+// Every step is in the audit log.
 
 type Obj = Record<string, unknown>;
 const cents = (n: number) => Math.round(n * 100) / 100;
@@ -538,7 +539,16 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
   }
   const blocked = async (why: string): Promise<SendResult> => {
     await finish(r.id, recheck ? "unknown" : "blocked", progress, why);
-    await audit(tenancyId, "system", "dispute_response_blocked", { dispute_id: r.dispute_id, response_id: r.id, reason: why });
+    await audit(tenancyId, "system", "dispute_response_blocked", { dispute_id: r.dispute_id, response_id: r.id, reason: why, rechecked: recheck || undefined });
+    return { ok: false, error: why, status: 409 };
+  };
+  /** The rules' or PayPal's own guard stopped a step that hadn't gone: back for approval, on a check too. On a check
+   *  the live read is taken as final (the dispute shows nothing of the step went, so it is treated as never sent, as
+   *  the resend itself does); a response left unconfirmed instead would refuse every new preparation, and an
+   *  approval after this runs the same guard and sends with the same PayPal-Request-Id. */
+  const guardStop = async (why: string): Promise<SendResult> => {
+    await finish(r.id, "blocked", progress, why);
+    await audit(tenancyId, "system", "dispute_response_blocked", { dispute_id: r.dispute_id, response_id: r.id, reason: why, rechecked: recheck || undefined });
     return { ok: false, error: why, status: 409 };
   };
 
@@ -569,11 +579,17 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
     offer: !!progress.offer || (recheck && shows(s.dispute, s.raw, r.approved_at, "offer")),
   };
   const amount = r.amount == null ? null : Number(r.amount);
-  if (!recheck) {
+  // The response still one the rules and PayPal allow, at the same amount, whenever its step has yet to go: on the
+  // approval, and on a check too, since the figures can change between an approval PayPal never confirmed and the
+  // check that would send it (a refund reversed, a charge removed). A response the guard stops goes back for approval
+  // on both paths, with nothing sent, so a new response can be prepared in its place; what the live dispute shows went
+  // (done) is never sent again, so a step that went is never judged twice.
+  const pending = r.action === "provide_evidence" ? !done.evidence : r.action === "accept_claim" ? !done.accept : r.action === "make_offer" ? !done.offer : false;
+  if (pending) {
     const option = s.options.find((o) => o.action === r.action);
-    if (!option) return blocked(`${ACTION_LABEL[r.action]} is no longer a response the rules and PayPal allow here${s.none ? `: ${s.none}` : ""}. Nothing was sent; prepare a new response.`);
+    if (!option) return guardStop(`${ACTION_LABEL[r.action]} is no longer a response the rules and PayPal allow here${s.none ? `: ${s.none}` : ""}. Nothing was sent; prepare a new response.`);
     if (option.min != null && amount != null && (amount < option.min - 0.005 || (option.max != null && amount > option.max + 0.005) || (option.fixed != null && Math.abs(amount - option.fixed) > 0.005))) {
-      return blocked(`The figures changed since this was prepared (${usd(s.position.owedBack)} is owed back now). Nothing was sent; prepare a new response.`);
+      return guardStop(`The figures changed since this was prepared (${usd(s.position.owedBack)} is owed back now). Nothing was sent; prepare a new response.`);
     }
   }
 
