@@ -7,6 +7,7 @@ import { FormField } from "@/components/field";
 import { FilePick } from "@/components/file-pick";
 import { Money, Notice, inputClass, textareaClass } from "@/components/ui";
 import { chargeable, defaultProration, suggestedLife, type Performer, type Proration, type Work } from "@/lib/deductions";
+import { parseInput } from "@/lib/deduction-edit";
 import { packFor } from "@/lib/states";
 import { AFTER_PHOTOS_MAX, mb, notAPhoto, shrinkPhoto, UPLOAD_BUDGET, uploadError } from "@/lib/uploads";
 
@@ -34,7 +35,9 @@ export function DeductionForm({ tenancyId, state, finding, onDone, onCancel }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const n = (s: string) => (s.trim() === "" ? null : Number(s));
+  // Read as the route reads them (parseInput: digits, at most two decimals, a dollar sign and commas allowed), so the
+  // preview and the stored amount can't disagree; a value the route would refuse previews as still missing.
+  const n = (s: string) => (s.trim() === "" || Number.isNaN(parseInput(s)) ? null : parseInput(s));
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV({ ...v, [k]: e.target.value });
   const preview = chargeable({
     category: finding.classification === "cleaning" ? "cleaning" : "damage", work, performer, proration,

@@ -122,6 +122,38 @@ export function checkEdit(row: EditRow, changes: Changes, limits: EditLimits): E
   return { ok: true, row: { ...next, amount: c.amount, math: c.math }, guidance: c.guidance };
 }
 
+/** The add form's inputs as the route gets them (POST /api/tenancies/[id]/deductions: text fields, the amount never
+ *  among them), checked as a grid edit is before anything is stored: only the inputs the method reads are read (the
+ *  rest are dropped), each one given is a number within the same bounds (BOUNDS, through parseInput, so "1e400", a
+ *  negative or three decimals are refused in words), the amount is chargeable()'s own, and a carpet over the
+ *  guidance's 10-year life is refused with the same sentence and citation the grid gives. The lawful range's bars and
+ *  caps are the route's second check, with the new line in place, as the edit route's are. */
+export type AddInput = Pick<DeductionInput, "category" | "work" | "performer" | "proration"> & Partial<Record<EditField, unknown>>;
+export type AddResult =
+  | { ok: true; input: DeductionInput; amount: number; math: string; guidance: boolean }
+  | { ok: false; field: EditField | null; reason: string; cite: string | null };
+
+export function checkAdd(item: string, raw: AddInput, guidanceCite: string): AddResult {
+  const no = (reason: string, cite: string | null = null, field: EditField | null = null): AddResult => ({ ok: false, field, reason, cite });
+  const input: DeductionInput = { category: raw.category, work: raw.work, performer: raw.performer, proration: raw.proration };
+  for (const field of editableFields(raw)) {
+    const given = raw[field];
+    const empty = given == null || (typeof given === "string" && given.trim() === "");
+    if (empty) continue; // chargeable() says which input the method still needs
+    const value = parseInput(given);
+    const b = BOUNDS[field];
+    if (!Number.isFinite(value) || value < b.min || (b.open && value <= b.min) || value > b.max) return no(b.say(b.max), null, field);
+    input[field] = value;
+  }
+  const c = chargeable(input);
+  if ("error" in c) return no(c.error);
+  const g = guidanceCap(item, input);
+  if (g && c.amount > g.amount + 0.005) {
+    return no(`Over the lawful range: the guidance uses a ${g.life}-year life for this item, so at ${input.itemAgeYears} year${input.itemAgeYears === 1 ? "" : "s"} old it comes to ${usd(g.amount)} at most.`, guidanceCite, "usefulLifeYears");
+  }
+  return { ok: true, input, amount: c.amount, math: c.math, guidance: c.guidance };
+}
+
 /** One input's value in words, for the audit log and the grid's messages. */
 export const inputWords = (field: EditField, v: number | null) =>
   v == null ? "not set" : field === "invoiceTotal" || field === "hourlyRate" ? usd(v) : field === "hours" ? `${v} hour${v === 1 ? "" : "s"}` : `${v} year${v === 1 ? "" : "s"}`;

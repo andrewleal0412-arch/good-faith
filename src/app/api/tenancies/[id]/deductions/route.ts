@@ -1,7 +1,9 @@
 import { todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
-import { deductionsLocked } from "@/lib/disputes";
-import { chargeable, type DeductionInput, type Performer, type Proration, type Work } from "@/lib/deductions";
+import { checkAdd, rangeBreach } from "@/lib/deduction-edit";
+import { deductionsLocked, disputeFacts } from "@/lib/disputes";
+import { type Performer, type Proration, type Work } from "@/lib/deductions";
+import { lawfulRanges, type RangeDeduction } from "@/lib/lawful-range";
 import { imageType, notAPhotoServer, readForm, sniff, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
 import { nextStep } from "@/lib/next-step";
@@ -16,11 +18,13 @@ export const maxDuration = 60;
 // Text fields accept text only (a file sent under a text name is ignored) and lose control characters, which
 // Postgres refuses inside jsonb.
 const str = (v: FormDataEntryValue | null) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim() : "");
-const num = (v: FormDataEntryValue | null) => (str(v) === "" ? null : Number(str(v)));
 
 // One deduction from one inspection finding (damage or cleaning; California Civ. Code 1950.5(b)(2), (b)(3)). The landlord supplies
 // the facts (invoice or labor, the item's age, receipt, after-repair photos); the amount is computed here from them,
-// so the statement's numbers always match its explanation. Ordinary wear and tear can't be deducted at all.
+// so the statement's numbers always match its explanation. Ordinary wear and tear can't be deducted at all. The
+// inputs are held as the grid's edits are (src/lib/deduction-edit.ts): each within its bounds, the amount chargeable()'s
+// own, a carpet's life no longer than the guidance's, then the lawful range run again with the new line in place, so
+// a line the grid would refuse can't be added by the form, another tab or a hand-made request either.
 export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/deductions">) {
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
@@ -37,6 +41,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   if (bytes > UPLOAD_BUDGET) {
     return Response.json({ error: `The receipt and photos total ${mb(bytes)}; one deduction can carry ${mb(UPLOAD_BUDGET)}. Add fewer after-repair photos, or a smaller receipt.` }, { status: 413 });
   }
+  const receipt = receipts[0] ?? null;
   const findingId = str(form.get("findingId"));
 
   const { data: t } = await db.from("tenancies").select("move_out_findings, properties(state)").eq("id", id).single();
@@ -51,26 +56,47 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     return Response.json({ error: packFor((t.properties as { state?: string | null } | null)?.state).copy.wearRefused }, { status: 400 });
   }
 
-  const input: DeductionInput = {
-    category: finding.classification === "cleaning" ? "cleaning" : "damage",
-    work: str(form.get("work")) as Work,
-    performer: str(form.get("performer")) as Performer,
-    invoiceTotal: num(form.get("invoiceTotal")),
-    hours: num(form.get("hours")),
-    hourlyRate: num(form.get("hourlyRate")),
-    proration: (str(form.get("proration")) || "none") as Proration,
-    itemAgeYears: num(form.get("itemAgeYears")),
-    usefulLifeYears: num(form.get("usefulLifeYears")),
+  const work = str(form.get("work")) as Work, performer = str(form.get("performer")) as Performer;
+  const proration = (str(form.get("proration")) || "none") as Proration;
+  if (!["repair", "replace", "clean", "other"].includes(work)) return Response.json({ error: "Say what was done." }, { status: 400 });
+  if (!["vendor", "own_labor"].includes(performer)) return Response.json({ error: "Say who did the work." }, { status: 400 });
+  if (!["none", "useful_life", "paint_schedule"].includes(proration)) return Response.json({ error: "Say how the cost is prorated." }, { status: 400 });
+  const facts = await disputeFacts(id);
+  if (!facts) return Response.json({ error: "No such tenancy." }, { status: 404 });
+  if (facts.deductions.some((d) => d.finding?.id === findingId)) {
+    return Response.json({ error: "This finding already has a deduction. Change that one in the grid, or remove it first." }, { status: 409 });
+  }
+  const a = checkAdd(finding.item, {
+    category: finding.classification === "cleaning" ? "cleaning" : "damage", work, performer, proration,
+    invoiceTotal: str(form.get("invoiceTotal")), hours: str(form.get("hours")), hourlyRate: str(form.get("hourlyRate")),
+    itemAgeYears: str(form.get("itemAgeYears")), usefulLifeYears: str(form.get("usefulLifeYears")),
+  }, facts.pack.copy.guidanceCite);
+  if (!a.ok) return Response.json({ error: a.reason, cite: a.cite, field: a.field }, { status: a.cite ? 422 : 400 });
+  const { input } = a;
+  const vendor = input.performer === "vendor"
+    ? { name: str(form.get("vendorName")) || undefined, address: str(form.get("vendorAddress")) || undefined, phone: str(form.get("vendorPhone")) || undefined }
+    : null;
+  // Why the work was done, in the landlord's words: it goes on the statement with the cost as part of the written
+  // explanation ((h)(2)(D)), e.g. that cleaning was tried before the carpet was replaced.
+  const note = str(form.get("note")).slice(0, 600) || null;
+  // The lawful range with this line on the statement: a bar (a late statement that forfeits every charge, a state's
+  // own) or a cap the new amount would break refuses it with the range's reason, as an edit is refused.
+  const line: RangeDeduction = {
+    id: "new", category: input.category, room: finding.room, item: finding.item, work: input.work, performer: input.performer,
+    amount: a.amount, math: a.math, proration: input.proration, is_estimate: form.get("isEstimate") === "true",
+    receipt_path: receipt ? "pending" : null, after_photo_paths: afters.map(() => "pending"), vendor,
+    labor_description: input.performer === "own_labor" ? str(form.get("laborDescription")) || null : null, note, finding,
+    billed: input.performer === "vendor" ? input.invoiceTotal ?? null : (input.hours ?? 0) * (input.hourlyRate ?? 0),
+    hours: input.performer === "own_labor" ? input.hours ?? null : null, hourly_rate: input.performer === "own_labor" ? input.hourlyRate ?? null : null,
+    item_age_years: input.itemAgeYears ?? null, useful_life_years: input.usefulLifeYears ?? null,
   };
-  if (!["repair", "replace", "clean", "other"].includes(input.work)) return Response.json({ error: "Say what was done." }, { status: 400 });
-  if (!["vendor", "own_labor"].includes(input.performer)) return Response.json({ error: "Say who did the work." }, { status: 400 });
-  const c = chargeable(input);
-  if ("error" in c) return Response.json({ error: c.error }, { status: 400 });
+  const after = lawfulRanges({ ...facts.rangeInput, deductions: [...facts.rangeInput.deductions, line] }, facts.pack);
+  const breach = rangeBreach(after.lines.find((l) => l.id === line.id) ?? { flags: [], amount: 0 });
+  if (breach) return Response.json({ error: breach.reason, cite: breach.cite, field: null }, { status: 422 });
 
   // Receipt (vendor bill or materials) and after-repair photos (AB 2801, (g)(2)) go to private buckets. Every file is
   // checked against its bytes before anything is stored (src/lib/images.ts), so a refused file leaves nothing behind:
   // the receipt is a PDF or a photo, by its signature, whatever the browser declared.
-  const receipt = receipts[0] ?? null;
   let receiptBytes: Uint8Array | null = null, receiptType = "application/pdf";
   if (receipt) {
     receiptBytes = new Uint8Array(await receipt.arrayBuffer());
@@ -121,12 +147,6 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     await db.from("photos").insert(afterPaths.map((p) => ({ tenancy_id: id, phase: "move_out_after", room: finding.room, storage_path: p, caption: finding.item })));
   }
 
-  const vendor = input.performer === "vendor"
-    ? { name: str(form.get("vendorName")) || undefined, address: str(form.get("vendorAddress")) || undefined, phone: str(form.get("vendorPhone")) || undefined }
-    : null;
-  // Why the work was done, in the landlord's words: it goes on the statement with the cost as part of the written
-  // explanation ((h)(2)(D)), e.g. that cleaning was tried before the carpet was replaced.
-  const note = str(form.get("note")).slice(0, 600) || null;
   const { data: row, error } = await db.from("deductions").insert({
     tenancy_id: id, category: input.category, room: finding.room, item: finding.item, finding,
     work: input.work, performer: input.performer, billed: input.performer === "vendor" ? input.invoiceTotal : (input.hours ?? 0) * (input.hourlyRate ?? 0),
@@ -134,7 +154,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     labor_description: input.performer === "own_labor" ? str(form.get("laborDescription")) || null : null,
     note,
     vendor, proration: input.proration, item_age_years: input.itemAgeYears, useful_life_years: input.usefulLifeYears,
-    amount: c.amount, math: c.math, is_estimate: form.get("isEstimate") === "true",
+    amount: a.amount, math: a.math, is_estimate: form.get("isEstimate") === "true",
     receipt_path: receiptPath, after_photo_paths: afterPaths,
   }).select("id").single();
   if (error) {
@@ -142,8 +162,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
     return Response.json({ error: "Couldn't save the deduction. Try again." }, { status: 500 });
   }
 
-  await audit(id, "landlord", "deduction_added", { item: finding.item, room: finding.room, category: input.category, amount: c.amount, math: c.math, guidance: c.guidance });
-  return Response.json({ id: row.id, amount: c.amount, math: c.math });
+  await audit(id, "landlord", "deduction_added", { item: finding.item, room: finding.room, category: input.category, amount: a.amount, math: a.math, guidance: a.guidance });
+  return Response.json({ id: row.id, amount: a.amount, math: a.math });
 }
 
 // Remove every deduction at once: only while the tenancy's next step asks for it (New York after day 14, or Florida once
