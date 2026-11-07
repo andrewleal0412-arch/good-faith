@@ -36,7 +36,9 @@ the words that matter and every money figure against what the code computes, sav
       beat runs on is the address the demo script names, not the copy's latest move-out); its route answers with the
       copy's eight steps; a click from one page to another makes it read them again rather than keep the last page's;
       and Hide puts it away for the browser, a reload keeps it away, the account menu brings it back. Its eight steps
-      and the two properties they name are also checked against the beat table of docs/DEMO_SCRIPT.md, with no browser
+      and the two properties they name are also checked against the beat table of docs/DEMO_SCRIPT.md, with no browser;
+      so is the README's Checks section: its CI row names the scripts .github/workflows/checks.yml runs, and its
+      sentence (and HOW_IT_WORKS's) counts those scripts and gives that row's sum of assertions
 
 The server runs with GOOD_FAITH_E2E_STUBS=1 (src/lib/e2e-switch.ts): every Claude job answers from a scripted stub,
 Jev is off, and every PayPal call goes to a fake PayPal inside the server that refunds only the test's own fake
@@ -372,6 +374,33 @@ def guide_units():
     return {int(n): u for n, u in re.findall(r"\{\s*n:\s*(\d+),.*?unit:\s*\"([^\"]+)\"", src)}
 
 
+def ci_scripts():
+    """The check scripts .github/workflows/checks.yml runs, by name and in its order: `node scripts/<name>-check.mjs`."""
+    return re.findall(r"node scripts/([a-z0-9-]+)-check\.mjs", (REPO / ".github/workflows/checks.yml").read_text())
+
+
+def readme_ci_row():
+    """The README's Checks table's row of the CI scripts: each script's name and count as the row gives them
+    ("`grid` 108"), in its order. The row is the one whose third cell says CI runs it and whose first holds counts (the
+    tsc and eslint row says CI too, with no count)."""
+    for line in (REPO / "README.md").read_text().splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        found = re.findall(r"`([a-z0-9-]+)` (\d+(?:,\d{3})*)", cells[0]) if len(cells) == 3 and cells[2].startswith("CI") else []
+        if found:
+            return [(n, int(c.replace(",", ""))) for n, c in found]
+    return []
+
+
+def doc_ci_count(name):
+    """The count of the CI scripts' assertions a document's sentence gives ("fourteen check scripts (2,047 assertions)"),
+    with the number word before "check scripts" as a count of its own: (word count, assertion count), or None."""
+    words = {w: n for n, w in enumerate("ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split(), 10)}
+    m = re.search(r"\b([a-z]+)( of the)? check scripts \(([\d,]+) assertions\)", (REPO / name).read_text())
+    return (words.get(m.group(1)), int(m.group(3).replace(",", ""))) if m else None
+
+
 def window_days():
     """PayPal's refund window as src/lib/refund-rail.ts holds it: the one number the review's rail line may use, so it
     is read from there rather than typed here."""
@@ -641,6 +670,18 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
     astray = {n: u for n, u in units_named.items() if u not in rows.get(n, "")}
     check("demo guide: the live unit and the second state's unit are the ones their own beats name in the demo script",
           2 in units_named and 8 in units_named and not astray, f"the guide names {json.dumps(units_named)}; astray {json.dumps(astray)}")
+    # The README's Checks section against the tree: the CI row of its table names the scripts checks.yml runs, and its
+    # sentence counts those scripts ("fourteen") and gives that row's sum of assertions (HOW_IT_WORKS's sentence too).
+    # The row's counts are refreshed by hand from a run of the scripts, so a refresh that moves the row without the
+    # sentence fails here.
+    ci, row = ci_scripts(), readme_ci_row()
+    check(f"README: the Checks table's CI row names the {len(ci)} scripts checks.yml runs, in its order", len(ci) >= 10 and [n for n, _ in row] == ci,
+          f"checks.yml runs {json.dumps(ci)}; the row names {json.dumps([n for n, _ in row])}")
+    total = sum(c for _, c in row)
+    for name in ("README.md", "docs/HOW_IT_WORKS.md"):
+        said = doc_ci_count(name)
+        check(f"{name}: its sentence counts the CI scripts and their assertions as the README's table does ({len(ci)}, {total:,})",
+              said == (len(ci), total), f"the sentence says {json.dumps(said)} (scripts, assertions); the table's row gives {len(row)} scripts, {total:,} assertions")
 
     D, R, P = usd(E["deposit"]), usd(E["refund"]), usd(E["deductions"])
     line_amounts = [E["carpet"], E["wall"], E["range"]]
