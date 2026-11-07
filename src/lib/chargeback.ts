@@ -295,6 +295,61 @@ export const ACTION_LABEL: Record<DefenseAction, string> = {
   make_offer: "Offer a refund",
 };
 
+/** Where the defense failed: the preparation (Claude and our records), one of the three PayPal calls, or something
+ *  of ours partway through a send (the evidence files' build before the call, the record after it). */
+export type FailureStep = "prepare" | "evidence" | "accept" | "offer" | "partway";
+
+const FAILURE_WORDS: Record<FailureStep, string> = {
+  prepare: "Something on our side failed while the response was being prepared.",
+  evidence: "PayPal didn't answer the evidence request.",
+  accept: "PayPal didn't answer the acceptance.",
+  offer: "PayPal didn't answer the offer.",
+  partway: "Something on our side failed partway.",
+};
+
+const oneSentence = (s: string) => {
+  const t = s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160).trim();
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+};
+
+/** PayPal's own words from a refusal: its answer's JSON (each detail's description, else its issue; else the
+ *  message, else the name), the plain sentence a refusal of ours carries when there was no answer body ("Not a PayPal
+ *  dispute id"), else the status alone (a paypal() message with no body is the call's path, not words). Never the JSON
+ *  itself. */
+export function paypalSaid(status: number, body: string, message = ""): string {
+  const fallback = `PayPal answered ${status || "nothing"}.`;
+  const trimmed = body.trim();
+  if (!trimmed) return /[{}<>]/.test(message) || /^PayPal (GET|POST|PATCH|PUT|DELETE) /.test(message) || !message.trim() ? fallback : oneSentence(message);
+  try {
+    const j = JSON.parse(trimmed) as { details?: { description?: unknown; issue?: unknown }[]; message?: unknown; name?: unknown };
+    const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const descriptions = (Array.isArray(j.details) ? j.details : []).map((d) => text(d?.description) || text(d?.issue)).filter(Boolean);
+    const said = descriptions.length ? [...new Set(descriptions)].join(" ") : typeof j.message === "string" && j.message.trim() ? j.message : typeof j.name === "string" ? j.name : "";
+    return said ? oneSentence(said) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** PayPalRefused's shape (paypal.ts): an Error carrying PayPal's status and its answer's body. */
+function refusal(e: unknown): { status: number; body: string; message: string } | null {
+  if (!(e instanceof Error)) return null;
+  const { status, body } = e as Error & { status?: unknown; body?: unknown };
+  return typeof status === "number" && typeof body === "string" ? { status, body, message: e.message } : null;
+}
+
+/** What the PayPal dispute card says about a failure, in words a landlord can read: PayPal's own words when PayPal
+ *  refused (paypalSaid), a sentence of ours for everything else (an AI SDK's, Anthropic's or Postgres's message, a
+ *  fetch that failed), by the step that failed; `claude` says Claude never answered. The raw text goes to the server's
+ *  log, and to the audit log where the step writes one, never to the page. A refusal is known by its shape (PayPalRefused in paypal.ts carries
+ *  PayPal's status and body), so this stays free of that module. */
+export function failureWords(e: unknown, step: FailureStep, o: { claude?: boolean } = {}): string {
+  const r = refusal(e);
+  if (r) return paypalSaid(r.status, r.body, r.message);
+  if (o.claude) return "Claude didn't answer, so nothing was prepared.";
+  return FAILURE_WORDS[step];
+}
+
 /** The dollar figures a note names. */
 export const figuresIn = (s: string) => [...s.matchAll(/\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?/g)].map((m) => cents(Number(`${m[1].replace(/,/g, "")}.${m[2] ?? "0"}`)));
 

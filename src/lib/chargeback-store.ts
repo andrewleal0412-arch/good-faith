@@ -3,7 +3,7 @@ import { cache } from "react";
 import type { LanguageModel } from "ai";
 import type { CasePhoto, LoadPhoto } from "./advocate";
 import {
-  ACTION_LABEL, defenseOptions, defensePosition, endedWithoutMoveOut, evidenceInput, evidenceName, evidenceWithheld, figuresIn, MAX_EVIDENCE_BYTES,
+  ACTION_LABEL, defenseOptions, defensePosition, endedWithoutMoveOut, evidenceInput, evidenceName, evidenceWithheld, failureWords, figuresIn, MAX_EVIDENCE_BYTES,
   MAX_EVIDENCE_FILE_BYTES, readDispute, outcomeWords, reasonWords, responseHash, statusWords, validateDefense,
   type ActionOption, type DefenseAction, type DefenseContext, type DefenseResponse, type DisputeRead, type EvidenceItem, type Position,
 } from "./chargeback";
@@ -448,9 +448,11 @@ export async function prepareDefense(tenancyId: string, ws: Workspace, take: () 
     return { ok: true, responseId };
   } catch (e) {
     console.error("defense agent failed", e);
-    if (claudeNeverAnswered(e)) await allowance.giveBack();
+    const claude = claudeNeverAnswered(e);
+    if (claude) await allowance.giveBack();
+    // The page gets words a landlord can read (failureWords); the raw text stays in the audit row and the log above.
     const message = e instanceof Error ? e.message.slice(0, 300) : "failed";
-    await fail(message);
+    await fail(failureWords(e, "prepare", { claude }));
     await audit(tenancyId, "agent", "dispute_defense_failed", { dispute_id: stored.id, response_id: responseId, error: message });
     return { ok: false, error: "The defense agent couldn't prepare a response. Try again in a minute.", status: 500 };
   }
@@ -593,17 +595,17 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
     }
   }
 
-  const evidenceStep = async (refundIds: string[]): Promise<{ error: string; status: number } | null> => {
+  const evidenceStep = async (refundIds: string[]): Promise<{ error: string; raw: string; status: number } | null> => {
     if (done.evidence) return null;
     const route = s.dispute.can.evidence;
-    if (!route) return { error: "PayPal isn't taking evidence on this dispute right now.", status: 409 };
+    if (!route) return { error: "PayPal isn't taking evidence on this dispute right now.", raw: "PayPal isn't taking evidence on this dispute right now.", status: 409 };
     const built = await (deps.files ?? evidenceFiles)(resp.evidence, s.bits);
     const input = evidenceInput(route, { note: resp.note, files: built.files.map((f) => f.name), refundIds });
     try {
       await (deps.evidence ?? sendDisputeEvidence)(r.dispute_id, { route, input, files: built.files, requestId: `${stem}-evidence` });
     } catch (e) {
       const message = e instanceof Error ? e.message.slice(0, 300) : "failed";
-      return { error: message, status: e instanceof PayPalRefused ? 422 : 502 };
+      return { error: failureWords(e, "evidence"), raw: message, status: e instanceof PayPalRefused ? 422 : 502 };
     }
     progress.evidence = { at: new Date().toISOString(), route, files: built.files.map((f) => f.name), skipped: built.skipped };
     await audit(tenancyId, "agent", "dispute_evidence_sent", { dispute_id: r.dispute_id, response_id: r.id, files: built.files.length, skipped: built.skipped.length, route });
@@ -619,8 +621,8 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
       if (ev) {
         const refused = ev.status === 422 && !recheck;
         await finish(r.id, refused ? "refused" : "unknown", progress, ev.error);
-        await audit(tenancyId, "agent", refused ? "dispute_response_refused" : "dispute_response_unconfirmed", { dispute_id: r.dispute_id, response_id: r.id, step: "evidence", error: ev.error });
-        return { ok: false, error: refused ? `PayPal didn't take the evidence: ${ev.error.slice(0, 160)}` : "PayPal didn't confirm the evidence. Check with PayPal.", status: ev.status };
+        await audit(tenancyId, "agent", refused ? "dispute_response_refused" : "dispute_response_unconfirmed", { dispute_id: r.dispute_id, response_id: r.id, step: "evidence", error: ev.raw });
+        return { ok: false, error: refused ? `PayPal didn't take the evidence: ${ev.error}` : "PayPal didn't confirm the evidence. Check with PayPal.", status: ev.status };
       }
     } else if (r.action === "accept_claim" && !done.accept) {
       // In full unless PayPal takes part of a claim on this dispute and the amount is less than the whole claim.
@@ -629,10 +631,11 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
         await (deps.accept ?? acceptDisputeClaim)(r.dispute_id, { note: resp.note, type, amount: amount ?? undefined, requestId: `${stem}-accept` });
       } catch (e) {
         const message = e instanceof Error ? e.message.slice(0, 300) : "failed";
+        const words = failureWords(e, "accept");
         const refused = e instanceof PayPalRefused && !recheck;
-        await finish(r.id, refused ? "refused" : "unknown", progress, message);
+        await finish(r.id, refused ? "refused" : "unknown", progress, words);
         await audit(tenancyId, "agent", refused ? "dispute_response_refused" : "dispute_response_unconfirmed", { dispute_id: r.dispute_id, response_id: r.id, step: "accept", error: message });
-        return { ok: false, error: refused ? `PayPal didn't accept that: ${message.slice(0, 160)}. Nothing moved.` : "PayPal didn't answer. Check with PayPal.", status: 502 };
+        return { ok: false, error: refused ? `PayPal didn't accept that: ${words} Nothing moved.` : "PayPal didn't answer. Check with PayPal.", status: 502 };
       }
       progress.accept = { at: new Date().toISOString(), amount: amount ?? s.position.claimed, type };
       await step(r.id, { accept: progress.accept }, { kind: "dispute_refund", paypal_id: r.dispute_id, amount: progress.accept.amount, status: "PENDING",
@@ -643,18 +646,19 @@ async function send(tenancyId: string, ws: Workspace, r: ResponseRow, deps: Defe
         await (deps.offer ?? makeDisputeOffer)(r.dispute_id, { note: resp.note, amount, requestId: `${stem}-offer` });
       } catch (e) {
         const message = e instanceof Error ? e.message.slice(0, 300) : "failed";
+        const words = failureWords(e, "offer");
         const refused = e instanceof PayPalRefused && !recheck;
-        await finish(r.id, refused ? "refused" : "unknown", progress, message);
+        await finish(r.id, refused ? "refused" : "unknown", progress, words);
         await audit(tenancyId, "agent", refused ? "dispute_response_refused" : "dispute_response_unconfirmed", { dispute_id: r.dispute_id, response_id: r.id, step: "offer", error: message });
-        return { ok: false, error: refused ? `PayPal didn't take the offer: ${message.slice(0, 160)}.` : "PayPal didn't answer. Check with PayPal.", status: 502 };
+        return { ok: false, error: refused ? `PayPal didn't take the offer: ${words}` : "PayPal didn't answer. Check with PayPal.", status: 502 };
       }
       progress.offer = { at: new Date().toISOString(), amount };
     }
   } catch (e) {
-    // Something of ours failed mid-way (a record that couldn't be written): unconfirmed, never sent afresh.
-    const message = e instanceof Error ? e.message.slice(0, 300) : "failed";
+    // Something of ours failed partway (the evidence files' build before the call, a record that couldn't be written
+    // after it): unconfirmed, never sent afresh. The page gets our sentence for it; the raw text is in the log.
     console.error("dispute response send failed", e);
-    await finish(r.id, "unknown", progress, message);
+    await finish(r.id, "unknown", progress, failureWords(e, "partway"));
     return { ok: false, error: "Something failed partway. Check with PayPal before anything else.", status: 500 };
   }
   await finish(r.id, "sent", progress, null);
