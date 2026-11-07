@@ -553,6 +553,29 @@ async function dbChecks() {
     const re2 = await store.recheckDefense(T, ws, v4.response.id, deps);
     eq("db: evidence PayPal already shows isn't sent again", [re2.ok, calls.evidence.length - before2], [true, 0]);
 
+    // A response PayPal never confirmed, checked after the figures changed (the range's charge removed, so $150 is
+    // owed again): the check runs the guard too, so the evidence doesn't go while money is owed, and the response
+    // goes back for approval, never sent; with the figures back, approving it again sends it with the same key.
+    const withSeller = liveNow;
+    liveNow = { ...bump(liveNow, 3), evidences: clone(live).evidences };
+    deps.model = proposes("send_evidence", { note: "Records attached.", evidence: [] });
+    check("db: one more evidence response prepared", (await store.prepareDefense(T, ws, take, deps)).ok);
+    const v4b = await store.loadPayPalDispute(T, ws);
+    await store.approveDefense(T, ws, v4b.response.id, v4b.response.hash, flaky);
+    eq("db: unconfirmed again", (await store.loadPayPalDispute(T, ws)).response.status, "unknown");
+    must("remove range again", await db.from("deductions").delete().eq("tenancy_id", T).eq("item", "Range"));
+    const before2b = calls.evidence.length;
+    const reBlocked = await store.recheckDefense(T, ws, v4b.response.id, deps);
+    eq("db: the check runs the guard too: evidence while money is owed again isn't sent", [reBlocked.ok, reBlocked.status, calls.evidence.length - before2b], [false, 409, 0]);
+    check("db: the check says why", /no longer a response the rules and PayPal allow/.test(reBlocked.error ?? ""), reBlocked.error);
+    eq("db: and the response is back for approval, not sent", (await store.loadPayPalDispute(T, ws)).response.status, "ready");
+    const blockedLog = must("blocked log", await db.from("audit_log").select("detail").eq("tenancy_id", T).eq("action", "dispute_response_blocked").order("created_at", { ascending: false }).limit(1));
+    eq("db: on the audit log as a blocked check", [blockedLog[0]?.detail?.response_id, blockedLog[0]?.detail?.rechecked], [v4b.response.id, true]);
+    must("range back again", await db.from("deductions").insert(rangeRow));
+    const again = await store.approveDefense(T, ws, v4b.response.id, v4b.response.hash, deps);
+    eq("db: approved again once the figures are back, it goes with the same key", [again.ok, calls.evidence.length - before2b, calls.evidence.at(-1).requestId], [true, 1, `gf-dispute-${v4b.response.id}-evidence`]);
+    liveNow = { ...bump(withSeller, 3), evidences: [...clone(live).evidences, { evidence_type: "OTHER", source: "SUBMITTED_BY_SELLER", date: new Date().toISOString() }] };
+
     // Accept the remaining claim: PayPal's own refund, recorded as pending until PayPal resolves the dispute.
     deps.model = proposes("accept_claim", { amount: 290, note: "We accept the claim of $290.00." });
     check("db: prepared an acceptance", (await store.prepareDefense(T, ws, take, deps)).ok);
