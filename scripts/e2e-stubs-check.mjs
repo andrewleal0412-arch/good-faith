@@ -7,6 +7,10 @@
 //   - the stubs' answers through the app's own code: the lease check (the demo lease only), the close-out agent's steps
 //     (the plan's own capture and amount, the approval, a decline), the advocate's case and the two negotiators'
 //     turns on the demo's three charges (no adjustment by the code, agreed at $270 back);
+//   - the PayPal client itself (src/lib/paypal.ts), with a scripted PayPal in fetch's place and the stubs off: cold
+//     requests at once share one sign-in, a 401 drops the cached token and the call goes once more with a fresh one
+//     and the same PayPal-Request-Id (once only, and never for another status), a failed sign-in is tried again by
+//     the next call, every REST call carries a timeout, writes included, and a caller's own timeout stops the wait;
 //   - the fake PayPal: no request leaves the process (fetch, http and https are trapped), a refund of any capture
 //     that isn't the test's own is refused, through the REST path and through the Agent Toolkit's MCP server, and
 //     the webhook check and dispute evidence never reach PayPal;
@@ -208,6 +212,116 @@ stubsOn(true);
     await pp.close();
   }
   stubsOn(false);
+}
+/* ---------- 4b. The PayPal client: one sign-in, a 401, the timeouts ---------- */
+{
+  // With the stubs off, paypal.ts signs in and calls PayPal through keepAliveFetch (src/lib/http.ts), which calls
+  // whatever is in globalThis.fetch when that isn't the one Next.js patched; here that is a scripted PayPal, which
+  // records every call (its method, path, headers, body and signal) and answers from a queue of statuses: the token
+  // endpoint with a numbered token (t1, t2, ...), anything else with the next queued status, 200 when the queue is
+  // empty. The client is loaded by a jiti of its own, so its token cache starts empty and ends here.
+  const calls = [];
+  const queue = [];
+  let tokens = 0;
+  let hang = false;
+  const trapFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    const call = { method: init.method ?? "GET", path: u.replace(/^https?:\/\/[^/]+/, ""), headers: init.headers ?? {}, body: init.body, signal: init.signal };
+    calls.push(call);
+    if (hang) return new Promise((_, reject) => { call.signal?.addEventListener("abort", () => reject(call.signal.reason)); });
+    if (call.path === "/v1/oauth2/token") {
+      const status = queue.length && queue[0].token ? queue.shift().status : 200;
+      return new Response(JSON.stringify(status === 200 ? { access_token: `t${++tokens}`, expires_in: 32400 } : { error: "server_error" }), { status });
+    }
+    const status = queue.length && !queue[0].token ? queue.shift().status : 200;
+    return new Response(JSON.stringify(status === 200 ? { id: call.path.endsWith("/invoices") ? "INV2-1" : call.path.split("/").pop(), status: "COMPLETED", batch_header: { payout_batch_id: "B1", batch_status: "PENDING" }, call: calls.length } : { name: status === 401 ? "INVALID_TOKEN" : "UNPROCESSABLE_ENTITY" }), { status });
+  };
+  const bearer = (c) => c.headers.Authorization;
+  const since = (n) => calls.slice(n);
+  try {
+    const fresh = createJiti(import.meta.url, { moduleCache: false, alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
+    const client = await fresh.import(join(ROOT, "src/lib/paypal.ts"));
+
+    // Three cold requests at once: one sign-in, and all three carry its token.
+    await Promise.all(["R1", "R2", "R3"].map((id) => client.paypal("GET", `/v2/payments/refunds/${id}`).catch(() => null)));
+    eq("client: cold requests at once share one sign-in", calls.map((c) => `${c.method} ${c.path} ${bearer(c) ?? ""}`.trim()).sort(),
+      ["GET /v2/payments/refunds/R1 Bearer t1", "GET /v2/payments/refunds/R2 Bearer t1", "GET /v2/payments/refunds/R3 Bearer t1", "POST /v1/oauth2/token Basic Y2hlY2stY2xpZW50OmNoZWNrLXNlY3JldA=="]);
+    check("client: the sign-in is Basic with the client id and secret, and nothing else carries them", bearer(calls[0]) === "Basic " + Buffer.from("check-client:check-secret").toString("base64") && calls.slice(1).every((c) => !String(bearer(c)).startsWith("Basic ")), JSON.stringify(calls.map(bearer)));
+    let n = calls.length;
+    await client.paypal("GET", "/v2/payments/refunds/R4").catch(() => null);
+    eq("client: the next call reuses the token", since(n).map((c) => `${c.path} ${bearer(c)}`), ["/v2/payments/refunds/R4 Bearer t1"]);
+
+    // PayPal answers 401 to a write (the secret was rotated, or PayPal revoked the token): the client forgets the
+    // token, signs in again and sends the same request once more, with the same PayPal-Request-Id, and the caller
+    // gets the second answer. The token it got is the one later calls carry.
+    n = calls.length;
+    queue.push({ status: 401 });
+    let paid = null;
+    try { paid = await client.sendPayout({ email: "a@example.com", amount: 12.5, note: "n", batchId: "batch-1" }); } catch (e) { paid = { id: String(e).slice(0, 80) }; }
+    eq("client: a 401 is followed by one sign-in and the same request again, with the new token", since(n).map((c) => `${c.method} ${c.path} ${bearer(c)}`),
+      ["POST /v1/payments/payouts Bearer t1", "POST /v1/oauth2/token Basic Y2hlY2stY2xpZW50OmNoZWNrLXNlY3JldA==", "POST /v1/payments/payouts Bearer t2"]);
+    eq("client: the request sent again carries the same PayPal-Request-Id and body", [since(n)[2]?.headers["PayPal-Request-Id"], since(n)[2]?.body === since(n)[0].body], ["batch-1", true]);
+    eq("client: the caller gets the answer to the request that went through", [paid?.id, paid?.status], ["B1", "PENDING"]);
+    n = calls.length;
+    await client.paypal("GET", "/v2/payments/refunds/R5").catch(() => null);
+    eq("client: later calls carry the token the 401 brought", since(n).map(bearer), ["Bearer t2"]);
+
+    // A second 401 in a row is PayPal's refusal, not a loop; any other error status is a refusal with no sign-in.
+    n = calls.length;
+    queue.push({ status: 401 }, { status: 401 });
+    let twice = null;
+    try { await client.paypal("GET", "/v2/payments/refunds/R6"); } catch (e) { twice = e; }
+    check("client: a 401 after the new token is PayPal's refusal, with status 401", twice instanceof client.PayPalRefused && twice.status === 401, String(twice));
+    eq("client: and the request went twice, no more", since(n).map((c) => `${c.path} ${bearer(c)}`), ["/v2/payments/refunds/R6 Bearer t2", "/v1/oauth2/token Basic Y2hlY2stY2xpZW50OmNoZWNrLXNlY3JldA==", "/v2/payments/refunds/R6 Bearer t3"]);
+    n = calls.length;
+    await client.paypal("GET", "/v2/payments/refunds/R6").catch(() => null);
+    eq("client: the token refused twice is forgotten too, so the next call signs in anew", since(n).map((c) => `${c.path} ${bearer(c)}`), ["/v1/oauth2/token Basic Y2hlY2stY2xpZW50OmNoZWNrLXNlY3JldA==", "/v2/payments/refunds/R6 Bearer t4"]);
+    n = calls.length;
+    queue.push({ status: 422 });
+    let other = null;
+    try { await client.paypal("POST", "/v2/invoicing/invoices", { x: 1 }, { requestId: "inv-1" }); } catch (e) { other = e; }
+    check("client: a 422 is PayPal's refusal, sent once, no sign-in", other instanceof client.PayPalRefused && other.status === 422 && since(n).length === 1 && since(n)[0].path === "/v2/invoicing/invoices", `${String(other)}; ${JSON.stringify(since(n).map((c) => c.path))}`);
+
+    // A sign-in that fails is the refusal it got, and the next call signs in again rather than keeping the failure.
+    n = calls.length;
+    queue.push({ status: 401 }, { token: true, status: 500 });
+    let auth = null;
+    try { await client.paypal("GET", "/v2/payments/refunds/R7"); } catch (e) { auth = e; }
+    check("client: a failed sign-in is PayPal's refusal, with its status", auth instanceof client.PayPalRefused && auth.status === 500 && /auth/.test(auth.message), String(auth));
+    n = calls.length;
+    await client.paypal("GET", "/v2/payments/refunds/R8").catch(() => null);
+    eq("client: the next call signs in again and goes through", since(n).map((c) => `${c.path} ${bearer(c)}`), ["/v1/oauth2/token Basic Y2hlY2stY2xpZW50OmNoZWNrLXNlY3JldA==", "/v2/payments/refunds/R8 Bearer t5"]);
+
+    // Every call carries a timeout, the deposit invoice's create and send and the Payout included (undici's own
+    // five-minute limit was the only bound on those), and a caller's own timeout is the one that stops the wait.
+    n = calls.length;
+    await client.sendDepositInvoice({ tenancyId: "t1", tenantEmail: "t@example.com", amount: 4800, landlordName: "L", address: "A", note: "n", terms: "t" }).catch(() => null);
+    eq("client: the deposit invoice is created, then sent", since(n).map((c) => c.path), ["/v2/invoicing/invoices", "/v2/invoicing/invoices/INV2-1/send"]);
+    check("client: every call so far carried an AbortSignal, the sign-in, the writes and the reads alike", calls.length > 10 && calls.every((c) => c.signal instanceof AbortSignal), JSON.stringify(calls.filter((c) => !(c.signal instanceof AbortSignal)).map((c) => c.path)));
+    hang = true;
+    const started = Date.now();
+    const keepAlive = setTimeout(() => {}, 5000); // AbortSignal.timeout's own timer never keeps the process alive
+    let timedOut = null;
+    try { await client.paypal("GET", "/v2/payments/refunds/R9", undefined, { timeoutMs: 50 }); } catch (e) { timedOut = e; }
+    clearTimeout(keepAlive);
+    hang = false;
+    check("client: a caller's timeoutMs stops the wait on a call that hangs", timedOut?.name === "TimeoutError" && Date.now() - started < 5000, `${String(timedOut)} after ${Date.now() - started} ms`);
+
+    // The webhook's signature check carries the same token: a 401 there drops it too, so the delivery PayPal sends
+    // again signs in anew.
+    n = calls.length;
+    queue.push({ status: 401 });
+    let wh = null;
+    try { await client.verifyWebhookSignature("{}", new Headers(Object.fromEntries(client.WEBHOOK_HEADERS.map((h) => [h, "x"]))), "W"); } catch (e) { wh = e; }
+    check("client: a 401 on the webhook's signature check is an error, so PayPal sends the delivery again", wh instanceof Error && /401/.test(String(wh)), String(wh));
+    n = calls.length;
+    await client.paypal("GET", "/v2/payments/refunds/R10").catch(() => null);
+    eq("client: and the next call signs in anew", since(n).map((c) => c.path), ["/v1/oauth2/token", "/v2/payments/refunds/R10"]);
+  } finally {
+    globalThis.fetch = trapFetch;
+  }
+  eq("client: nothing was queued and left", queue, []);
 }
 /* ---------- 5. PayPal's record ---------- */
 {
