@@ -28,7 +28,8 @@ the words that matter and every money figure against what the code computes, sav
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger), with PayPal's record in the details of the refund, the settlement and the deposit
       rows, each against what the fake PayPal holds, and Insights (beat 3b)
-  11. The same lease twice: Start tenancy on a lease the copy already has opens that tenancy, and makes no second one
+  11. The same lease twice: Start tenancy on a lease the copy already has opens that tenancy, and makes no second one;
+      and the record final once the deposit went back: the comparison's route refuses, the findings stay as sent
   12. The demo guide's own ground: a move-out date set on the Texas unit leaves every step where it was (the unit each
       beat runs on is the address the demo script names, not the copy's latest move-out); its route answers with the
       copy's eight steps; a click from one page to another makes it read them again rather than keep the last page's;
@@ -1379,6 +1380,28 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Same lease twice: no second tenancy and no second property were made",
               len(f5["tenancies"]) == len(f4["tenancies"]) and len({(t.get("properties") or {}).get("address") for t in f5["tenancies"]}) == len(f5["tenancies"]),
               f"{len(f4['tenancies'])} tenancies before, {len(f5['tenancies'])} after: {[(t.get('properties') or {}).get('address') for t in f5['tenancies']]}")
+
+        # 11b. The record is final once the deposit went back: the Move-out tab hides Compare again and Add photos, and
+        # the comparison's route (POST /api/tenancies/[id]/inspect) refuses a request sent anyway, before the photos are
+        # read, before the day's allowance is taken and before Claude, with the sentence the findings routes answer;
+        # the findings the statement's deductions point at stay as they were. Without the refusal the request gets
+        # past the lock, takes the day's allowance and asks for the comparison (the stubs don't cover it, so here that
+        # is a 500; on the live demo Claude answers and every suggested finding is replaced under a statement sent).
+        # Sent with the page's own cookies but not from the page, so the refusal is not a console error on the way.
+        refused = page.request.post(f"{base}/api/tenancies/{mo}/inspect")
+        try:
+            answered = {"status": refused.status, "body": refused.json()}
+        except Exception:
+            answered = {"status": refused.status, "body": None}
+        check("Findings final: the comparison's route refuses once the deposit went back, with the findings routes' sentence",
+              answered["status"] == 409 and (answered.get("body") or {}).get("error") == "The deposit has already been returned, so the findings are final.",
+              json.dumps(answered)[:300])
+        go(page, f"/tenancy/{mo}?tab=move-out")
+        sees("Findings final: the Move-out tab keeps the findings the statement was sent with", page,
+             "Large carpet stain, center", "Three small wall holes", "Wall hole with cracks", "Grease spots on range")
+        check("Findings final: the Move-out tab offers neither Compare again nor Add photos",
+              page.get_by_role("button", name=re.compile(r"^Compare (again|with move-in)")).count() == 0 and page.get_by_text("Add photos", exact=True).count() == 0,
+              f"{page.get_by_role('button', name=re.compile(r'^Compare')).count()} Compare buttons, {page.get_by_text('Add photos', exact=True).count()} Add photos")
 
         # Properties' facts strip after the close-out: Refunded this year holds every payment that went back, the two
         # settlements among them, and its sub line counts the settlements apart from the refunds, as Payments' tabs
