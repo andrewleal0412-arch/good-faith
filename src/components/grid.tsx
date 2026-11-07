@@ -118,6 +118,13 @@ export const browserStore = {
       return null;
     }
   },
+  /** A saved list, each item checked by `item`: anything else stored under the key (an object, a string, a list with
+   *  the wrong things in it; anything on the origin can write localStorage) reads as the empty list, so the page starts
+   *  from its defaults instead of failing on it. */
+  getList<T>(key: string, item: (x: unknown) => x is T): T[] {
+    const v = browserStore.get<unknown>(key);
+    return Array.isArray(v) ? v.filter(item) : [];
+  },
   set(key: string, value: unknown) {
     try {
       window.localStorage.setItem(key, JSON.stringify(value));

@@ -28,7 +28,8 @@ the words that matter and every money figure against what the code computes, sav
       reload (the settlement the agents reached, the tenants' acceptance, the payment), and stops asking once settled
   10. Payments (the AG Grid ledger), with PayPal's record in the details of the refund, the settlement and the deposit
       rows, each against what the fake PayPal holds, its CSV downloaded and summed (saved in --shots), and Insights
-      (beat 3b)
+      (beat 3b); then both pages with a value of the wrong shape stored where the browser remembers a grid's closed
+      groups or columns, left whole on their defaults
   11. The same lease twice: Start tenancy on a lease the copy already has opens that tenancy, and makes no second one;
       and the record final once the deposit went back: the comparison's route refuses, the findings stay as sent
   12. The demo guide's own ground: a move-out date set on the Texas unit leaves every step where it was (the unit each
@@ -1388,6 +1389,18 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
                   "Nothing returned yet." in tx_text and "No deductions on file." in tx_text and tx_charts == 2,
                   f"{tx_charts} canvases; {'Nothing returned yet.' in tx_text}, {'No deductions on file.' in tx_text}")
         shot(page, "insights-texas")
+        # What this browser remembers for a grid (Insights' closed groups, the ledger's column layout) is read from
+        # localStorage, which anything on the origin can write: a stored value of the wrong shape (an object where a
+        # list belongs) must leave the page on its defaults, not take it to the error page.
+        page.evaluate("() => { localStorage.setItem('gf.insights.closed', JSON.stringify({a: 1})); localStorage.setItem('gf.ledger.v2.cols.all.wide', JSON.stringify({length: 2})); }")
+        for path, name in (("/insights", "Insights"), ("/ledger", "Payments")):
+            go(page, path)
+            page.locator(".ag-row").first.or_(page.get_by_text("This page didn't load")).first.wait_for()
+            page.wait_for_timeout(300)
+            t = text(page)
+            check(f"{name}: a stored value of the wrong shape leaves the page whole, on its defaults",
+                  "This page didn't load" not in t and page.locator(".ag-row").count() > 0 and "Deposits held" in t, t[:300])
+        page.evaluate("() => { localStorage.removeItem('gf.insights.closed'); localStorage.removeItem('gf.ledger.v2.cols.all.wide'); }")
 
         # 11. The same lease twice: this copy already has a tenancy for the demo lease, so Start tenancy opens that
         # tenancy and makes no second one of it (src/lib/lease-key.ts). Last, so nothing above sees the extra page.

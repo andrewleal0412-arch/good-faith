@@ -362,8 +362,8 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
 
   /** This view's remembered columns, or the defaults when there are none. */
   const applySaved = useCallback((api: GridApi<LedgerRow>) => {
-    const saved = browserStore.get<SavedCol[]>(colsKey(view, layout));
-    if (saved?.length) api.applyColumnState({ state: saved, applyOrder: true, defaultState: { sort: null } });
+    const saved = browserStore.getList(colsKey(view, layout), (x): x is SavedCol => !!x && typeof x === "object" && typeof (x as SavedCol).colId === "string");
+    if (saved.length) api.applyColumnState({ state: saved, applyOrder: true, defaultState: { sort: null } });
     else api.applyColumnState({ state: [{ colId: "date", sort: "desc" }], defaultState: { sort: null } });
   }, [view, layout]);
   useEffect(() => { if (apiRef.current) applySaved(apiRef.current); }, [applySaved, visible]);
