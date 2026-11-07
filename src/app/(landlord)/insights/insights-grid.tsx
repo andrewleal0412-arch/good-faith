@@ -29,7 +29,7 @@ type Ctx = { open: Set<string>; toggle: (id: string) => void; layout: Layout };
 
 const AMOUNTS: { id: keyof M; header: string; tip: string }[] = [
   { id: "collected", header: "Collected", tip: "Deposits paid, through PayPal or marked paid" },
-  { id: "returned", header: "Returned", tip: "Refunds and Payouts, and PayPal's own refunds through a dispute" },
+  { id: "returned", header: "Refunded", tip: "Refunds and Payouts, and PayPal's own refunds through a dispute; what a settlement sent back is under Settled" },
   { id: "settled", header: "Settled", tip: "What a settled dispute sent back on top of the statement's refund" },
   { id: "kept", header: "Kept", tip: "What the statements kept as deductions, after any settlement" },
   { id: "held", header: "Held", tip: "Collected, less what went back and what a statement that went out kept" },
