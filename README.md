@@ -207,6 +207,7 @@ The badge at the top of this file is [GitHub Actions](.github/workflows/checks.y
 
 ```bash
 python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end
+python scripts/e2e-demo.py --worktree <a new dir> --shots <dir> --browser webkit  # the same walk in WebKit, Safari's engine
 python scripts/a11y-check.py --worktree <a new dir> --shots <dir>  # WCAG 2.2 AA on every page
 python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark centered on its text
 ```
