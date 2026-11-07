@@ -13,7 +13,7 @@ import { zoneOf } from "@/lib/states";
 import { Button, ButtonLink } from "@/components/button";
 import { CopyId } from "@/components/copy-id";
 import { Drawer } from "@/components/drawer";
-import { browserStore, csvSafe, GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
+import { browserStore, GridTip, gridModules, gridTab, gridTheme, pressCellControl } from "@/components/grid";
 import { copyText } from "@/lib/clipboard";
 import { Icon, PayPalMark } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
@@ -22,7 +22,7 @@ import { PayPalRecordSection } from "@/components/paypal-record";
 import { Tabs } from "@/components/tabs";
 import { RollMoney } from "@/components/roll-money";
 import { KV, LineMark, Money, StatusChip, inlineInputClass } from "@/components/ui";
-import { BACK_KINDS, ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
+import { BACK_KINDS, csvAmount, csvSafe, ledgerTotals, owedBack, tagCite, type LedgerKind, type LedgerRow } from "@/lib/ledger";
 import type { LedgerDetail, LedgerUnit } from "@/lib/ledger-load";
 
 // Payments, as Mercury's and Stripe's transaction tables read: the page title with Views, Export and Request deposit,
@@ -417,7 +417,7 @@ export function LedgerGrid({ rows, today, units, details, focusId, q, initialVie
         const col = p.column.getColId();
         if (!r) return csvSafe(p.value);
         if (col === "date") return r.date;
-        if (col === "amount") return r.amount.toFixed(2);
+        if (col === "amount") return csvAmount(r); // the screen's sign, so the column sums as the ledger does
         if (col === "unit") return csvSafe(r.address);
         if (col === "detail") return csvSafe(r.detail);
         if (col === "tag") return r.tag ? `${r.tag} ${r.tagLabel}` : "";

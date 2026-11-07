@@ -278,6 +278,47 @@ function amountOf(row, field, v) {
   eq("insights: with no delivery, from the refund", [weekOf(fw, "2026-09-22").held, weekOf(fw, "2026-09-29").held], [2000, 0]);
 }
 
+/* ---------- The Payments CSV ---------- */
+{
+  // The Amount column of the CSV an accountant sums: the sign the screen shows (money in plain, money returned with a
+  // minus), 0.00 for a row that moved nothing after all (a refund PayPal refused, a reversed payment: the screen strikes
+  // its figure through, and the Status column says so), and a request's or a deduction's plain figure.
+  const { csvAmount, csvSafe } = ledger;
+  const t = (id, state, extra = {}) => ({ id, tenants: [{ name: `T ${id}` }], monthly_rent: 2400, move_out_date: "2026-09-20", statement_delivered_at: "2026-09-25T18:00:00Z",
+    lease_terms: null, properties: { address: `${id} Main St, Orange, ${state} 92866`, city: "Orange", state }, ...extra });
+  const paid = (id, amount, at, status = "PAID") => ({ id: `${id}-inv`, kind: "deposit_invoice", paypal_id: `INV-${id}`, amount, status, created_at: at, raw: { transactions: [{ payment_id: `CAP-${id}`, method: "PAYPAL", amount: { value: String(amount) } }] } });
+  const pay = (id, kind, amount, at, status = "COMPLETED") => ({ id: `${id}-${kind}-${status}`, kind, paypal_id: `${kind}-${id}`, amount, status, created_at: at, raw: {} });
+  const dd = (id, category, amount, at) => ({ id: `${id}-${category}`, category, room: "Room", item: category, amount, is_estimate: false, created_at: at });
+  const rows = ledger.ledgerRows(t("a", "CA"),
+    [paid("a", 4800, "2026-08-01T18:00:00Z"), pay("a", "refund", 3790, "2026-09-26T18:00:00Z"), pay("a", "refund", 3790, "2026-09-26T17:00:00Z", "FAILED"),
+      pay("a", "settlement_refund", 270, "2026-09-30T18:00:00Z"), pay("a", "settlement_payout", 100, "2026-10-01T18:00:00Z", "PENDING"), pay("a", "settlement_refund", 50, "2026-10-01T19:00:00Z", "FAILED")],
+    [dd("a", "damage", 860, "2026-09-21T18:00:00Z"), dd("a", "cleaning", 150, "2026-09-21T18:00:00Z")]);
+  const by = (kind, effect) => rows.find((r) => r.kind === kind && (!effect || r.effect === effect));
+  eq("csv: the deposit invoice is its plain figure", csvAmount(by("deposit_invoice")), "4800.00");
+  eq("csv: a payment is money in, plain", csvAmount(by("payment")), "4800.00");
+  eq("csv: a refund carries the screen's minus", csvAmount(by("refund", "returned")), "-3790.00");
+  eq("csv: a refund PayPal refused moved nothing", csvAmount(by("refund", "failed")), "0.00");
+  eq("csv: a settlement carries the minus", csvAmount(by("settlement", "returned")), "-270.00");
+  eq("csv: a settlement Payout on its way counts as the ledger counts it", csvAmount(by("settlement", "pending")), "-100.00");
+  eq("csv: a failed settlement moved nothing", csvAmount(by("settlement", "failed")), "0.00");
+  eq("csv: a deduction is its plain figure", rows.filter((r) => r.kind === "deduction").map(csvAmount), ["860.00", "150.00"]);
+  check("csv: no figure reads minus zero", rows.every((r) => !csvAmount(r).startsWith("-0")), rows.map(csvAmount).join(" "));
+  // The rows the All view exports (payments, money back, settlements) sum to what the ledger says PayPal still holds.
+  const all = rows.filter((r) => r.kind === "payment" || ledger.BACK_KINDS.includes(r.kind) || r.kind === "settlement");
+  const sum = all.reduce((s, r) => s + Number(csvAmount(r)), 0);
+  const tot = ledger.ledgerTotals(rows);
+  eq("csv: the All view's Amount column sums to collected less returned and pending", Math.round(sum * 100) / 100, Math.round((tot.collected - tot.returned - tot.pending) * 100) / 100);
+  const reversed = { ...paid("b", 2000, "2026-08-01T18:00:00Z"), raw: { ...paid("b", 2000, "2026-08-01T18:00:00Z").raw, reversal: { at: "2026-08-20T18:00:00Z" } } };
+  eq("csv: a payment PayPal reversed moved nothing", csvAmount(ledger.ledgerRows(t("b", "CA"), [reversed], []).find((r) => r.kind === "payment")), "0.00");
+  // The formula guard: a cell a spreadsheet would run as a formula gets an apostrophe in front; everything else is as it was.
+  eq("csv: a leading = is guarded", csvSafe("=SUM(A1:A9)"), "'=SUM(A1:A9)");
+  eq("csv: a leading + is guarded", csvSafe("+1-1"), "'+1-1");
+  eq("csv: a leading minus is guarded", csvSafe("-2+3"), "'-2+3");
+  eq("csv: a leading @ is guarded", csvSafe("@cmd"), "'@cmd");
+  eq("csv: a leading tab or carriage return is guarded", [csvSafe("\t=1"), csvSafe("\r=1")], ["'\t=1", "'\r=1"]);
+  eq("csv: ordinary text, a number and nothing are left alone", [csvSafe("1140 E. Juniper Hollow Ln"), csvSafe(42), csvSafe(null), csvSafe("")], ["1140 E. Juniper Hollow Ln", "42", "", ""]);
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 for (const f of failures) console.log(`  FAIL ${f}`);
 process.exit(fail || failures.length ? 1 : 0);

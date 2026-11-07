@@ -114,6 +114,24 @@ export const streetLine = (address: string) => address.replace(/,\s*[^,]+,\s*[A-
 /** A row's tag as a full citation, for its tooltip: California's subsections read "Civ. Code 1950.5(h)(1)". */
 export const tagCite = (r: Pick<LedgerRow, "tag">) => (r.tag.startsWith("(") ? `Civ. Code 1950.5${r.tag}` : r.tag);
 
+/** The Amount cell of the Payments CSV, the column an accountant sums: a row that moved money is its `signed` figure
+ *  (money in plain, money returned with a minus, as the screen shows it; 0.00 once nothing moved after all, a refund
+ *  PayPal refused or a reversed payment, where the screen strikes the figure through and the Status column says so),
+ *  and a request or a deduction is its plain figure, as on screen. Two decimals, no thousands separator, no sign on
+ *  zero, so the column adds up in a spreadsheet as the ledger's totals do. */
+export function csvAmount(r: Pick<LedgerRow, "kind" | "amount" | "signed">): string {
+  const moved = r.kind === "payment" || BACK_KINDS.includes(r.kind) || r.kind === "settlement";
+  const n = moved ? r.signed : r.amount;
+  return (Math.abs(n) < 0.005 ? 0 : n).toFixed(2); // never "-0.00"
+}
+
+/** A CSV cell a spreadsheet would run as a formula (a leading =, +, -, @, tab or carriage return) gets an apostrophe in
+ *  front, so it opens as text; every other value is written as it is. AG Grid quotes every cell on top of this. */
+export const csvSafe = (v: unknown) => {
+  const s = v == null ? "" : String(v);
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+};
+
 /** PayPal's payment method codes in plain words (the landlord enters CASH or CHECK when marking an invoice paid). */
 const METHOD_WORDS: Record<string, string> = {
   PAYPAL: "PayPal", BANK_TRANSFER: "bank transfer", CREDIT_CARD: "credit card", DEBIT_CARD: "debit card", WIRE_TRANSFER: "wire transfer",
