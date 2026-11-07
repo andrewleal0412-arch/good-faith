@@ -4,6 +4,8 @@
 //   - the switch: on only for GOOD_FAITH_E2E_STUBS=1, off on Render (any of Render's own variables) and with live
 //     PayPal, whatever else is set; render.yaml never names it, and .env.example only as a comment;
 //   - off, every Claude job is Claude; on, every job is its stub, and the jobs off the demo's path refuse;
+//   - the close-out refund's idempotency key (agent.ts closeOutRefundKey): its retry count asks the audit log for the
+//     refund's own refusals and leaves a Payout's out, read from the count queries it sends to a database stand-in;
 //   - the stubs' answers through the app's own code: the lease check (the demo lease only), the close-out agent's steps
 //     (the plan's own capture and amount, the approval, a decline), the advocate's case and the two negotiators'
 //     turns on the demo's three charges (no adjustment by the code, agreed at $270 back);
@@ -183,6 +185,35 @@ stubsOn(true);
   check("negotiation: no turn adjusted by the code", turns.every((t) => !t.checks?.adjustments?.length), JSON.stringify(turns.map((t) => t.checks?.adjustments)));
 }
 
+/* ---------- 3b. The close-out refund's idempotency key ---------- */
+{
+  // closeOutRefundKey builds the refund's PayPal-Request-Id from the tenancy, the amount and how many earlier attempts
+  // PayPal refused outright, counted in the audit log. A Payout's refusal (refund_failed with `payout: true`, the
+  // send_payout tool's) is the Payout's own, with its own batch id for a key, so it must not move the refund's key:
+  // a refund retried after a Payout was refused is the same request, and PayPal must answer it with the refund it
+  // already made, if it did. The count is one HEAD query through supabase-js, which goes out through keepAliveFetch
+  // (src/lib/http.ts) to whatever is in globalThis.fetch; here a stand-in that records the query and answers a count.
+  const queries = [];
+  let count = 0;
+  const trapFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    queries.push({ method: init.method ?? "GET", url: String(url), prefer: new Headers(init.headers ?? {}).get("prefer") });
+    return new Response(null, { status: 200, headers: { "content-range": count ? `0-${count - 1}/${count}` : "*/0" } });
+  };
+  try {
+    const plain = await agent.closeOutRefundKey("t-check", "3790.00");
+    count = 2;
+    const retried = await agent.closeOutRefundKey("t-check", "3790.00");
+    eq("refund key: the tenancy and the amount in cents, then the refusals so far", [plain, retried], ["closeout-t-check-379000", "closeout-t-check-379000-r2"]);
+    const q = queries.map((x) => { const u = new URL(x.url); return { method: x.method, path: u.pathname, where: decodeURIComponent(u.search).slice(1).split("&").sort() }; });
+    eq("refund key: one query each, of the audit log", q.map((x) => x.path), ["/rest/v1/audit_log", "/rest/v1/audit_log"]);
+    eq("refund key: the count is of this tenancy's refund_failed rows PayPal refused outright, the refund's own and not a Payout's",
+      q[0]?.where, ["action=eq.refund_failed", "detail->>payout=is.null", "detail->>refused=eq.true", "select=id", "tenancy_id=eq.t-check"]);
+    check("refund key: the query asks for an exact count", /count=exact/.test(queries[0]?.prefer ?? ""), JSON.stringify(queries[0]));
+  } finally {
+    globalThis.fetch = trapFetch;
+  }
+}
 /* ---------- 4. The fake PayPal ---------- */
 stubsOn(true);
 {
