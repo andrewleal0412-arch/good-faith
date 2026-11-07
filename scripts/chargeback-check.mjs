@@ -206,6 +206,11 @@ const ctxFor = (pos, dispute) => {
   check("validate: and the dropped ones are counted", /Left out 3 evidence items/.test(files.adjustments.join(" ")), files.adjustments.join(" "));
   const cites = cb.validateDefense({ action: "provide_evidence", note: "Records attached.", citations: ["Civ. Code 1950.5(b)(2)", "Cal. Penal Code 484"] }, C0, meta);
   eq("validate: citations only from the state's rules", cites.citations, ["Civ. Code 1950.5(b)(2)"]);
+  const noteCites = cb.validateDefense({ action: "provide_evidence", note: "We refunded $3,790.00 on Oct 5 and keep $1,010.00 under Civ. Code 1941.1.", summary: "Nothing more is owed under Cal. Penal Code 484." }, C0, meta);
+  check("validate: a note citing a section from memory goes to PayPal as the app's own, and says so", noteCites.note === "FALLBACK provide_evidence" && /cites "Civ\. Code 1941\.1"/.test(noteCites.adjustments.join(" ")), JSON.stringify([noteCites.note, noteCites.adjustments]));
+  check("validate: a summary citing one is the app's own", !/Penal/.test(noteCites.summary) && noteCites.summary.length > 10, noteCites.summary);
+  const noteOk = cb.validateDefense({ action: "provide_evidence", note: "We refunded $3,790.00 on Oct 5 and keep $1,010.00 under Civ. Code 1950.5(b)(2).", summary: "Nothing more is owed." }, C0, meta);
+  check("validate: a note citing from the state's rules stands", /1950\.5\(b\)\(2\)/.test(noteOk.note) && noteOk.adjustments.length === 0, JSON.stringify([noteOk.note, noteOk.adjustments]));
   const empty = cb.validateDefense({ action: "accept_claim" }, C, meta);
   eq("validate: no note: the code's own", [empty.note, empty.summary.length > 10], ["FALLBACK accept_claim 4800", true]);
   eq("validate: no response possible at all: null", cb.validateDefense({ action: "accept_claim" }, { ...C, options: [] }, meta), null);

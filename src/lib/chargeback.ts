@@ -18,7 +18,7 @@
 // Not legal advice: it informs, computes and drafts, and the landlord approves the exact response.
 
 import { createHash } from "node:crypto";
-import { beyondInforming, cleanText } from "./agent-words";
+import { beyondInforming, cleanText, strayCitation } from "./agent-words";
 import { usd } from "./deductions";
 
 const cents = (n: number) => Math.round(n * 100) / 100;
@@ -333,24 +333,26 @@ export function validateDefense(raw: RawDefense | null | undefined, ctx: Defense
     && !(Number.isFinite(askedAmount) && Math.abs(cents(askedAmount) - amount) > 0.005 && named(s).includes(cents(askedAmount).toFixed(2))));
   const allowedFigures = new Set([...ctx.figures, ...(amount != null ? [amount] : [])].map((n) => cents(n).toFixed(2)));
   const fallback = ctx.fallbackNote(option.action, amount);
+  const allowed = new Set(ctx.citations);
   let note = cleanText(raw?.note, NOTE_MAX);
+  const strayInNote = strayCitation(note, allowed);
   if (!note) { adjustments.push("No note was written, so the app's own explanation goes to PayPal."); note = fallback; }
   else if (swapped) { adjustments.push("The response changed, so the app's own explanation goes to PayPal."); note = fallback; }
   else if (beyondInforming(note)) { adjustments.push("The note went past informing, so the app's own explanation goes to PayPal."); note = fallback; }
+  else if (strayInNote) { adjustments.push(`The note cites "${strayInNote}", which isn't one of the state's citations, so the app's own explanation goes to PayPal.`); note = fallback; }
   else {
     const strange = figuresIn(note).filter((n) => !allowedFigures.has(n.toFixed(2)));
     if (strange.length) { adjustments.push(`The note named ${strange.map(usd).join(", ")}, which the record doesn't hold, so the app's own explanation goes to PayPal.`); note = fallback; }
     else if (!states(note)) { adjustments.push(`The note didn't name the response's amount, ${usd(amount ?? 0)}, so the app's own explanation goes to PayPal.`); note = fallback; }
   }
   let summary = cleanText(raw?.summary, 450);
-  if (!summary || swapped || beyondInforming(summary) || !states(summary)) summary = defaultSummary(option.action, amount, ctx.position);
+  if (!summary || swapped || beyondInforming(summary) || strayCitation(summary, allowed) || !states(summary)) summary = defaultSummary(option.action, amount, ctx.position);
   let evidence: string[] = [];
   if (option.action === "provide_evidence") {
     const picked = pickEvidence(raw?.evidence, ctx.catalog);
     evidence = picked.keys;
     if (picked.dropped.length) adjustments.push(`Left out ${picked.dropped.length} evidence item${picked.dropped.length === 1 ? "" : "s"} the app doesn't have or PayPal's 10-file limit can't take.`);
   }
-  const allowed = new Set(ctx.citations);
   const asked = list(raw?.citations).map((c) => cleanText(c, 160)).filter(Boolean);
   const citations = asked.filter((c) => allowed.has(c));
   if (asked.length > citations.length) adjustments.push(`Dropped ${asked.length - citations.length} citation${asked.length - citations.length === 1 ? "" : "s"} not in the state's rules.`);

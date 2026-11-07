@@ -103,6 +103,22 @@ const CITES = (file, pack) => new Set(range.allowedCitations(pack, file.ranges))
   eq("checkTurn: nothing to adjust", res.turn.checks.adjustments, []);
 }
 {
+  // A citation written into a reason, the message or the reasoning is held to the state's list like the citation field.
+  const file = fileFor([carpet(), wall(), range_()], CA, { disputed: ["carpet", "range"] });
+  const t1 = caseTurn(file);
+  const res = nego.checkTurn({
+    side: "landlord", actor: "agent", ranges: file.ranges, own: nego.statementKeeps(file.ranges), other: nego.keepsOf(t1), allowed: CITES(file, CA),
+    raw: turnOf([L(1, "counter", 360, "Under Civ. Code 1941.1 the landlord keeps it."), L(2, "hold", 140, "Documented, as Civ. Code 1950.5 allows."), L(3, "hold", 150)],
+      "See RCW 59.18.280: the range stands.", "Civ. Code 1950.5(b)(2) supports the carpet charge in part."),
+  });
+  check("checkTurn cites: a reason citing a section from memory is replaced with the app's", res.ok && !/1941/.test(res.turn.proposal[0].reason) && res.turn.proposal[0].reason === file.ranges.lines[0].reasons[0], res.ok && res.turn.proposal[0].reason);
+  check("checkTurn cites: a reason with a shortened allowed citation stands", res.ok && /Civ\. Code 1950\.5 allows/.test(res.turn.proposal[1].reason), res.ok && res.turn.proposal[1].reason);
+  check("checkTurn cites: a message citing another state's code is replaced with the app's", res.ok && res.turn.message === "The landlord's negotiator proposes $360.00 back.", res.ok && res.turn.message);
+  check("checkTurn cites: reasoning with an allowed citation stands", res.ok && /1950\.5\(b\)\(2\) supports/.test(res.turn.reasoning ?? ""), res.ok && res.turn.reasoning);
+  eq("checkTurn cites: the figures stand", res.ok && res.turn.proposal.map((l) => l.keep), [360, 140, 150]);
+  check("checkTurn cites: both replacements are listed with the citation", res.ok && res.turn.checks.adjustments.filter((a) => /cites "Civ\. Code 1941\.1"|cites "RCW 59\.18\.280"/.test(a)).length === 2 && res.turn.checks.adjustments.length === 2, res.ok && JSON.stringify(res.turn.checks.adjustments));
+}
+{
   // Out of the lawful range, and outside the two sides' figures: held, and said so.
   const file = fileFor([carpet({ receipt_path: null }), wall(), range_()], CA, { disputed: ["carpet", "range"] });
   const t1 = caseTurn(file, { carpet: 0, wall: 140, range: 0 });
