@@ -100,6 +100,12 @@ for (const t of Object.keys(SAMPLES).filter((k) => !k.startsWith("_"))) check(`s
 
 eq("invoice status never moves back (PAID after PARTIALLY_REFUNDED)", wh.invoiceForward("PARTIALLY_REFUNDED", "PAID"), "PARTIALLY_REFUNDED");
 eq("invoice status moves forward (SENT to PAID)", wh.invoiceForward("SENT", "PAID"), "PAID");
+eq("invoice status: sent and unpaid are one stage (SENT to UNPAID, and back)", [wh.invoiceForward("SENT", "UNPAID"), wh.invoiceForward("UNPAID", "SENT")], ["UNPAID", "SENT"]);
+eq("invoice status: an unpaid invoice can be cancelled (SENT or UNPAID to CANCELLED)", [wh.invoiceForward("SENT", "CANCELLED"), wh.invoiceForward("UNPAID", "CANCELLED")], ["CANCELLED", "CANCELLED"]);
+eq("invoice status: a cancelled invoice stays cancelled after a late SENT or UNPAID", [wh.invoiceForward("CANCELLED", "SENT"), wh.invoiceForward("CANCELLED", "UNPAID")], ["CANCELLED", "CANCELLED"]);
+eq("invoice status: a paid invoice is never cancelled by a late event", wh.invoiceForward("PAID", "CANCELLED"), "PAID");
+eq("invoice status: a pending or partly paid invoice can still be cancelled", [wh.invoiceForward("PAYMENT_PENDING", "CANCELLED"), wh.invoiceForward("PARTIALLY_PAID", "CANCELLED")], ["CANCELLED", "CANCELLED"]);
+eq("invoice status: a cancelled invoice is not revived by a late pending or partly paid event, and a status this app doesn't know never replaces it", [wh.invoiceForward("CANCELLED", "PAYMENT_PENDING"), wh.invoiceForward("CANCELLED", "PARTIALLY_PAID"), wh.invoiceForward("CANCELLED", "SOMETHING_NEW")], ["CANCELLED", "CANCELLED", "CANCELLED"]);
 eq("refund status never moves back (COMPLETED, then a late PENDING)", wh.moneyForward("COMPLETED", "PENDING"), "COMPLETED");
 eq("a completed Payout can still come back (SUCCESS to RETURNED)", wh.moneyForward("SUCCESS", "RETURNED"), "RETURNED");
 eq("a refused one never turns completed (FAILED, then SUCCESS)", wh.moneyForward("FAILED", "SUCCESS"), "FAILED");
