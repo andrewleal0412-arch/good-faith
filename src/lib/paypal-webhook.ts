@@ -192,17 +192,22 @@ export interface WebhookStore {
 export type DisputeRefundInfo = { rows: PaymentRef[]; disputes: { id: string; status: string | null; raw: Obj }[] };
 
 /** Which record a refund of the deposit payment that this app didn't send belongs to, if it came through a PayPal
- *  dispute: the dispute refund that already lists it, one an accepted claim left pending (PayPal's refund completes
- *  it), or a dispute that lists it among its refunds, or that PayPal resolved with more refunded than is on record
- *  (and this refund fits in what is missing). Null otherwise: a refund made in PayPal after the dispute closed is
- *  still one made outside Good Faith. Pure. */
+ *  dispute: the dispute refund that already lists it, one an accepted claim left pending at this very amount
+ *  (PayPal's refund completes it), or a dispute that lists it among its refunds, or that PayPal resolved with more
+ *  refunded than is on record (and this refund fits in what is missing). Null otherwise: a refund made in PayPal
+ *  after the dispute closed, or made by hand at another figure while the claim's refund was still on its way, is
+ *  still one made outside Good Faith, held for the landlord's decision. Pure. */
 export function matchDisputeRefund(refundId: string | undefined, amount: number | null, info: DisputeRefundInfo): { row: PaymentRef } | { dispute: string } | null {
   const idsOf = (r: PaymentRef) => list(r.raw?.refund_ids).map(String);
   if (refundId) {
     const known = info.rows.find((r) => idsOf(r).includes(refundId));
     if (known) return { row: known };
   }
-  const pending = info.rows.find((r) => !returnCompleted(r.status) && !returnFailed(r.status));
+  // An accepted claim's record waits at the amount accepted, and PayPal's refund of it is for that amount: a refund
+  // of any other figure in the meantime is the landlord's own, from PayPal's dashboard, and folding it into the
+  // claim's record would count it as the claim's (and leave the claim's own refund, when it lands, to be offered
+  // back as one made outside). With no amount on the event there is nothing to compare.
+  const pending = info.rows.find((r) => !returnCompleted(r.status) && !returnFailed(r.status) && (amount == null || Math.abs(r.amount - amount) < 0.005));
   if (pending) return { row: pending };
   for (const d of info.disputes) {
     const listed = !!refundId && list(obj(d.raw.refund_details).transactions).some((t) => obj(t).id === refundId);
