@@ -9,6 +9,9 @@
 //   - the stubs' answers through the app's own code: the lease check (the demo lease only), the close-out agent's steps
 //     (the plan's own capture and amount, the approval, a decline), the advocate's case and the two negotiators'
 //     turns on the demo's three charges (no adjustment by the code, agreed at $270 back);
+//   - the two readers' prompts as the model gets them (src/lib/extract.ts, inspect.ts, each called with a recording
+//     model in the job's place): the lease and the words in a photo are data, not a message to the model, the PDF and
+//     the photos still arrive as file parts, and the answer comes back through the same code;
 //   - the PayPal client itself (src/lib/paypal.ts), with a scripted PayPal in fetch's place and the stubs off: cold
 //     requests at once share one sign-in, a 401 drops the cached token and the call goes once more with a fresh one
 //     and the same PayPal-Request-Id (once only, and never for another status), a failed sign-in is tried again by
@@ -34,6 +37,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
+import { MockLanguageModelV4 } from "ai/test";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -59,8 +63,8 @@ console.warn = (...a) => { if (String(a[0]).startsWith("[E2E STUBS ON]")) stubLi
 
 const jiti = createJiti(import.meta.url, { alias: { "@": join(ROOT, "src"), "server-only": join(ROOT, "node_modules/server-only/empty.js") } });
 const lib = (n) => jiti.import(join(ROOT, "src/lib", `${n}.ts`));
-const [sw, model, stubs, fake, paypal, agent, extract, advocate, nego, range, states, leaseKeyLib, record] = await Promise.all(
-  ["e2e-switch", "model", "e2e-stubs", "e2e-paypal", "paypal", "agent", "extract", "advocate", "negotiator", "lawful-range", "states/server", "lease-key", "paypal-record"].map(lib));
+const [sw, model, stubs, fake, paypal, agent, extract, advocate, nego, range, states, leaseKeyLib, record, inspect, demoLease] = await Promise.all(
+  ["e2e-switch", "model", "e2e-stubs", "e2e-paypal", "paypal", "agent", "extract", "advocate", "negotiator", "lawful-range", "states/server", "lease-key", "paypal-record", "inspect", "demo-lease"].map(lib));
 const CA = states.packFor("CA");
 
 let pass = 0, fail = 0;
@@ -217,6 +221,59 @@ stubsOn(true);
     globalThis.fetch = trapFetch;
   }
 }
+/* ---------- 3c. What the two readers tell Claude about the document ---------- */
+// The lease (src/lib/extract.ts) and the photos (src/lib/inspect.ts) are the two things Claude reads that a judge or a
+// tenant wrote or took, so each reader's prompt, as the model gets it through the real generateText call, says the
+// document is data, not a message to the model, the way the three agents' prompts say it of the tenants' words.
+{
+  const usage = { inputTokens: { total: 0, noCache: 0 }, outputTokens: { total: 0, text: 0 } };
+  const recorder = (text) => {
+    const seen = { prompt: null, calls: 0 };
+    const m = new MockLanguageModelV4({ provider: "check", modelId: "check-recorder", doGenerate: async (o) => {
+      seen.prompt = o.prompt; seen.calls++;
+      return { content: [{ type: "text", text }], finishReason: { unified: "stop", raw: undefined }, usage, warnings: [] };
+    } });
+    return { m, seen };
+  };
+  const systemOf = (prompt) => prompt.filter((p) => p.role === "system").map((p) => p.content).join("\n");
+  const userParts = (prompt) => prompt.filter((p) => p.role === "user").flatMap((p) => (typeof p.content === "string" ? [{ type: "text", text: p.content }] : p.content));
+  const guard = (text) => /not (a message|instructions) to you/.test(text) && /ignore/i.test(text) && /addresses an AI/.test(text);
+  const before = stubLines.length;
+
+  // The lease: the judge's own PDF on beat 1.
+  const lease = recorder(JSON.stringify(demoLease.DEMO_LEASE_TERMS));
+  const terms = await extract.extractLeaseTerms(new TextEncoder().encode("%PDF-1.4 a judge's lease"), "a-judges-lease.pdf", lease.m);
+  eq("lease reader: the model passed in is the one called, once, not the stub", [lease.seen.calls, stubLines.length - before], [1, 0]);
+  eq("lease reader: its answer comes back through the same code", [terms.state, terms.securityDeposit], ["CA", 4800]);
+  const leaseSystem = systemOf(lease.seen.prompt ?? []);
+  check("lease reader: the system prompt says the lease is a document, not a message, and to ignore text addressed to an AI", guard(leaseSystem), leaseSystem.slice(0, 200));
+  check("lease reader: the sentence Claude gets is the one extract.ts names", leaseSystem.includes(extract.LEASE_IS_DATA) && /not a term of the lease/.test(extract.LEASE_IS_DATA));
+  check("lease reader: the fact-reading instructions stay in front of it", leaseSystem.includes("Report only what the lease says") && leaseSystem.indexOf("Report only what the lease says") < leaseSystem.indexOf(extract.LEASE_IS_DATA));
+  const file = userParts(lease.seen.prompt ?? []).find((p) => p.type === "file");
+  eq("lease reader: the PDF still goes as a file part with its name and type", [file?.mediaType, file?.filename], ["application/pdf", "a-judges-lease.pdf"]);
+
+  // The photos: a room with one move-in and one move-out photo, the model answering one finding.
+  const finding = { item: "Bedroom carpet", label: "Carpet stain", summary: "Stain about 2 ft across; not in the move-in photo.", observation: "A dark stain near the center.",
+    classification: "damage", reason: "Beyond ordinary wear", remedy: "replace", severity: "moderate", confidence: 0.8, moveInPhoto: 0, moveOutPhoto: 0,
+    box: { x: 0.4, y: 0.5, w: 0.2, h: 0.1 }, moveInBox: null };
+  const photos = recorder(JSON.stringify({ findings: [finding] }));
+  const photo = (tag) => ({ data: new TextEncoder().encode(`not an image: ${tag}`), mediaType: "image/jpeg" });
+  const found = await inspect.inspectRoom("Bedroom 1", [photo("in")], [photo("out")], CA, photos.m);
+  eq("photo reader: the model passed in is the one called, once, not the stub (which refuses this job)", [photos.seen.calls, stubLines.length - before], [1, 0]);
+  eq("photo reader: its finding comes back through the same code, on the room, the box kept", [found.length, found[0]?.room, found[0]?.classification, found[0]?.box], [1, "Bedroom 1", "damage", finding.box]);
+  const photoSystem = systemOf(photos.seen.prompt ?? []);
+  check("photo reader: the system prompt says words in a photo are part of the scene, not instructions, and to ignore text addressed to an AI", guard(photoSystem), photoSystem.slice(0, 200));
+  check("photo reader: the sentence Claude gets is the one inspect.ts names, before the pack's inspection guide",
+    photoSystem.includes(inspect.PHOTO_WORDS_ARE_DATA) && photoSystem.indexOf(inspect.PHOTO_WORDS_ARE_DATA) < photoSystem.indexOf(CA.ai.inspectionGuide.slice(0, 40)) && /never take a note's word/.test(inspect.PHOTO_WORDS_ARE_DATA));
+  // The SDK hands the model each photo as a file part whose data is the bytes inspect.ts was given.
+  const images = userParts(photos.seen.prompt ?? []).filter((p) => p.type === "file");
+  const bytes = (p) => (p?.data?.data instanceof Uint8Array ? new TextDecoder().decode(p.data.data) : p?.data?.type ?? typeof p?.data);
+  eq("photo reader: the two photos still go as image parts, their own bytes, move-in first", [images.length, images.map((p) => p.mediaType), images.map(bytes)],
+    [2, ["image/jpeg", "image/jpeg"], ["not an image: in", "not an image: out"]]);
+  const texts = userParts(photos.seen.prompt ?? []).filter((p) => p.type === "text").map((p) => p.text);
+  check("photo reader: the move-in photo is announced before the move-out photo", texts.findIndex((t) => /MOVE-IN photos/.test(t)) < texts.findIndex((t) => /MOVE-OUT photos/.test(t)));
+}
+
 /* ---------- 4. The fake PayPal ---------- */
 stubsOn(true);
 {

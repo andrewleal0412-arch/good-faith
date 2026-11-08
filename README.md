@@ -181,6 +181,7 @@ Every part in more depth, one refund step by step, and where things live in the 
 ## Safety design
 
 - **No legal advice.** The app informs, computes, drafts and asks people to approve; citations come only from the rule pack, never from a model's memory.
+- **Documents are evidence, not instructions.** The lease reader, the photo inspector, the advocate, the negotiator and the defense agent each tell Claude that what it reads (the lease, the photos, the tenants' words) is evidence, never a message to it ([`extract.ts`](src/lib/extract.ts), [`inspect.ts`](src/lib/inspect.ts), [`advocate.ts`](src/lib/advocate.ts)).
 - **Money math in code.** The cap, each deduction, the refund plan, the deadlines and each charge's lawful range are plain code from the state's rule pack, and every figure an agent proposes is checked against them.
 - **Nothing moves until the landlord approves.** The refund, a settlement (after the tenants accept) and a PayPal dispute response are each claimed once in the database, so a double click pays or sends once.
 - **Guards at the moment of the call.** `guardRefund` recomputes the rail, amount, payment and account from the database and PayPal right before PayPal is called, and every refund and Payout carries an idempotency key.
