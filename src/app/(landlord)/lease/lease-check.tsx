@@ -6,6 +6,7 @@ import { Button } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { Card, Fact, FactStrip, KV, Money, Notice, StatusChip, inlineInputClass, type Tone } from "@/components/ui";
+import { BEAT_EVENT } from "@/lib/demo-guide";
 import { DEMO_LEASE_FILE } from "@/lib/demo-lease";
 import type { Flag, LeaseTerms } from "@/lib/rules";
 import { isSupported, packFor, SUPPORTED, STATE_NAMES, supportedNames, unsupportedMessage } from "@/lib/states";
@@ -188,6 +189,8 @@ function Check({ code, setCode }: { code: string | null; setCode: (c: string | n
     setResult(res);
     setCode(res.supported ? res.state : null);
     setState("done");
+    // In a demo copy the guide ticks beat 1 once a check's result is on the page (components/demo-guide.tsx).
+    window.dispatchEvent(new CustomEvent(BEAT_EVENT, { detail: 1 }));
   }
 
   function reset() {

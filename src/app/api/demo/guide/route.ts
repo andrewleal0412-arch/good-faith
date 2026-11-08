@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { SEEN_COOKIE, seenBeats } from "@/lib/demo-guide";
 import { demoGuideSteps } from "@/lib/demo-guide-server";
 import { canSignOut } from "@/lib/session-server";
 import { currentWorkspace } from "@/lib/workspace";
@@ -11,11 +13,13 @@ export const runtime = "nodejs";
 // when the page changes under it and when the window is given focus again.
 //
 // Only a private demo copy has a guide: the owner's workspace gets the same 404 as a copy that isn't there, and a
-// request without a session never reaches this route (src/proxy.ts). It reads nothing but the session's own workspace.
+// request without a session never reaches this route (src/proxy.ts). It reads nothing but the session's own workspace,
+// and the browser's own cookie of the look beats it has opened (SEEN_COOKIE), as the layout does.
 export async function GET() {
   const ws = await currentWorkspace();
   if (!canSignOut() || ws?.kind !== "demo") {
     return Response.json({ error: "No demo guide here." }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
-  return Response.json({ steps: await demoGuideSteps() }, { headers: { "Cache-Control": "no-store" } });
+  const seen = seenBeats((await cookies()).get(SEEN_COOKIE)?.value);
+  return Response.json({ steps: await demoGuideSteps(seen) }, { headers: { "Cache-Control": "no-store" } });
 }

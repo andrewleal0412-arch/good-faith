@@ -32,8 +32,8 @@ async function sentDisputes(workspaceId: string): Promise<Map<string, string[]>>
 
 /** The eight steps as this copy shows them, or null for a workspace with no tenancy to point at. Two reads, both for
  *  this workspace only: the tenancies the shell has loaded for its notifications anyway (React cache, one request) and
- *  the copy's sent disputes. */
-export async function demoGuideSteps(): Promise<GuideStep[] | null> {
+ *  the copy's sent disputes. `seen` is the look beats this browser has opened, from its cookie (SEEN_COOKIE). */
+export async function demoGuideSteps(seen: ReadonlySet<number>): Promise<GuideStep[] | null> {
   const ws = await currentWorkspace();
   if (!ws) return null;
   const [{ rows }, sent] = await Promise.all([workspaceTenancies(), sentDisputes(ws.id)]);
@@ -47,7 +47,7 @@ export async function demoGuideSteps(): Promise<GuideStep[] | null> {
     statementDelivered: !!t.statement_delivered_at,
     payments: (t.payments ?? []).map((p) => ({ kind: p.kind, status: p.status })),
     disputesSent: sent.get(t.id) ?? [],
-  })));
+  })), seen);
 }
 
 /** The welcome's words for this copy (src/lib/demo-welcome.ts), from the units Properties reads anyway (React cache,

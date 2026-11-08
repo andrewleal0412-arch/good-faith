@@ -136,6 +136,39 @@ check("words: no em dash anywhere", !JSON.stringify(w).includes("—"));
   check("blocks: the pool's names the pool, not the day", /pre-paid sandbox deposits are used up/.test(POOL_EMPTY), POOL_EMPTY);
 }
 
+/* ---------- The guide's look beats (src/lib/demo-guide.ts) ---------- */
+
+// A fresh copy already holds beats 1, 2, 3 and 8 (the lease Claude read, the paid deposit, the photo comparison, the
+// Texas unit): guideSteps keeps them `held` from the start and `done` only once the browser's cookie says their page
+// was opened, so the guide opens at none done rather than "4 of 8 done"; the other four are done by the rows alone.
+{
+  const { guideSteps, LOOK_BEATS, seenBeats, seenValue, pageBeat, SEEN_COOKIE, BEAT_EVENT } = guide;
+  const g = (o) => ({ id: "mo", address: live.address, state: "CA", moveOutDate: "2026-10-06", leaseChecked: true, inspected: true, statementDelivered: false, payments: [{ kind: "deposit_invoice", status: "PAID" }], disputesSent: [], ...o });
+  const txg = { id: "tx", address: tx.address, state: "TX", moveOutDate: null, leaseChecked: true, inspected: false, statementDelivered: false, payments: [], disputesSent: [] };
+  const by = (steps) => Object.fromEntries(steps.map((s) => [s.n, [s.held, s.done]]));
+  eq("guide: the look beats are 1, 2, 3 and 8", [...LOOK_BEATS], [1, 2, 3, 8]);
+  const fresh = guideSteps([g(), txg]);
+  eq("guide: a fresh copy holds beats 1, 2, 3 and 8 and ticks none of them, the rest neither held nor done", by(fresh),
+    { 1: [true, false], 2: [true, false], 3: [true, false], 4: [false, false], 5: [false, false], 6: [false, false], 7: [false, false], 8: [true, false] });
+  eq("guide: with beats 2 and 8 opened in this browser, those two are ticked and the other held beats still wait", by(guideSteps([g(), txg], new Set([2, 8]))),
+    { 1: [true, false], 2: [true, true], 3: [true, false], 4: [false, false], 5: [false, false], 6: [false, false], 7: [false, false], 8: [true, true] });
+  eq("guide: an opened beat the copy doesn't hold stays unticked", by(guideSteps([g({ inspected: false }), txg], new Set([3])))[3], [false, false]);
+  const sent = guideSteps([g({ payments: [{ kind: "deposit_invoice", status: "PAID" }, { kind: "refund", status: "COMPLETED" }] }), txg]);
+  eq("guide: the refund, done by the copy's rows, is ticked with no cookie at all", by(sent)[4], [true, true]);
+  eq("guide: the cookie reads the beats' numbers however they are joined, and nothing else", [...seenBeats("2.3.8")].sort(), [2, 3, 8]);
+  eq("guide: a cookie with junk keeps only beat numbers", [...seenBeats("x,9.3;0..1")].sort(), [1, 3]);
+  eq("guide: no cookie is no beat", [...seenBeats(undefined)], []);
+  eq("guide: the cookie's value is the numbers in order, joined by dots", seenValue(new Set([8, 2, 3])), "2.3.8");
+  eq("guide: the cookie's value reads back as the same set", [...seenBeats(seenValue(new Set([1, 8])))], [1, 8]);
+  check("guide: the cookie's name and the lease check's event are named", SEEN_COOKIE === "gf_guide_seen" && BEAT_EVENT === "gf:demo-beat");
+  eq("guide: the Overview of the live unit is beat 2's page", pageBeat(fresh, "/tenancy/mo", ""), 2);
+  eq("guide: the Overview with another query (a lease that already had a tenancy) is still beat 2's page", pageBeat(fresh, "/tenancy/mo", "lease=existing"), 2);
+  eq("guide: the Move-out tab, by its ?tab, is beat 3's page", pageBeat(fresh, "/tenancy/mo", "tab=move-out"), 3);
+  eq("guide: the Texas unit is beat 8's page", pageBeat(fresh, "/tenancy/tx", ""), 8);
+  eq("guide: Check a lease is nobody's page (beat 1 comes by the event, once a result shows)", pageBeat(fresh, "/lease", ""), null);
+  eq("guide: the Payments tab, Properties and the refund review are no look beat's page", [pageBeat(fresh, "/tenancy/mo", "tab=payments"), pageBeat(fresh, "/units", ""), pageBeat(fresh, "/tenancy/mo/refund", "")], [null, null, null]);
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 for (const f of failures) console.log(`  FAIL ${f}`);
 process.exit(fail || failures.length ? 1 : 0);

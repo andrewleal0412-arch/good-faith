@@ -31,8 +31,11 @@ Under three minutes, eight beats, one fresh demo copy. Each beat names the scree
 **The same eight beats inside a demo copy.** A judge's private copy opens with them as a short checklist above each
 page: one line each, in this order, each a link to where that beat happens in that copy, and each ticked off by the
 copy's own rows (the lease Claude read, the paid deposit, the photo comparison, the refund, the dispute, the
-negotiation, the settlement, the unit in the second state). It reads the copy again whenever a click opens another
-page, so a step that completes in the tenants' tab is ticked on the landlord's side without a reload.
+negotiation, the settlement, the unit in the second state). The four of those a fresh copy already holds (beats 1, 2,
+3 and 8) are ticked only once that browser has opened their page (beat 1 once a check's result is on it), so the
+guide opens at none done rather than four, and sends the judge through the beats where Claude is watched reading.
+It reads the copy again whenever a click opens another page, so a step that completes in the tenants' tab is ticked
+on the landlord's side without a reload.
 
 The table above is the source of the beats. `src/lib/demo-guide.ts` carries the same eight numbers and titles, names
 the screen each one opens, and takes the unit a beat runs on from the address that beat's own row names (beat 2 for the

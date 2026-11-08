@@ -13,7 +13,16 @@ import { tabHref } from "./tenancy-tabs";
 //
 // Nothing here is stored: each step's tick is read off the copy's own rows (the lease Claude read, the paid deposit
 // invoice, the photo comparison, the refund, the dispute, the negotiation, the settlement, a unit in a second state),
-// and "hidden" and "collapsed" live in the browser as a cookie. No table and no column was added for it.
+// and "hidden", "collapsed" and which of the look beats this browser has opened live in the browser as cookies. No
+// table and no column was added for it.
+//
+// A fresh copy already holds four of the beats (the lease Claude read, the paid deposit, the photo comparison, the unit
+// in the second state): they are what the copy is made of, and a judge has them to look at, not to do. Ticking them
+// off before the judge has opened anything read as "4 of 8 done" on the first screen, which says to skip them, and
+// beats 1 and 3 are where Claude is watched reading. So those four (LOOK_BEATS) are `held` by the copy from the start
+// and `done` only once this browser has opened their page (beat 1 once a check's result is on it), kept in a cookie
+// like Hide; the other four are done when the copy's rows show them, which in a copy happens only by the judge's own
+// clicks.
 
 /** One beat as the guide shows it. */
 export type GuideStep = {
@@ -22,8 +31,13 @@ export type GuideStep = {
   line: string; // one short line, in plain words
   where: string; // the screen the link opens, named as the app names it ("Review refund")
   href: string; // that screen in this copy, down to the card
-  done: boolean; // the copy's own rows already show this beat happened
+  held: boolean; // the copy's own rows already show this beat happened
+  done: boolean; // ticked: held, and for a look beat (LOOK_BEATS) opened in this browser
 };
+
+/** The beats a fresh copy already holds, ticked only once this browser has opened their page: beats 2, 3 and 8 on
+ *  arriving at the page their link opens (pageBeat), beat 1 once a lease check's result is on the page (BEAT_EVENT). */
+export const LOOK_BEATS: readonly number[] = [1, 2, 3, 8];
 
 /** The eight beats, in order. `where` is the default screen name; a step whose screen depends on how far the copy has
  *  come (beat 5, beat 8) names its own in `steps` below. `unit` is the property the beat's own row in that table names,
@@ -93,7 +107,7 @@ const NEGOTIATED = ["negotiating", "agreed", "settled", "no_agreement"];
 
 /** The eight steps for this copy: where each beat happens in it, and which of them its rows already show. Null when
  *  the copy holds no tenancy at all, where the guide would have nothing to point at. */
-export function guideSteps(units: GuideTenancy[]): GuideStep[] | null {
+export function guideSteps(units: GuideTenancy[], seen: ReadonlySet<number> = new Set()): GuideStep[] | null {
   const live = liveUnit(units);
   if (!live) return null;
   // The unit under another state's rule pack (the demo's Texas unit), for the multi-state beat.
@@ -131,7 +145,36 @@ export function guideSteps(units: GuideTenancy[]): GuideStep[] | null {
     5: live.statementDelivered ? "Tenant link" : "Statement",
     8: other ? `${other.state} unit` : "Properties",
   };
-  return BEATS.map((b) => ({ ...b, where: where[b.n] ?? b.where, href: href[b.n], done: done[b.n] }));
+  return BEATS.map((b) => ({
+    ...b, where: where[b.n] ?? b.where, href: href[b.n], held: done[b.n], done: done[b.n] && (!LOOK_BEATS.includes(b.n) || seen.has(b.n)),
+  }));
+}
+
+/** The cookie that keeps which look beats this browser has opened: their numbers joined by ".", "2.3.8". Absent is
+ *  none. A preference, no data; the server reads it so the first render already shows the right ticks. */
+export const SEEN_COOKIE = "gf_guide_seen";
+export const seenBeats = (v: string | undefined): Set<number> =>
+  new Set((v ?? "").split(/[^0-9]+/).map(Number).filter((n) => BEATS.some((b) => b.n === n)));
+export const seenValue = (seen: ReadonlySet<number>): string => [...seen].sort((a, b) => a - b).join(".");
+
+/** The event the lease check sends once a check's result is on the page (src/app/(landlord)/lease/lease-check.tsx),
+ *  with the beat's number as its detail, and the guide ticks that beat if the copy holds it. */
+export const BEAT_EVENT = "gf:demo-beat";
+
+/** The look beat whose page a location is, by the step's own link: the same path and the same ?tab (Overview when
+ *  there is none, src/lib/tenancy-tabs.ts), the hash and any other query left out, so "/tenancy/<id>?tab=move-out" is
+ *  beat 3's page and "/tenancy/<id>?lease=existing" is beat 2's. Beat 1 is not found this way (a visit to Check a lease
+ *  is not a check): it comes by BEAT_EVENT. */
+export function pageBeat(steps: readonly GuideStep[], pathname: string, search: string): number | null {
+  const at = (path: string, query: string) => `${path}?${new URLSearchParams(query).get("tab") ?? "overview"}`;
+  const here = at(pathname, search);
+  for (const s of steps) {
+    if (s.n === 1 || !LOOK_BEATS.includes(s.n)) continue;
+    const [noHash] = s.href.split("#");
+    const [path, query = ""] = noHash.split("?");
+    if (at(path, query) === here) return s.n;
+  }
+  return null;
 }
 
 /** The cookie the browser keeps the guide's state in: absent is open, "shut" is collapsed to its one line, "off" is

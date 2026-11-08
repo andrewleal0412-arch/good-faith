@@ -25,7 +25,7 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 
 ## Try it
 
-[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, dated that day, with a welcome card and a short tour of Properties on the first visit, and a demo guide above each page that lists these eight beats and ticks them off. The server stays awake (Render's paid plan), so the first page is a normal page load.
+[good-faith.onrender.com](https://good-faith.onrender.com) runs in the PayPal sandbox. Enter the access code from the submission's testing instructions. Your browser gets its own private copy of a small landlord, Harbor View Rentals, dated that day, with a welcome card and a short tour of Properties on the first visit, and a demo guide above each page that lists these eight beats and ticks each off once you have seen it in your copy. The server stays awake (Render's paid plan), so the first page is a normal page load.
 
 1. **Lease check.** Check a lease, then Check the sample lease: one click, from the facts Claude read when the demo was built, and the code flags a deposit over the cap, a "nonrefundable" fee, and the lawful amount to collect. To watch Claude read it live (about 20 seconds), open the sample from the link beside the button and drop the PDF on the page.
 2. **Deposit by PayPal.** Properties, then 1140 E. Juniper Hollow Ln, Overview: the signed refund agreement and the deposit paid through a PayPal invoice.
@@ -204,7 +204,7 @@ City rules are shown as warnings only, never enforced. Sources, time zones and k
 
 ## Checks
 
-The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and fourteen check scripts (2,262 assertions) on every push. Three browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the eight beats of the demo script in Chromium and checks every dollar figure on the way, `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px, and `scripts/align-check.py` measures every icon, dot, tile and badge against the text beside it at both widths.
+The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and fourteen check scripts (2,279 assertions) on every push. Three browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the eight beats of the demo script in Chromium and checks every dollar figure on the way, `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px, and `scripts/align-check.py` measures every icon, dot, tile and badge against the text beside it at both widths.
 
 ```bash
 python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end
@@ -216,10 +216,10 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | Check | Result | Run by |
 |---|---|---|
 | `tsc`, `eslint --max-warnings=0` | Clean | CI, every push |
-| `state-packs` 316, `zone` 118, `lawful-range` 167, `negotiation` 142, `paypal-webhook` 175, `grid` 108, `demo-welcome` 45, `chargeback` 148, `jev` 166, `reconcile` 87, `cache` 345, `thumbs` 169, `e2e-stubs` 112, `page-weight` 164 | All passed | CI, every push |
+| `state-packs` 316, `zone` 118, `lawful-range` 167, `negotiation` 142, `paypal-webhook` 175, `grid` 108, `demo-welcome` 62, `chargeback` 148, `jev` 166, `reconcile` 87, `cache` 345, `thumbs` 169, `e2e-stubs` 112, `page-weight` 164 | All passed | CI, every push |
 | `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
-| `e2e-demo.py` on a production build | 166 of 166 | By hand, 2026-11-07 |
+| `e2e-demo.py` on a production build | 179 of 179 | By hand, 2026-11-08 |
 | `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-07 |
 | `npm audit --omit=dev --audit-level=critical` | Clean; 12 advisories below critical, in the toolkit's tree and `zod` 3 ([Security](#security)) | By hand, 2026-11-02 |
 | `align-check.py` on a production build | 8 of 8: 2,319 marks beside text, 919 glyphs in frames and 698 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-11-07 |

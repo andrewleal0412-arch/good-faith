@@ -7,7 +7,7 @@ import { initialsOf } from "@/components/ui";
 import { displayName } from "@/lib/copy";
 import { paypalBell } from "@/lib/bell";
 import { longDate } from "@/lib/dates";
-import { GUIDE_COOKIE, guideState, WELCOME_COOKIE } from "@/lib/demo-guide";
+import { GUIDE_COOKIE, guideState, SEEN_COOKIE, seenBeats, WELCOME_COOKIE } from "@/lib/demo-guide";
 import { demoGuideSteps, demoWelcome } from "@/lib/demo-guide-server";
 import { openOutsideRefunds } from "@/lib/outside-refunds";
 import { SANDBOX } from "@/lib/paypal";
@@ -133,7 +133,7 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
   // The welcome card is the same: shown until this browser has seen it, and opened again from the account menu.
   const demo = canSignOut() && ws?.kind === "demo";
   const jar = await cookies();
-  const guide = demo ? { state: guideState(jar.get(GUIDE_COOKIE)?.value), steps: settled(demoGuideSteps(), null, "the demo guide") } : null;
+  const guide = demo ? { state: guideState(jar.get(GUIDE_COOKIE)?.value), steps: settled(demoGuideSteps(seenBeats(jar.get(SEEN_COOKIE)?.value)), null, "the demo guide") } : null;
   const welcome = demo ? { show: jar.get(WELCOME_COOKIE)?.value !== "seen", data: settled(demoWelcome(), null, "the welcome") } : null;
   return (
     <AppShell sandbox={SANDBOX} signOut={canSignOut()} startOver={demo} guide={guide} welcome={welcome}
