@@ -138,7 +138,7 @@ export function DemoGuide({ choice: chosen, steps }: { choice: GuideState | null
             className="flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1 text-left">
             <Icon name="chev-right" className={`size-3.5 text-ink-4 transition-transform ${open ? "rotate-90" : ""}`} />
             <span className="truncate text-sm font-medium">Demo guide</span>
-            <Suspense fallback={null}><Meta steps={steps} live={live} opened={opened} /></Suspense>
+            <Suspense fallback={null}><Meta steps={steps} live={live} opened={opened} open={open} /></Suspense>
           </button>
           {/* Collapsed, the line still sends the judge on: the next beat, a link to where it happens in this copy. */}
           {!open && <Suspense fallback={null}><NextBeat steps={steps} live={live} opened={opened} /></Suspense>}
@@ -178,11 +178,12 @@ function PageBeat({ steps, live, onBeat }: { steps: Promise<GuideStep[] | null>;
   return null;
 }
 
-/** Beside the head's name: how far the copy has come. */
-function Meta({ steps, live, opened }: { steps: Promise<GuideStep[] | null>; live: GuideStep[] | null; opened: number[] }) {
+/** Beside the head's name: how far the copy has come. On a phone the collapsed line has room for the name, the next
+ *  beat and Hide, not the count too, so there the count shows only with the rows (where its line is its own). */
+function Meta({ steps, live, opened, open }: { steps: Promise<GuideStep[] | null>; live: GuideStep[] | null; opened: number[]; open: boolean }) {
   const list = ticked(live ?? use(steps), opened);
   if (!list) return null;
-  return <span data-guide-count className="truncate text-xs text-ink-3">{list.filter((s) => s.done).length} of {list.length} done</span>;
+  return <span data-guide-count className={`truncate text-xs text-ink-3 ${open ? "" : "max-sm:hidden"}`}>{list.filter((s) => s.done).length} of {list.length} done</span>;
 }
 
 /** The collapsed line's own pointer: the next beat, with its number and title, as a link to where it happens in this
