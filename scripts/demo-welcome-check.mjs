@@ -169,6 +169,24 @@ check("words: no em dash anywhere", !JSON.stringify(w).includes("—"));
   eq("guide: the Payments tab, Properties and the refund review are no look beat's page", [pageBeat(fresh, "/tenancy/mo", "tab=payments"), pageBeat(fresh, "/units", ""), pageBeat(fresh, "/tenancy/mo/refund", "")], [null, null, null]);
 }
 
+/* ---------- The guide's state: this browser's choice, else the page's default (src/lib/demo-guide.ts) ---------- */
+
+// Until a browser chooses, the guide shows its eight rows on Properties only and its one line on every other page, so
+// the screen a beat opens is not pushed down by the checklist; a choice (open, shut, off), made on any page, holds on
+// every page. The cookie is the choice alone: absent is no choice, and only its three words are read.
+{
+  const { guideChoice, guideDefault, guideView, GUIDE_HOME, GUIDE_COOKIE } = guide;
+  eq("guide state: the cookie's name, and Properties, at /units and at the bare address the access gate lands on, as the one page whose default is open", [GUIDE_COOKIE, [...GUIDE_HOME]], ["gf_guide", ["/", "/units"]]);
+  eq("guide state: the bare address renders Properties, so it opens the rows too", guideDefault("/"), "open");
+  eq("guide state: no cookie is no choice", guideChoice(undefined), null);
+  eq("guide state: the three choices read back as themselves", [guideChoice("open"), guideChoice("shut"), guideChoice("off")], ["open", "shut", "off"]);
+  eq("guide state: any other value is no choice", [guideChoice(""), guideChoice("OPEN"), guideChoice("hidden")], [null, null, null]);
+  eq("guide state: Properties opens the rows by default", guideDefault("/units"), "open");
+  eq("guide state: every other page is one line by default", ["/tenancy/mo", "/tenancy/mo/refund", "/lease", "/ledger", "/insights", "/tenants", "/units/new", "/units/"].map(guideDefault), ["shut", "shut", "shut", "shut", "shut", "shut", "shut", "shut"]);
+  eq("guide state: with no choice the page decides", [guideView(null, "/units"), guideView(null, "/tenancy/mo")], ["open", "shut"]);
+  eq("guide state: a choice holds on every page, Properties included", [guideView("shut", "/units"), guideView("open", "/tenancy/mo"), guideView("off", "/units"), guideView("off", "/lease")], ["shut", "open", "off", "off"]);
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 for (const f of failures) console.log(`  FAIL ${f}`);
 process.exit(fail || failures.length ? 1 : 0);

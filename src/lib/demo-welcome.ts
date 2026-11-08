@@ -82,7 +82,7 @@ export function welcomeOf({ units, account, today, sandbox }: { units: WelcomeUn
     {
       anchor: '[data-tour="guide"]',
       title: `Your ${BEATS.length} steps`,
-      body: "The demo in order. Each step opens where it happens in your copy, and ticks itself off once your copy shows it done; the four your copy already holds, once you open them. The account menu brings this tour back.",
+      body: "The demo in order. Each step opens where it happens in your copy, and ticks itself off once your copy shows it done; the four your copy already holds, once you open them. On other pages it folds to one line with your next step. The account menu brings this tour back.",
     },
   ];
 

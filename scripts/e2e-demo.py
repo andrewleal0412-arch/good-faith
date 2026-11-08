@@ -7,11 +7,12 @@ the words that matter and every money figure against what the code computes, sav
    0. The welcome card on a first visit to Properties, in the copy's own words; its four-stop tour, each stop's ring
       around its own part of the page, at computer and phone width; its last button to the move-out photos; seen
       once (Back from the refund review included), then again from the menu; a page change under the tour ends it.
-      At the end (12d) it is opened again and says the deposit is closed out
+      At the end (12e) it is opened again and says the deposit is closed out
    1. Properties: the three units, the Texas unit's Rules chip (beat 8), and the demo guide's eight beats, each
       linking to where that beat happens in this copy. The four beats the copy already holds (the lease, the deposit,
       the photo comparison, the Texas unit) tick only once this browser opens their page: none under the welcome card
-      in step 0, the photo beat where the tour's last button lands, the Texas unit here, beat 1 at step 2 once a check's
+      in step 0, the photo beat where the tour's last button lands (on the Move-out tab the guide is one line, the
+      count and the next beat as a link, until the judge's click there opens it), the Texas unit here, beat 1 at step 2 once a check's
       result shows (not on opening Check a lease), beat 2 at step 3, the ticks kept across a full load; the rest tick
       once the copy's own rows show them
    2. Check a lease: the sample in one click (no Claude call), then demo/lease-single-owner.pdf uploaded, its flags
@@ -40,7 +41,8 @@ the words that matter and every money figure against what the code computes, sav
       and the cookie keeps it; a move-out date set on the Texas unit leaves every step where it was (the unit each
       beat runs on is the address the demo script names, not the copy's latest move-out); its route answers with the
       copy's eight steps; a click from one page to another makes it read them again rather than keep the last page's;
-      and Hide puts it away for the browser, a reload keeps it away, the account menu brings it back. Its eight steps
+      its state (one line off Properties until the browser chooses, the head's choice holding on every page, Hide
+      putting it away for the browser, a reload keeping it away, the account menu bringing it back). Its eight steps
       and the two properties they name are also checked against the beat table of docs/DEMO_SCRIPT.md, with no browser;
       so is the README's Checks section: its CI row names the scripts .github/workflows/checks.yml runs, and its
       sentence (and HOW_IT_WORKS's) counts those scripts and gives that row's sum of assertions
@@ -548,6 +550,20 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               f"missing {missing}; the page reads: {t[:600]!r}")
         return t
 
+    def guide_line(page):
+        """The demo guide's head as the page shows it: how many rows are open, the head's aria-expanded, the count, and
+        the collapsed line's next beat (its number, words and path; "" and no path once all done), with the section's
+        height in px."""
+        return page.evaluate("""() => {
+          const sec = document.querySelector("section[aria-label='Demo guide']");
+          const head = sec?.querySelector('button[aria-expanded]');
+          const next = sec?.querySelector('[data-guide-next]');
+          return { rows: document.querySelectorAll('[data-guide-step]').length, expanded: head?.getAttribute('aria-expanded') ?? null,
+                   count: sec?.querySelector('[data-guide-count]')?.textContent ?? null,
+                   next: next?.dataset.guideNext ?? null, next_text: next?.textContent?.replace(/\\s+/g, ' ').trim() ?? null,
+                   next_href: next?.href ? new URL(next.href).pathname + new URL(next.href).search : null,
+                   height: sec ? sec.getBoundingClientRect().height : 0 }; }""")
+
     def guide(page):
         """The demo guide as the page shows it: {beat number: ("done" | "now" | "todo", where it links)}."""
         return {int(k): tuple(v) for k, v in page.evaluate("""() => Object.fromEntries(
@@ -815,9 +831,20 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         seen = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_welcome"]
         check("Welcome tour: its last button opens the move-out photos, and the browser keeps that it has seen the welcome",
               seen == ["seen"], f"the cookie: {seen}")
-        # That page is beat 3's, so the guide ticks the photo beat here, the first tick of the walk.
+        # That page is beat 3's, so the guide ticks the photo beat here, the first tick of the walk. Off Properties, until
+        # this browser chooses otherwise, the guide is its one line (guideDefault, src/lib/demo-guide.ts): no rows, the
+        # count, and the next beat as a link to its page, so the photos the tour sent the judge to are not pushed down
+        # by the checklist. A judge's click on its head opens the rows, and that choice holds on every page from here.
+        page.wait_for_function("() => document.querySelector('[data-guide-count]')?.textContent === '1 of 8 done'", timeout=10_000)
+        line = guide_line(page)
+        check("Demo guide: on the Move-out tab the tour opened, with no choice made yet, it is one line under 64 px: no rows, the count with the photo beat ticked, and the next beat, the lease check, as a link to Check a lease",
+              line["rows"] == 0 and line["expanded"] == "false" and line["count"] == "1 of 8 done" and line["next"] == "1"
+              and (line["next_text"] or "").startswith("Next: 1. Lease check") and line["next_href"] == "/lease" and 0 < line["height"] < 64, json.dumps(line))
+        page.locator("section[aria-label='Demo guide']").get_by_role("button", name=re.compile(r"^Demo guide")).click()
         page.wait_for_function("() => document.querySelector('[data-guide-step=\"3\"]')?.dataset.guideState === 'done'", timeout=10_000)
-        check("Demo guide: the Move-out tab the tour opened ticks the photo beat, the first tick of the walk", guide(page)[3][0] == "done", json.dumps(guide(page)))
+        chose = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_guide"]
+        check("Demo guide: its head opens the eight rows, the photo beat ticked, and the browser keeps the choice", guide(page)[3][0] == "done" and chose == ["open"],
+              f"{json.dumps(guide(page))}; cookie {chose}")
         # The refund review has its own layout, and Back from it brings the landlord pages back from the browser's
         # history as they were first drawn, before the welcome was seen: Properties still opens without it.
         page.evaluate(f"() => document.querySelector('a[href=\"/tenancy/{mo}/refund\"]').click()")
@@ -1611,7 +1638,29 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Demo guide: it still shows the eight beats, all ticked, on the page the click opened",
               [v[0] for _, v in sorted(guide(page).items())] == ["done"] * 8, json.dumps(guide(page)))
 
-        # 12c. Its controls: Hide puts it away for this browser and a reload keeps it away (the choice is a cookie the
+        # 12c. Its state: a choice made in this browser holds on every page, Properties included, and with none made the
+        # page decides, the rows on Properties and the one line everywhere else (guideView, src/lib/demo-guide.ts).
+        go(page, "/units")
+        line = guide_line(page)
+        check("Demo guide: on Properties the rows are open, as chosen at the tour's end", line["rows"] == 8 and line["expanded"] == "true", json.dumps(line))
+        page.locator("section[aria-label='Demo guide']").get_by_role("button", name=re.compile(r"^Demo guide")).click()
+        page.wait_for_function("() => document.querySelectorAll('[data-guide-step]').length === 0", timeout=10_000)
+        go(page, "/units")
+        line = guide_line(page)
+        chose = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_guide"]
+        check("Demo guide: collapsed by its head on Properties, it stays one line there after a reload, reading all done with no next beat, the choice kept by the browser",
+              line["rows"] == 0 and line["expanded"] == "false" and line["count"] == "8 of 8 done" and line["next"] == "" and line["next_text"] == "All done"
+              and line["next_href"] is None and chose == ["shut"], f"{json.dumps(line)}; cookie {chose}")
+        page.evaluate("() => { document.cookie = 'gf_guide=; path=/; max-age=0'; }")
+        go(page, "/units")
+        on_home = guide_line(page)
+        go(page, f"/tenancy/{mo}")
+        on_unit = guide_line(page)
+        check("Demo guide: with the choice forgotten, Properties opens the rows and a property's page the one line",
+              on_home["rows"] == 8 and on_home["expanded"] == "true" and on_unit["rows"] == 0 and on_unit["expanded"] == "false" and 0 < on_unit["height"] < 64,
+              json.dumps({"properties": on_home, "unit": on_unit}))
+
+        # 12d. Its controls: Hide puts it away for this browser and a reload keeps it away (the choice is a cookie the
         # server reads, so a hidden guide is never rendered at all), and Demo guide in the account menu brings it back.
         go(page, "/units")
         page.locator("section[aria-label='Demo guide']").get_by_role("button", name="Hide").click()
@@ -1625,7 +1674,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Demo guide: Demo guide in the account menu brings it back, open", page.locator("[data-guide-step]").count() == 8)
         shot(page, "demo-guide")
 
-        # 12d. The welcome, opened again from the account menu after the whole demo: it reads the copy again, as the
+        # 12e. The welcome, opened again from the account menu after the whole demo: it reads the copy again, as the
         # guide does, so it says what is true now (the deposit closed out, no longer held).
         since = time.time()
         page.get_by_role("button", name="Account").first.click()

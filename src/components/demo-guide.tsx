@@ -6,17 +6,20 @@ import { Suspense, use, useCallback, useEffect, useId, useRef, useState } from "
 import { Icon } from "./icons";
 import { StepMark } from "./steps";
 import { Card, LineMark } from "./ui";
-import { BEAT_EVENT, BEATS, GUIDE_COOKIE, pageBeat, SEEN_COOKIE, seenBeats, seenValue, type GuideState, type GuideStep } from "@/lib/demo-guide";
+import { BEAT_EVENT, BEATS, GUIDE_COOKIE, guideView, pageBeat, SEEN_COOKIE, seenBeats, seenValue, type GuideState, type GuideStep } from "@/lib/demo-guide";
 
 // The demo guide, at the top of every page of a private demo copy: the eight beats of docs/DEMO_SCRIPT.md in order,
 // each a link to where that beat happens in this copy, each ticked off by the copy's own rows (src/lib/demo-guide.ts),
 // and the four beats a fresh copy already holds (LOOK_BEATS) only once this browser has opened their page. In the
 // page's own flow above its heading, so it never covers a control it points at.
 //
-// It is collapsed to its one line, or hidden for good, by the buttons in its head; the choice is kept in this browser
-// as a cookie, which the server reads, so a copy whose guide is hidden renders no guide at all rather than one that
-// flashes and goes. "Demo guide" in the account menu brings it back. The look beats this browser has opened are a
-// second cookie (SEEN_COOKIE), read by the server too, so a page arrives with its ticks already right.
+// Until this browser chooses otherwise it shows its eight rows on Properties only, and on every other page its one
+// line: the count, and the next beat as a link to where it happens (guideDefault, src/lib/demo-guide.ts), so the
+// screen a beat sends the judge to is not pushed down by the checklist. Its head opens or collapses it, and Hide puts
+// it away for good; the choice is kept in this browser as a cookie, which the server reads, and holds on every page,
+// so a copy whose guide is hidden renders no guide at all rather than one that flashes and goes. "Demo guide" in the
+// account menu brings it back, open. The look beats this browser has opened are a second cookie (SEEN_COOKIE), read by
+// the server too, so a page arrives with its ticks already right.
 
 const MONTH = 60 * 60 * 24 * 30;
 
@@ -25,9 +28,9 @@ function setCookie(name: string, value: string, age: number) {
   document.cookie = `${name}=${value}; path=/; max-age=${age}; samesite=lax${secure}`;
 }
 
-/** Keeps the choice in this browser for a month: no value is the open state, so choosing it clears the cookie. */
+/** Keeps the choice in this browser for a month; it holds on every page in place of the page's default. */
 function remember(v: GuideState) {
-  setCookie(GUIDE_COOKIE, v === "open" ? "" : v, v === "open" ? 0 : MONTH);
+  setCookie(GUIDE_COOKIE, v, MONTH);
 }
 
 /** The look beats this browser has opened, from its cookie, with `n` added; the new set, kept for a month. */
@@ -49,8 +52,9 @@ function ticked(list: GuideStep[] | null, seen: readonly number[]): GuideStep[] 
   return list && list.map((s) => (!s.done && s.held && seen.includes(s.n) ? { ...s, done: true } : s));
 }
 
-export function DemoGuide({ state, steps }: { state: GuideState; steps: Promise<GuideStep[] | null> }) {
-  const [view, setView] = useState<GuideState>(state);
+export function DemoGuide({ choice: chosen, steps }: { choice: GuideState | null; steps: Promise<GuideStep[] | null> }) {
+  // This browser's choice (the cookie, as the server read it), or none yet; the page's address picks the default then.
+  const [choice, setChoice] = useState<GuideState | null>(chosen);
   // The steps as the route last answered with them, kept with the render they answer for: a fresh render of the layout
   // (a full load, or the router.refresh() the landlord's own actions make) brings its own steps, and those win, so an
   // answer that belongs to an earlier render is left behind rather than painted over them.
@@ -58,6 +62,7 @@ export function DemoGuide({ state, steps }: { state: GuideState; steps: Promise<
   const live = got?.from === steps ? got.list : null;
   const list = useId();
   const path = usePathname();
+  const view = guideView(choice, path);
   const seen = useRef<string | null>(null);
   // The look beats this browser opened since the page was rendered (ticked() lays them over the steps).
   const [opened, setOpened] = useState<number[]>([]);
@@ -82,7 +87,7 @@ export function DemoGuide({ state, steps }: { state: GuideState; steps: Promise<
 
   // The account menu's Demo guide brings a hidden one back, open (components/app-shell.tsx, AccountCard).
   useEffect(() => {
-    const show = () => { remember("open"); setView("open"); };
+    const show = () => { remember("open"); setChoice("open"); };
     window.addEventListener("gf:demo-guide", show);
     return () => window.removeEventListener("gf:demo-guide", show);
   }, []);
@@ -118,7 +123,7 @@ export function DemoGuide({ state, steps }: { state: GuideState; steps: Promise<
   const open = view === "open";
   const pick = (v: GuideState) => {
     remember(v);
-    setView(v);
+    setChoice(v);
     // Hiding takes the focused button away with the panel, so the keyboard carries on at the page instead of at the
     // document (#main, the skip link's own target).
     if (v === "off") document.getElementById("main")?.focus();
@@ -132,9 +137,11 @@ export function DemoGuide({ state, steps }: { state: GuideState; steps: Promise<
           <button type="button" aria-expanded={open} aria-controls={list} onClick={() => pick(open ? "shut" : "open")}
             className="flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1 text-left">
             <Icon name="chev-right" className={`size-3.5 text-ink-4 transition-transform ${open ? "rotate-90" : ""}`} />
-            <span className="shrink-0 text-sm font-medium">Demo guide</span>
-            <Suspense fallback={null}><Meta steps={steps} live={live} open={open} opened={opened} /></Suspense>
+            <span className="truncate text-sm font-medium">Demo guide</span>
+            <Suspense fallback={null}><Meta steps={steps} live={live} opened={opened} /></Suspense>
           </button>
+          {/* Collapsed, the line still sends the judge on: the next beat, a link to where it happens in this copy. */}
+          {!open && <Suspense fallback={null}><NextBeat steps={steps} live={live} opened={opened} /></Suspense>}
           <button type="button" onClick={() => pick("off")}
             className="shrink-0 rounded-sm px-2 py-1.5 text-xs font-medium text-ink-3 transition-colors hover:text-ink">
             Hide
@@ -171,15 +178,29 @@ function PageBeat({ steps, live, onBeat }: { steps: Promise<GuideStep[] | null>;
   return null;
 }
 
-/** The head's second line: how far the copy has come when the steps are open, the next beat when they are collapsed. */
-function Meta({ steps, live, open, opened }: { steps: Promise<GuideStep[] | null>; live: GuideStep[] | null; open: boolean; opened: number[] }) {
+/** Beside the head's name: how far the copy has come. */
+function Meta({ steps, live, opened }: { steps: Promise<GuideStep[] | null>; live: GuideStep[] | null; opened: number[] }) {
+  const list = ticked(live ?? use(steps), opened);
+  if (!list) return null;
+  return <span data-guide-count className="truncate text-xs text-ink-3">{list.filter((s) => s.done).length} of {list.length} done</span>;
+}
+
+/** The collapsed line's own pointer: the next beat, with its number and title, as a link to where it happens in this
+ *  copy, and the screen it opens where there is room; "All done" once every beat is ticked. The same words and link
+ *  as that beat's row, so the one line and the eight rows never disagree on what is next. */
+function NextBeat({ steps, live, opened }: { steps: Promise<GuideStep[] | null>; live: GuideStep[] | null; opened: number[] }) {
   const list = ticked(live ?? use(steps), opened);
   if (!list) return null;
   const next = list.find((s) => !s.done);
-  const words = open
-    ? `${list.filter((s) => s.done).length} of ${list.length} done`
-    : next ? `Next: ${next.n}. ${next.title}` : "All done";
-  return <span className="truncate text-xs text-ink-3">{words}</span>;
+  if (!next) return <span data-guide-next="" className="shrink-0 text-xs text-ink-3">All done</span>;
+  return (
+    <Link href={next.href} data-guide-next={next.n}
+      className="flex min-w-0 max-w-[55%] shrink items-center gap-1 rounded-sm px-1.5 py-1 text-xs transition-colors hover:bg-surface-2 sm:max-w-none">
+      <span className="truncate font-medium">Next: {next.n}. {next.title}</span>
+      <span className="shrink-0 text-ink-3 max-sm:hidden">{next.where}</span>
+      <Icon name="chev-right" className="size-3 shrink-0 text-ink-4" />
+    </Link>
+  );
 }
 
 function LoadedRows({ steps, live, opened }: { steps: Promise<GuideStep[] | null>; live: GuideStep[] | null; opened: number[] }) {

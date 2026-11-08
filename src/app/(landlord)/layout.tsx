@@ -7,7 +7,7 @@ import { initialsOf } from "@/components/ui";
 import { displayName } from "@/lib/copy";
 import { paypalBell } from "@/lib/bell";
 import { longDate } from "@/lib/dates";
-import { GUIDE_COOKIE, guideState, SEEN_COOKIE, seenBeats, WELCOME_COOKIE } from "@/lib/demo-guide";
+import { GUIDE_COOKIE, guideChoice, SEEN_COOKIE, seenBeats, WELCOME_COOKIE } from "@/lib/demo-guide";
 import { demoGuideSteps, demoWelcome } from "@/lib/demo-guide-server";
 import { openOutsideRefunds } from "@/lib/outside-refunds";
 import { SANDBOX } from "@/lib/paypal";
@@ -127,13 +127,14 @@ export default async function LandlordLayout({ children }: LayoutProps<"/">) {
   const account = known ? displayName(known) : null;
   const notFoundFirst = ws ? await answersNotFound((await headers()).get(PATH_HEADER) ?? "") : false;
   // A visitor's private copy of the demo, made with the judges' code: the only workspace that gets Start over and the
-  // demo guide. What this browser last chose to do with the guide (open, collapsed, hidden) is a cookie the server
-  // reads, so a hidden guide draws nothing at all rather than flashing and going; the guide stays mounted, so Demo
-  // guide in the account menu brings it back without a reload.
+  // demo guide. What this browser last chose to do with the guide (open, collapsed, hidden; with no choice yet it is
+  // open on Properties and one line elsewhere, by the page's address) is a cookie the server reads, so a hidden guide
+  // draws nothing at all rather than flashing and going; the guide stays mounted, so Demo guide in the account menu
+  // brings it back without a reload.
   // The welcome card is the same: shown until this browser has seen it, and opened again from the account menu.
   const demo = canSignOut() && ws?.kind === "demo";
   const jar = await cookies();
-  const guide = demo ? { state: guideState(jar.get(GUIDE_COOKIE)?.value), steps: settled(demoGuideSteps(seenBeats(jar.get(SEEN_COOKIE)?.value)), null, "the demo guide") } : null;
+  const guide = demo ? { choice: guideChoice(jar.get(GUIDE_COOKIE)?.value), steps: settled(demoGuideSteps(seenBeats(jar.get(SEEN_COOKIE)?.value)), null, "the demo guide") } : null;
   const welcome = demo ? { show: jar.get(WELCOME_COOKIE)?.value !== "seen", data: settled(demoWelcome(), null, "the welcome") } : null;
   return (
     <AppShell sandbox={SANDBOX} signOut={canSignOut()} startOver={demo} guide={guide} welcome={welcome}

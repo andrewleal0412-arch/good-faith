@@ -6,7 +6,7 @@ Under three minutes, eight beats, one fresh demo copy. Each beat names the scree
 
 - Open the hosted demo once a few minutes ahead, so Render is awake, and check the pool has a deposit ready (`npm run demo:pool -- --status`).
 - Enter the judges' code in a private window: a fresh copy, dated today. Use Start over if you rehearsed in it.
-- Hide the demo guide before the take: the panel the copy opens with sits above every page's heading, so it would be in every shot. Hide, in its own head, puts it away for that browser; Demo guide in the account menu brings it back.
+- Hide the demo guide before the take: the line the copy opens with (the full list on Properties, one line with the next beat elsewhere) sits above every page's heading, so it would be in every shot. Hide, in its own head, puts it away for that browser; Demo guide in the account menu brings it back.
 - A browser's first visit to Properties opens the welcome card. Skip it (or take its tour) before the take; it opens once per browser, and Welcome tour in the account menu opens it again.
 - Two windows side by side: the landlord on the left, the tenants' page on the right. "Open the tenant's view" opens a new tab, not a window, so drag that tab out to the right once it opens.
 - Beats 5 and 7 hold seven clicks each in 25 seconds, which fits only without fumbling: the tenants' page asks for their name before Ask my advocate and before Accept settlement, and Send, Accept settlement and Approve and pay each ask once more in a small dialog, naming the amount where there is one. To give beat 5 room, record the statement's delivery off camera right after beat 4 (Send statement on the receipt, Record delivery, any method), open the tenant's view then and drag it into the right window, and start beat 5 on the tenants' page. Rehearse 5 to 7 once on a spare copy (Start over gives a fresh one).
@@ -33,7 +33,10 @@ page: one line each, in this order, each a link to where that beat happens in th
 copy's own rows (the lease Claude read, the paid deposit, the photo comparison, the refund, the dispute, the
 negotiation, the settlement, the unit in the second state). The four of those a fresh copy already holds (beats 1, 2,
 3 and 8) are ticked only once that browser has opened their page (beat 1 once a check's result is on it), so the
-guide opens at none done rather than four, and sends the judge through the beats where Claude is watched reading.
+guide opens at none done rather than four, and sends the judge through the beats where Claude is watched reading. On
+Properties the checklist shows all eight; on every other page it is one line, the count and the next beat as a link to
+its page, until the judge opens it from its head, so the screen a beat opens is not pushed down by the list that sent
+them there.
 It reads the copy again whenever a click opens another page, so a step that completes in the tenants' tab is ticked
 on the landlord's side without a reload.
 

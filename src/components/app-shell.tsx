@@ -39,7 +39,7 @@ type ShellProps = {
   chrome: Promise<ShellChrome>;
   // The demo guide at the top of every page, in a private demo copy only (null in the owner's workspace): what this
   // browser last chose to do with it, and the eight beats of this copy, which stream in with the rest of the chrome.
-  guide: { state: GuideState; steps: Promise<GuideStep[] | null> } | null;
+  guide: { choice: GuideState | null; steps: Promise<GuideStep[] | null> } | null;
   // The welcome card and tour, in a private demo copy only: whether this browser has yet to see it, and its words,
   // which stream in with the rest of the chrome (components/demo-welcome.tsx).
   welcome: { show: boolean; data: Promise<Welcome | null> } | null;

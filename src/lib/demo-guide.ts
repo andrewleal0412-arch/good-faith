@@ -13,7 +13,7 @@ import { tabHref } from "./tenancy-tabs";
 //
 // Nothing here is stored: each step's tick is read off the copy's own rows (the lease Claude read, the paid deposit
 // invoice, the photo comparison, the refund, the dispute, the negotiation, the settlement, a unit in a second state),
-// and "hidden", "collapsed" and which of the look beats this browser has opened live in the browser as cookies. No
+// and "hidden", "collapsed", "open" and which of the look beats this browser has opened live in the browser as cookies. No
 // table and no column was added for it.
 //
 // A fresh copy already holds four of the beats (the lease Claude read, the paid deposit, the photo comparison, the unit
@@ -177,11 +177,23 @@ export function pageBeat(steps: readonly GuideStep[], pathname: string, search: 
   return null;
 }
 
-/** The cookie the browser keeps the guide's state in: absent is open, "shut" is collapsed to its one line, "off" is
- *  hidden for good (the account menu brings it back). A preference, no data. */
+/** The cookie the browser keeps the guide's state in, once this browser has chosen one: "open" is the eight rows,
+ *  "shut" is collapsed to its one line (the count, and the next beat as a link to its page), "off" is hidden for good
+ *  (the account menu brings it back). Absent, no choice yet (guideChoice gives null), the guide takes the page's
+ *  default (guideDefault): open on Properties, the copy's first screen, where the welcome tour ends on it and no beat
+ *  needs the room (beat 8's chip is in the table beside it), and one line on every other page, so the screen a beat
+ *  opens (the photos, the upload box, the Move-in card) is not pushed 250 px down by the checklist that sent the
+ *  judge there. A choice made on any page holds on every page. A preference, no data. */
 export const GUIDE_COOKIE = "gf_guide";
 export type GuideState = "open" | "shut" | "off";
-export const guideState = (v: string | undefined): GuideState => (v === "off" ? "off" : v === "shut" ? "shut" : "open");
+export const guideChoice = (v: string | undefined): GuideState | null => (v === "off" || v === "shut" || v === "open" ? v : null);
+/** Properties, the one page the guide opens its rows on by default: /units, and the bare address, which renders the
+ *  same page (src/app/(landlord)/page.tsx) and is where the access gate sends a judge (as components/demo-welcome.tsx
+ *  and the sidebar read it). */
+export const GUIDE_HOME: readonly string[] = ["/", "/units"];
+export const guideDefault = (pathname: string): GuideState => (GUIDE_HOME.includes(pathname) ? "open" : "shut");
+/** What the guide shows on a page: this browser's choice when it has made one, else the page's default. */
+export const guideView = (choice: GuideState | null, pathname: string): GuideState => choice ?? guideDefault(pathname);
 
 /** The cookie that says this browser has seen the welcome (src/lib/demo-welcome.ts): "seen", or absent. The card opens
  *  once per browser, on Properties; "Welcome tour" in the account menu opens it again. */
