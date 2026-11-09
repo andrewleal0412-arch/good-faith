@@ -1397,6 +1397,14 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               and page.get_by_role("button", name="Hide the thread").count() == 1 and page.get_by_role("button", name="Show the thread").count() == 0,
               f"{page.get_by_role('button', name=re.compile(r'^Checked$')).count()} Checked marks, {page.locator('[data-thread-folded]').count()} fold lines, "
               f"{page.get_by_role('button', name='Hide the thread').count()} Hide, {page.get_by_role('button', name='Show the thread').count()} Show")
+        # The Dispute card over it the same (dispute.tsx's CaseFold reads the fold once, when the card mounts): the figures,
+        # the advocate's summary and the charges still on it, no fold line, and Hide the case over them.
+        case = page.locator("#dispute")
+        check("Settled: the page that watched it settle keeps the dispute's case open, its summary and charges on it, with Hide the case over them",
+              page.locator("[data-case-folded]").count() == 0 and "Their advocate's summary" in case.inner_text() and "Looks weak" in case.inner_text()
+              and case.get_by_role("button", name="Hide the case").count() == 1 and case.get_by_role("button", name="Show the case").count() == 0,
+              f"{page.locator('[data-case-folded]').count()} fold lines, {case.get_by_role('button', name='Hide the case').count()} Hide, "
+              f"{case.get_by_role('button', name='Show the case').count()} Show; {case.inner_text()[:200]!r}")
         # The tab's strip agrees with the Payments tab once the settlement is paid: the deductions as settled with the
         # statement's total under them, and the hero is everything returned, the refund and the settlement together.
         sees("Settled: the strip reads the deductions as settled", page, f"Deductions as settled\n{usd(E['kept'])}", f"{usd(E['deductions'])} less {usd(E['settled'])} settled")
@@ -1632,6 +1640,31 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         page.get_by_role("button", name="Show the thread").wait_for(timeout=10_000)
         check("Settled tab: Hide the thread folds it again", fold.count() == 1 and page.get_by_role("button", name=re.compile(r"^Checked$")).count() == 0,
               f"{fold.count()} fold lines, {page.get_by_role('button', name=re.compile(r'^Checked$')).count()} Checked marks")
+        # The Dispute card over the thread folds the same way on a fresh load (dispute.tsx, case-fold.tsx): one line naming
+        # who disputed how many charges and asked what back, and when, with Show the case; the figures, the advocate's
+        # summary and the charges come back with Show the case, and the fold is worth the case's height.
+        case = page.locator("#dispute")
+        case_fold = page.locator("[data-case-folded]")
+        case_words = re.compile(rf"^Luke Jones disputed 1 of {len(line_amounts)} charges and asked {re.escape(usd(E['case_back']))} back, [A-Z][a-z]{{2}} \d{{1,2}}, \d{{4}}\.$")
+        check("Settled tab, loaded afresh: the dispute's case is folded to one line naming who disputed what and asked how much back, no figure or charge of it on the page",
+              case_fold.count() == 1 and case_words.match(re.sub(r"\s+", " ", case_fold.first.inner_text()).strip()) is not None
+              and "Their advocate's summary" not in case.inner_text() and "Looks weak" not in case.inner_text() and "Least back by the rules" not in case.inner_text()
+              and case.get_by_role("button", name="Show the case").count() == 1 and case.get_by_role("button", name="Show the case").first.get_attribute("aria-expanded") == "false",
+              f"{case_fold.count()} fold lines reading {case_fold.first.inner_text() if case_fold.count() else None!r}; {case.inner_text()[:300]!r}")
+        case_folded_height = page.evaluate("document.documentElement.scrollHeight")
+        case.get_by_role("button", name="Show the case").click()
+        case.get_by_role("button", name="Hide the case").wait_for(timeout=10_000)
+        case_open_height = page.evaluate("document.documentElement.scrollHeight")
+        check("Settled tab: Show the case brings back the figures, the advocate's summary and the charges, and the fold line goes",
+              case_fold.count() == 0 and "Their advocate's summary" in case.inner_text() and "Looks weak" in case.inner_text()
+              and f"Asks {usd(E['case_back'])} back" in case.inner_text() and "Least back by the rules" in case.inner_text(),
+              f"{case_fold.count()} fold lines; {case.inner_text()[:300]!r}")
+        check("Settled tab: the case's fold takes at least 300 px off the tab", case_open_height - case_folded_height >= 300,
+              f"folded {case_folded_height} px, opened {case_open_height} px")
+        case.get_by_role("button", name="Hide the case").click()
+        case.get_by_role("button", name="Show the case").wait_for(timeout=10_000)
+        check("Settled tab: Hide the case folds it again", case_fold.count() == 1 and "Their advocate's summary" not in case.inner_text(),
+              f"{case_fold.count()} fold lines; {case.inner_text()[:200]!r}")
         sees("Findings final: the Move-out tab keeps the findings the statement was sent with", page,
              "Large carpet stain, center", "Three small wall holes", "Wall hole with cracks", "Grease spots on range")
         check("Findings final: the Move-out tab offers neither Compare again nor Add photos",

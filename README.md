@@ -36,7 +36,7 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 7. **PayPal settlement.** Accept settlement on the tenants' page, then Approve and pay on the property: PayPal refunds the agreed amount against the same deposit payment, and the statement becomes the amended statement.
 8. **Multi-state.** Properties, then 2317 Mesquite Bend Dr, Unit 3, in Austin: the same engine under Texas law, with the "Rules: Tex. Prop. Code ch. 92" chip under the address.
 
-482 N. Glassell St, Unit B shows a finished one: a dispute settled at $270.00 back in two exchanges, a recorded example marked "Demo example"; its thread is folded to one line under the settlement, and Show the thread opens the four turns. Start over, in the account menu, gives your browser a fresh copy. The full walk, the daily limits and the demo data are in [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#the-hosted-demo).
+482 N. Glassell St, Unit B shows a finished one: a dispute settled at $270.00 back in two exchanges, a recorded example marked "Demo example"; its dispute's case is folded to one line and its thread to one line under the settlement, and Show the case and Show the thread open them. Start over, in the account menu, gives your browser a fresh copy. The full walk, the daily limits and the demo data are in [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#the-hosted-demo).
 
 ## See it for yourself
 
@@ -219,7 +219,7 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | `state-packs` 316, `zone` 118, `lawful-range` 167, `negotiation` 142, `paypal-webhook` 175, `grid` 108, `demo-welcome` 71, `chargeback` 148, `jev` 166, `reconcile` 87, `cache` 345, `thumbs` 169, `e2e-stubs` 112, `page-weight` 164 | All passed | CI, every push |
 | `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
-| `e2e-demo.py` on a production build | 198 of 198 | By hand, 2026-11-09 |
+| `e2e-demo.py` on a production build | 203 of 203 | By hand, 2026-11-09 |
 | `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-09 |
 | `npm audit --omit=dev --audit-level=critical` | Clean; 12 advisories below critical, in the toolkit's tree and `zod` 3 ([Security](#security)) | By hand, 2026-11-02 |
 | `align-check.py` on a production build | 8 of 8: 1,639 marks beside text, 695 glyphs in frames and 712 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-11-09 |
