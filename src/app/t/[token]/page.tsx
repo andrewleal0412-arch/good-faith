@@ -19,6 +19,7 @@ import { dayFor, packFor } from "@/lib/states/server";
 import type { StatePack } from "@/lib/states/types";
 import { describeDelivery, recordedWords, type DeliveryRecord } from "@/lib/statement";
 import { resolveTenantToken } from "@/lib/tenant-links";
+import type { Box } from "@/lib/boxes";
 import { loadTenantView, type TenantDeduction, type TenantView } from "@/lib/tenant-view";
 import { MovingOutForm } from "./moving-out-form";
 import { TenantProgress } from "./progress";
@@ -119,7 +120,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
             ) : undefined}>
             {st.standing && <p className="mb-3 text-sm text-ink-2"><span className="font-medium">{st.standing.label}.</span> {st.standing.note}</p>}
             {st.deductions.length
-              ? <ol>{st.deductions.map((d) => <DeductionRow key={d.n} d={d} pack={pack} />)}</ol>
+              ? <ol>{st.deductions.map((d) => <DeductionRow key={d.n} d={d} pack={pack} token={token} />)}</ol>
               : <p className="text-ink-3">None. The whole deposit comes back.</p>}
             {/* The way into the dispute where the charges are, not only at the foot of the page. */}
             {st.deductions.length > 0 && canDispute && (
@@ -509,25 +510,67 @@ function Details({ rows }: { rows: DetailRow[] }) {
 
 /* ---------- Deductions ---------- */
 
-function DeductionRow({ d, pack }: { d: TenantDeduction; pack: StatePack }) {
+function DeductionRow({ d, pack, token }: { d: TenantDeduction; pack: StatePack; token: string }) {
   const tone = d.category === "damage" ? "bg-red-bg text-red" : d.category === "cleaning" ? "bg-amber-bg text-amber" : "bg-surface-2 text-ink-3";
   const tag = pack.tags[d.category];
   return (
-    <li className="flex gap-3 border-t border-line-2 py-3 first:border-t-0 first:pt-0 last:pb-0">
-      <LineMark><span className={`flex size-6 items-center justify-center rounded-sm text-xs font-semibold tabular-nums ${tone}`}>{d.n}</span></LineMark>
-      <div className="min-w-0 flex-1">
-        {/* The thing and what was done to it; where it was and the basis under it. The item as the statement prints it
-            heads the Why? tip, with the math. */}
-        <p className="font-medium">{d.title}</p>
-        <p className="mt-0.5 text-sm text-ink-3">
-          {capFirst([d.room, d.where ? lowerFirst(d.where) : null].filter(Boolean).join(", "))}{d.room || d.where ? ". " : ""}{d.basis}.{" "}
-          <InfoTip trigger="why" align="end" title={tag.label} cite={pack.statute.tagCite(tag.tag)}>
-            {capFirst(d.item)}{d.room ? ` (${d.room})` : ""}: {d.math}.{d.note ? ` ${d.note}` : ""}{d.proration !== "none" ? ` ${pack.tenant.prorationNote}` : ""}
-          </InfoTip>
-        </p>
+    <li className="border-t border-line-2 py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="flex gap-3">
+        <LineMark><span className={`flex size-6 items-center justify-center rounded-sm text-xs font-semibold tabular-nums ${tone}`}>{d.n}</span></LineMark>
+        <div className="min-w-0 flex-1">
+          {/* The thing and what was done to it; where it was and the basis under it. The item as the statement prints it
+              heads the Why? tip, with the math. */}
+          <p className="font-medium">{d.title}</p>
+          <p className="mt-0.5 text-sm text-ink-3">
+            {capFirst([d.room, d.where ? lowerFirst(d.where) : null].filter(Boolean).join(", "))}{d.room || d.where ? ". " : ""}{d.basis}.{" "}
+            <InfoTip trigger="why" align="end" title={tag.label} cite={pack.statute.tagCite(tag.tag)}>
+              {capFirst(d.item)}{d.room ? ` (${d.room})` : ""}: {d.math}.{d.note ? ` ${d.note}` : ""}{d.proration !== "none" ? ` ${pack.tenant.prorationNote}` : ""}
+            </InfoTip>
+          </p>
+        </div>
+        <Money value={d.amount} className="font-medium" />
       </div>
-      <Money value={d.amount} className="font-medium" />
+      {d.photos && <Exhibit d={d} photos={d.photos} token={token} />}
     </li>
+  );
+}
+
+/** The photos the statement's exhibit carries for the charge, here with Claude's box: the move-out photo the finding
+ *  was read from, the box in the charge's color and number, and the move-in photo of the same room beside it with the
+ *  same spot outlined when the inspection placed it. Each is drawn whole (no crop), so a box in fractions of the photo
+ *  lands on the photo; a tile opens the photo itself through the token route, as the move-in grid's do. */
+function Exhibit({ d, photos, token }: { d: TenantDeduction; photos: NonNullable<TenantDeduction["photos"]>; token: string }) {
+  const frame = d.category === "cleaning" ? "border-amber-dot" : "border-red-dot";
+  const badge = d.category === "cleaning" ? "bg-amber" : "bg-red";
+  const room = d.room ?? "the room";
+  const tiles: { id: string; label: string; box: Box | null; reference: boolean }[] = [
+    ...(photos.moveIn ? [{ id: photos.moveIn, label: "Move-in", box: photos.moveInBox, reference: true }] : []),
+    { id: photos.moveOut, label: "Move-out", box: photos.box, reference: false },
+  ];
+  return (
+    <div className="ml-9 mt-2.5 grid grid-cols-2 gap-2" data-exhibit={d.n}>
+      {tiles.map((t) => (
+        <a key={t.id} href={`/api/t/${token}/photos/${t.id}`} target="_blank" rel="noreferrer"
+          aria-label={`${t.label} photo, ${room}${t.box ? `, ${t.reference ? "the same spot outlined" : `box ${d.n} on what was charged`}` : ""}`}
+          className="group relative block overflow-hidden rounded-md border border-line bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img decoding="async" src={`/api/t/${token}/photos/${t.id}?size=thumb`} alt="" loading="lazy" className="block w-full" />
+          {t.box && (
+            <span aria-hidden data-box={t.reference ? "move-in" : "move-out"}
+              className={`absolute rounded-[3px] border-[1.5px] ${t.reference ? "border-dashed border-white/95" : `${frame} shadow-[0_0_0_1px_rgba(255,255,255,.55)]`}`}
+              style={{ left: `${t.box.x * 100}%`, top: `${t.box.y * 100}%`, width: `${t.box.w * 100}%`, height: `${t.box.h * 100}%` }}>
+              {!t.reference && (
+                <span className={`absolute flex size-[18px] items-center justify-center rounded-[5px] text-xs font-semibold text-white shadow-sm ${badge}`}
+                  style={{ left: t.box.x < 0.04 ? 2 : -9, top: t.box.y < 0.05 ? 2 : -9 }}>
+                  {d.n}
+                </span>
+              )}
+            </span>
+          )}
+          <span className="absolute left-1.5 top-1.5 rounded-[4px] bg-white/95 px-1.5 py-px text-[11px] font-medium text-ink-2 shadow-sm">{t.label}</span>
+        </a>
+      ))}
+    </div>
   );
 }
 

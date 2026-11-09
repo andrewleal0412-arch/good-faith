@@ -31,7 +31,7 @@ For small landlords (one condo, a duplex, an ADU) and their tenants in Californi
 2. **Deposit by PayPal.** Properties, then 1140 E. Juniper Hollow Ln, Overview: the signed refund agreement and the deposit paid through a PayPal invoice.
 3. **Move-out boxes.** The same unit's Move-out tab: the photo pairs, Claude's boxes, and the three deductions computed in code, the carpet prorated by its age.
 4. **Refund approval.** Review refund, then Prepare refund (under 60 seconds), then Send refund: $3,790.00 back through PayPal's Agent Toolkit, and the receipt shows PayPal's refund id.
-5. **Tenant dispute.** On the receipt: Send statement, Record delivery, Open the tenant's view. On the tenants' page: Dispute it, pick the carpet, say why, Ask my advocate (about 60 seconds), Send.
+5. **Tenant dispute.** On the receipt: Send statement, Record delivery, Open the tenant's view. On the tenants' page, each charge sits over its move-in and move-out photos with Claude's box on what was charged; then Dispute it, pick the carpet, say why, Ask my advocate (about 60 seconds), Send.
 6. **Two-agent negotiation.** Back on the Move-out tab, Let my negotiator answer: the two agents take turns, up to three exchanges, each turn checked by code before either page shows it.
 7. **PayPal settlement.** Accept settlement on the tenants' page, then Approve and pay on the property: PayPal refunds the agreed amount against the same deposit payment, and the statement becomes the amended statement.
 8. **Multi-state.** Properties, then 2317 Mesquite Bend Dr, Unit 3, in Austin: the same engine under Texas law, with the "Rules: Tex. Prop. Code ch. 92" chip under the address.
@@ -219,7 +219,7 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | `state-packs` 316, `zone` 118, `lawful-range` 167, `negotiation` 142, `paypal-webhook` 175, `grid` 108, `demo-welcome` 71, `chargeback` 148, `jev` 166, `reconcile` 87, `cache` 345, `thumbs` 169, `e2e-stubs` 112, `page-weight` 164 | All passed | CI, every push |
 | `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
-| `e2e-demo.py` on a production build | 189 of 189 | By hand, 2026-11-08 |
+| `e2e-demo.py` on a production build | 198 of 198 | By hand, 2026-11-09 |
 | `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-08 |
 | `npm audit --omit=dev --audit-level=critical` | Clean; 12 advisories below critical, in the toolkit's tree and `zod` 3 ([Security](#security)) | By hand, 2026-11-02 |
 | `align-check.py` on a production build | 8 of 8: 1,639 marks beside text, 695 glyphs in frames and 682 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-11-08 |

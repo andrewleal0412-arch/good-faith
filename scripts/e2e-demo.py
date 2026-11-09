@@ -22,7 +22,9 @@ the words that matter and every money figure against what the code computes, sav
    5. Review refund: the rail in words with PayPal's window from refund-rail.ts, the close-out agent's plan, its
       steps, the approval, the receipt, and on it "PayPal's record": the refund read back from the fake PayPal, its
       fields against what the fake answered when the refund was made, and Check again reading it again (beat 4)
-   6. The itemized statement and its delivery, then the tenants' page (before beat 5)
+   6. The itemized statement and its delivery, then the tenants' page (before beat 5): each charge with its move-in and
+      move-out photos and Claude's box, through the token route, which refused the move-out photos until the statement
+      went out (step 4)
    7. The tenants' dispute and their advocate's case (beat 5)
    8. The two agents' negotiation (beat 6)
    9. The settlement: the tenants accept, the landlord approves and pays, the amended statement (beat 7); then the
@@ -1003,6 +1005,12 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               [g[i][0] for i in range(1, 9)] == ["done", "done", "done", "now", "todo", "todo", "todo", "done"],
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
         sees("Demo guide, Move-out", page, "4 of 8 done")
+        # The tenants' photo route before the statement goes out: a move-in photo is theirs ((g)(1)); a move-out photo is
+        # the landlord's draft until then, and an after-repair photo never leaves the statement's packet.
+        tp = setup["tenantPath"]
+        early = {ph: page.request.get(f"{base}/api{tp}/photos/{ids[0]}?size=thumb").status if ids else None for ph, ids in setup["photos"].items()}
+        check("Tenants' photo route, before the statement: serves a move-in photo, refuses a move-out photo and an after-repair photo",
+              early.get("move_in") == 200 and early.get("move_out_before") == 404 and early.get("move_out_after") in (404, None), json.dumps(early))
         shot(page, "move-out")
         # The README's first picture: the unit's header through the first room's card, boxes drawn and photos loaded.
         def move_out_ready(p):
@@ -1160,6 +1168,37 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         t = sees("Tenants' page", tenant, "Your deposit refund", "1140 E. Juniper Hollow Ln", f"Refund amount\n\n{R}", f"Deposit paid\n{D}", f"Deductions\n−{P}", f"Refund\n{R}",
                  rid, "Bedroom carpet, replaced", "Right wall, repaired", "Range, cleaned", "Dispute it", "Itemized statement")
         only_amounts("Tenants' page", t, [E["refund"], E["deposit"], E["deductions"], *line_amounts, 50.0, 125.0])
+        # Each charge shows the photos the statement's exhibit carries, the move-in and move-out photos of the room, here with
+        # Claude's box on the move-out photo in the charge's color and number, so the tenants see what they are charged for
+        # on the page they dispute it from, not only the plain photos inside the PDF. The photos come through the token route, which serves
+        # the move-out photos now that the statement has gone out, and never a storage path.
+        ex = tenant.locator("[data-exhibit]")
+        check("Tenants' page: each of the three charges shows its move-in and move-out photos", ex.count() == 3 and all(ex.nth(i).locator("img").count() == 2 for i in range(ex.count())),
+              f"{ex.count()} exhibits, images {[ex.nth(i).locator('img').count() for i in range(ex.count())]}")
+        for i in range(ex.count()):
+            ex.nth(i).scroll_into_view_if_needed()
+        tenant.wait_for_function("() => { const xs = [...document.querySelectorAll('[data-exhibit] img')]; return xs.length >= 6 && xs.every(i => i.complete && i.naturalWidth > 0); }", timeout=30_000)
+        srcs = tenant.locator("[data-exhibit] img").evaluate_all("els => els.map(e => e.getAttribute('src'))")
+        check("Tenants' page: the exhibits' photos load through the token route, none by a storage path",
+              len(srcs) == 6 and all(src.startswith(f"/api{setup['tenantPath']}/photos/") and src.endswith("?size=thumb") for src in srcs), json.dumps(srcs))
+        out_ids = {src.split("/photos/")[1].split("?")[0] for src in srcs if src.startswith(f"/api{setup['tenantPath']}/photos/")}
+        check("Tenants' page: the exhibits' photos are this unit's move-in and move-out photos, no after-repair photo among them",
+              out_ids <= set(setup["photos"]["move_in"]) | set(setup["photos"]["move_out_before"]) and len(out_ids & set(setup["photos"]["move_out_before"])) >= 1,
+              json.dumps(sorted(out_ids)))
+        boxes_t = tenant.locator("[data-exhibit] [data-box='move-out']")
+        box_px = boxes_t.evaluate_all("els => els.map(e => { const r = e.getBoundingClientRect(), p = e.closest('a').getBoundingClientRect(); return [r.width, r.height, r.left >= p.left - 1, r.top >= p.top - 1, r.right <= p.right + 1, r.bottom <= p.bottom + 1]; })")
+        # (cleanBox's smallest box is 3 percent of the photo, about 7.7 px in a 258 px tile, so the floor is 6 px.)
+        check("Tenants' page: Claude's box is drawn on each charge's move-out photo, inside the photo and at least 6 px a side",
+              len(box_px) == 3 and all(w >= 6 and h >= 6 and all(f) for w, h, *f in box_px), json.dumps(box_px))
+        nums = tenant.locator("[data-exhibit] [data-box='move-out']").evaluate_all("els => els.map(e => e.textContent.trim())")
+        check("Tenants' page: each box carries its charge's number", nums == ["1", "2", "3"], json.dumps(nums))
+        labels = tenant.locator("[data-exhibit] a").evaluate_all("els => els.map(e => e.getAttribute('aria-label'))")
+        check("Tenants' page: the carpet's exhibit names the room and its box",
+              any(l and l.startswith("Move-out photo, Bedroom 1") and "box 1 on what was charged" in l for l in labels), json.dumps(labels))
+        full = tenant.request.get(f"{base}/api{setup['tenantPath']}/photos/{setup['photos']['move_out_before'][0]}")
+        check("Tenants' photo route, after the statement: serves a move-out photo at full size as an image", full.status == 200 and full.headers.get("content-type", "").startswith("image/"), f"{full.status} {full.headers.get('content-type')}")
+        after_ph = setup["photos"]["move_out_after"]
+        check("Tenants' photo route, after the statement: still refuses an after-repair photo", not after_ph or tenant.request.get(f"{base}/api{setup['tenantPath']}/photos/{after_ph[0]}?size=thumb").status == 404, "after-repair photo served")
         shot(tenant, "tenants-page")
 
         # 7. The tenants' dispute and their advocate's case (beat 5).

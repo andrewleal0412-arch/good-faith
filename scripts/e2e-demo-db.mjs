@@ -100,6 +100,10 @@ async function setup() {
     const { data: link } = await db.from("tenant_links").select("id").eq("tenancy_id", state.units.move_out).is("revoked_at", null).maybeSingle();
     const token = link ? links.demoTenantToken(link.id) : null;
     const issued = session.issueSession("demo", secret, { ws });
+    // The move-out unit's photos by phase, so the walk can ask the tenants' photo route for a move-out photo before the
+    // statement goes out (refused) and after (served, under its charge with the box).
+    const { data: photoRows } = await db.from("photos").select("id, phase").eq("tenancy_id", state.units.move_out).order("created_at");
+    state.photos = Object.fromEntries(["move_in", "move_out_before", "move_out_after"].map((ph) => [ph, (photoRows ?? []).filter((p) => p.phase === ph).map((p) => p.id)]));
     return { ok: true, ...state, tenantPath: token ? `/t/${token}` : null, sid: issued.session.sid, cookie: { name: session.SESSION_COOKIE, value: issued.value } };
   } catch (e) {
     const r = await removeCopy(ws, null).catch((x) => ({ ok: false, error: x instanceof Error ? x.message : String(x) }));

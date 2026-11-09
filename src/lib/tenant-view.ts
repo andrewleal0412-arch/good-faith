@@ -12,6 +12,9 @@ import { disputeReturns, settledExtra } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { Standing, StateCode } from "./states/types";
 import { recordedLater } from "./delivery";
+import type { StoredFinding } from "./findings";
+import { cleanBox, type Box } from "./boxes";
+import type { FindingSnapshot } from "./lawful-range";
 import type { Category, DeliveryRecord } from "./statement";
 import type { TenantMoveOut } from "./tenant";
 
@@ -64,25 +67,38 @@ export type TenantDeduction = {
   n: number; item: string; room: string | null; category: Category; amount: number;
   work: Work; performer: Performer; proration: Proration; math: string; note: string | null;
   title: string; where: string | null; basis: string; // the page's title, where it was and its basis in a few words
+  // The photos the statement's exhibit carries for this charge, here with Claude's box: the move-out photo the finding
+  // was read from, with its box (fractions of the photo, checked by cleanBox) in the deduction's own color, and the
+  // move-in photo of the same room beside it, the same spot outlined when the inspection placed it. Each is a photo id
+  // the token route serves (move-out photos only once the statement is delivered, which is the only time these rows
+  // exist). Null for a charge with no photos behind it (unpaid rent, a finding whose photos are gone).
+  photos: { moveOut: string; box: Box | null; moveIn: string | null; moveInBox: Box | null } | null;
 };
 
-const TENANCY_COLUMNS = "tenants, start_date, end_date, notice_given_on, planned_move_out, move_out_date, move_out_inspected_at, statement_delivered_at, statement_delivery, statement_delivery_recorded_at, refund_agreement, tenant_move_out, notices, properties(address, owner_name, state)";
-const DEDUCTION_COLUMNS = "item, room, category, amount, work, performer, proration, math, note, hours, hourly_rate, item_age_years, useful_life_years";
+const TENANCY_COLUMNS = "tenants, start_date, end_date, notice_given_on, planned_move_out, move_out_date, move_out_inspected_at, move_out_findings, statement_delivered_at, statement_delivery, statement_delivery_recorded_at, refund_agreement, tenant_move_out, notices, properties(address, owner_name, state)";
+const DEDUCTION_COLUMNS = "item, room, category, amount, work, performer, proration, math, note, hours, hourly_rate, item_age_years, useful_life_years, finding";
 type DeductionRow = {
   item: string; room: string | null; category: Category; amount: number | string; work: Work; performer: Performer; proration: Proration; math: string; note: string | null;
   hours: number | string | null; hourly_rate: number | string | null; item_age_years: number | string | null; useful_life_years: number | string | null;
+  finding: FindingSnapshot | null; // the inspection finding the row came from, with its photos' paths and its boxes
 };
 const num = (v: number | string | null) => (v == null ? null : Number(v));
+
+/** Whether the itemized statement has gone out: its delivery recorded with its moment. Until then the deductions are
+ *  the landlord's draft, and so are the move-out photos (the tenants' photo route reads this too). */
+export const statementDelivered = (t: { statement_delivered_at: unknown; statement_delivery: unknown }) => !!t.statement_delivered_at && !!t.statement_delivery;
 
 export async function loadTenantView(tenancyId: string): Promise<TenantView | null> {
   const { data: t } = await db.from("tenancies").select(TENANCY_COLUMNS).eq("id", tenancyId).single();
   if (!t) return null;
-  const delivered = !!t.statement_delivered_at && !!t.statement_delivery;
+  const delivered = statementDelivered(t);
   const prop = t.properties as unknown as { address: string; owner_name: string | null; state?: string | null } | null;
   const pack = packFor(prop?.state);
   const [{ data: payments }, { data: photos }, { data: deductionRows }, { count: deductionCount }] = await Promise.all([
     db.from("payments").select("id, kind, paypal_id, amount, status, raw, created_at").eq("tenancy_id", tenancyId).order("created_at"),
-    db.from("photos").select("id, room").eq("tenancy_id", tenancyId).eq("phase", "move_in").order("created_at"),
+    // The move-in photos for the page's grid, and once the statement is delivered the move-out photos its deductions
+    // were read from, so each charge can show its exhibit; before that the move-out photos stay with the landlord.
+    db.from("photos").select("id, room, phase, storage_path").eq("tenancy_id", tenancyId).in("phase", delivered ? ["move_in", "move_out_before"] : ["move_in"]).order("created_at"),
     delivered ? db.from("deductions").select(DEDUCTION_COLUMNS).eq("tenancy_id", tenancyId).order("created_at") : Promise.resolve({ data: [] }),
     // Whether any deduction is drafted, for a state whose deadline turns on a claim (Florida); never shown.
     db.from("deductions").select("id", { count: "exact" }).eq("tenancy_id", tenancyId).limit(1),
@@ -113,12 +129,26 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
   });
   let statement: TenantView["statement"] = null;
   if (delivered) {
+    // Each deduction's photos: the photo ids behind the finding's paths (the path itself carries the tenancy id and
+    // never reaches the page) and the finding's boxes, the live finding's by its id (an inspection re-boxed since the
+    // deduction was made), else the deduction's own snapshot of it, as the dispute's case file reads them
+    // (disputes.ts, boxesFor). Never another finding's: several findings share a room's pair of photos.
+    const idByPath = new Map((photos ?? []).map((p) => [p.storage_path as string, p.id as string]));
+    const findings = ((t.move_out_findings ?? []) as StoredFinding[]);
+    const exhibit = (d: DeductionRow): TenantDeduction["photos"] => {
+      const moveOut = d.finding?.moveOutPath ? idByPath.get(d.finding.moveOutPath) ?? null : null;
+      if (!moveOut) return null;
+      const live = d.finding?.id ? findings.find((x) => x.id === d.finding?.id) : undefined;
+      const moveIn = d.finding?.moveInPath ? idByPath.get(d.finding.moveInPath) ?? null : null;
+      return { moveOut, box: cleanBox(live?.box ?? d.finding?.box), moveIn, moveInBox: moveIn ? cleanBox(live?.moveInBox ?? d.finding?.moveInBox) : null };
+    };
     // The statement's order and numbers: rent, then damage, then cleaning, each in the order entered.
     const rows: TenantDeduction[] = ((deductionRows ?? []) as DeductionRow[])
       .map((d) => ({
         item: d.item, room: d.room, category: d.category, amount: Number(d.amount), work: d.work, performer: d.performer, proration: d.proration, math: d.math, note: d.note ?? null,
         ...(d.category === "rent" ? { title: d.item, where: null } : chargeTitle(d.item, d.work)),
         basis: basisWords({ category: d.category, performer: d.performer, proration: d.proration, hours: num(d.hours), hourlyRate: num(d.hourly_rate), itemAgeYears: num(d.item_age_years), usefulLifeYears: num(d.useful_life_years) }),
+        photos: d.category === "rent" ? null : exhibit(d),
       }))
       .sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category])
       .map((d, i) => ({ n: i + 1, ...d }));
@@ -170,7 +200,7 @@ export async function loadTenantView(tenancyId: string): Promise<TenantView | nu
     startDate: t.start_date, endDate: t.end_date,
     deposit,
     agreement: a ? { text: a.text ?? null, paypalEmail: a.paypal_email, signedBy: a.signed_by, signedAt: a.signed_at } : null,
-    photos: (photos ?? []).map((p) => ({ id: p.id as string, room: p.room as string })),
+    photos: (photos ?? []).filter((p) => p.phase === "move_in").map((p) => ({ id: p.id as string, room: p.room as string })),
     noticeGivenOn: t.notice_given_on, plannedMoveOut: t.planned_move_out, moveOutDate: t.move_out_date, inspectedAt: t.move_out_inspected_at,
     statementDue,
     moveOut: (t.tenant_move_out ?? null) as TenantMoveOut | null,
