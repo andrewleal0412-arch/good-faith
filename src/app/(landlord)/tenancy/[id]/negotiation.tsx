@@ -40,6 +40,13 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
 
   const s = v.settlement;
   const settled = v.status === "settled" || s?.status === "sent";
+  // A page that arrives with the dispute already settled keeps the thread folded to one line (its turns and exchanges,
+  // the first ask and the figure agreed) behind Show the thread, so the photo comparison and the deductions under this
+  // card are not a thread's length down the settled tab; a page that watched it settle keeps the thread open, since
+  // that is what it was reading. Read once, when the card mounts.
+  const [threadOpen, setThreadOpen] = useState(!settled);
+  const foldable = settled && v.turns.length > 1;
+  const threadExchanges = Math.ceil((v.turns.length - 1) / 2);
 
   // While the agents negotiate (started here, in another tab, or before a reload), and for as long as the tenants may
   // still move it (accept the settlement, answer an offer, withdraw: any sent dispute that isn't settled or withdrawn),
@@ -278,9 +285,23 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
           "Approve and pay" that found the first one already paid, after a dropped connection) no longer applies. */}
       {error && !settled && <div className="border-b border-line-2 px-5 py-3"><Notice>{error}</Notice></div>}
 
-      <div className="px-5 py-1">
-        <NegotiationThread turns={v.turns} perspective="landlord" names={names} working={working} />
-      </div>
+      {/* Settled: one line over the thread (its turns and exchanges, counted from the thread itself, since a human
+          turn is an exchange too; the first ask and the figure agreed) with the one toggle that folds and opens it. */}
+      {foldable && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-2 px-5 py-3.5">
+          <p className="min-w-0 flex-1 text-sm text-ink-2" data-thread-folded={threadOpen ? undefined : v.turns.length}>
+            {v.turns.length} turns in {threadExchanges} exchange{threadExchanges === 1 ? "" : "s"}: from {usd(v.turns[0].amountBack)} asked back to {usd(s?.amount ?? v.tenantBack)} agreed.
+          </p>
+          <button type="button" aria-expanded={threadOpen} aria-controls="negotiation-thread" className="text-sm font-medium text-brand hover:underline" onClick={() => setThreadOpen((o) => !o)}>
+            {threadOpen ? "Hide the thread" : "Show the thread"}
+          </button>
+        </div>
+      )}
+      {(!foldable || threadOpen) && (
+        <div id="negotiation-thread" className="px-5 py-1">
+          <NegotiationThread turns={v.turns} perspective="landlord" names={names} working={working} />
+        </div>
+      )}
 
       {canOffer && !noOtherOffer && (
         <div className="border-t border-line-2 px-5 py-3.5">

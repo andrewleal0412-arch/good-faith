@@ -1351,6 +1351,13 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               len(sets) == 1 and sets[0]["status"] == "sent" and abs(float(sets[0]["amount"]) - E["settled"]) < 0.005 and len(spay) == 1 and sid.startswith("E2E") and sid != rid,
               json.dumps({"settlements": sets, "payments": spay})[:500])
         sees("Settled", page, "Closed", f"Settled: {usd(E['settled'])} back", sid, "Amended statement")
+        # The page that watched the settlement land keeps the thread open: every turn still on it, no fold line, and
+        # Hide the thread offered under it (negotiation.tsx reads the fold once, when the card mounts).
+        check("Settled: the page that watched it settle keeps the thread open, every turn on it, with Hide the thread over it",
+              page.get_by_role("button", name=re.compile(r"^Checked$")).count() == want_turns and page.locator("[data-thread-folded]").count() == 0
+              and page.get_by_role("button", name="Hide the thread").count() == 1 and page.get_by_role("button", name="Show the thread").count() == 0,
+              f"{page.get_by_role('button', name=re.compile(r'^Checked$')).count()} Checked marks, {page.locator('[data-thread-folded]').count()} fold lines, "
+              f"{page.get_by_role('button', name='Hide the thread').count()} Hide, {page.get_by_role('button', name='Show the thread').count()} Show")
         # The tab's strip agrees with the Payments tab once the settlement is paid: the deductions as settled with the
         # statement's total under them, and the hero is everything returned, the refund and the settlement together.
         sees("Settled: the strip reads the deductions as settled", page, f"Deductions as settled\n{usd(E['kept'])}", f"{usd(E['deductions'])} less {usd(E['settled'])} settled")
@@ -1560,6 +1567,32 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               answered["status"] == 409 and (answered.get("body") or {}).get("error") == "The deposit has already been returned, so the findings are final.",
               json.dumps(answered)[:300])
         go(page, f"/tenancy/{mo}?tab=move-out")
+        # A fresh load of the settled tab folds the thread to one line (negotiation.tsx): the turns and exchanges, the
+        # first ask and the settled figure, no turn on the page, and the settlement line still above it with its PayPal
+        # id; Show the thread brings every turn back with its Checked mark. The tab's height is read before and after,
+        # so the fold is worth what it says: the thread's whole height.
+        fold = page.locator("[data-thread-folded]")
+        exchanges = len(E["turns_back"]) // 2 + len(E["turns_back"]) % 2
+        fold_words = f"{want_turns} turns in {exchanges} exchange{'' if exchanges == 1 else 's'}: from {usd(E['case_back'])} asked back to {usd(E['settled'])} agreed."
+        folded_height = page.evaluate("document.documentElement.scrollHeight")
+        check("Settled tab, loaded afresh: the thread is folded to one line with its turns, exchanges, first ask and settled figure, no turn on the page",
+              fold.count() == 1 and re.sub(r"\s+", " ", fold.first.inner_text()).strip() == fold_words
+              and page.get_by_role("button", name=re.compile(r"^Checked$")).count() == 0 and "Their advocate" not in page.locator("#negotiation").inner_text()
+              and page.get_by_role("button", name="Show the thread").count() == 1 and page.get_by_role("button", name="Show the thread").first.get_attribute("aria-expanded") == "false",
+              f"{fold.count()} fold lines reading {fold.first.inner_text() if fold.count() else None!r}; {page.get_by_role('button', name=re.compile(r'^Checked$')).count()} Checked marks")
+        sees("Settled tab, loaded afresh: the settlement line stays above the fold with its PayPal id", page, f"Settled: {usd(E['settled'])} back", sid, "Amended statement")
+        shot(page, "settled-folded")
+        page.get_by_role("button", name="Show the thread").click()
+        page.get_by_role("button", name="Hide the thread").wait_for(timeout=10_000)
+        opened_height = page.evaluate("document.documentElement.scrollHeight")
+        check(f"Settled tab: Show the thread brings back every one of the {want_turns} turns with their Checked marks, and the fold line goes",
+              page.get_by_role("button", name=re.compile(r"^Checked$")).count() == want_turns and fold.count() == 0 and f"Gives {usd(E['settled'])} back" in text(page),
+              f"{page.get_by_role('button', name=re.compile(r'^Checked$')).count()} Checked marks, {fold.count()} fold lines")
+        check("Settled tab: the fold takes at least 300 px off the tab (four turns at about 100 px each)", opened_height - folded_height >= 300, f"folded {folded_height} px, opened {opened_height} px")
+        page.get_by_role("button", name="Hide the thread").click()
+        page.get_by_role("button", name="Show the thread").wait_for(timeout=10_000)
+        check("Settled tab: Hide the thread folds it again", fold.count() == 1 and page.get_by_role("button", name=re.compile(r"^Checked$")).count() == 0,
+              f"{fold.count()} fold lines, {page.get_by_role('button', name=re.compile(r'^Checked$')).count()} Checked marks")
         sees("Findings final: the Move-out tab keeps the findings the statement was sent with", page,
              "Large carpet stain, center", "Three small wall holes", "Wall hole with cracks", "Grease spots on range")
         check("Findings final: the Move-out tab offers neither Compare again nor Add photos",
