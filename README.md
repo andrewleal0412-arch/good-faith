@@ -220,9 +220,9 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |
 | `e2e-demo.py` on a production build | 198 of 198 | By hand, 2026-11-09 |
-| `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-08 |
+| `a11y-check.py` on a production build | 397 of 397, no serious or critical axe violation | By hand, 2026-11-09 |
 | `npm audit --omit=dev --audit-level=critical` | Clean; 12 advisories below critical, in the toolkit's tree and `zod` 3 ([Security](#security)) | By hand, 2026-11-02 |
-| `align-check.py` on a production build | 8 of 8: 1,639 marks beside text, 695 glyphs in frames and 682 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-11-08 |
+| `align-check.py` on a production build | 8 of 8: 1,639 marks beside text, 695 glyphs in frames and 712 labels in boxes on 102 views, none off by more than 0.75 px | By hand, 2026-11-09 |
 
 What each script checks, and how the end-to-end test builds and stubs: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#checks-and-the-end-to-end-test).
 
