@@ -8,7 +8,7 @@ the words that matter and every money figure against what the code computes, sav
       around its own part of the page, at computer and phone width; its last button to the move-out photos; seen
       once (Back from the refund review included), then again from the menu; a page change under the tour ends it.
       At the end (12e) it is opened again and says the deposit is closed out
-   1. Properties: the three units, the Texas unit's Rules chip (beat 8), and the demo guide's eight beats, each
+   1. Properties: the three units, the Texas unit's Rules chip (beat 7), and the demo guide's seven beats, each
       linking to where that beat happens in this copy. The four beats the copy already holds (the lease, the deposit,
       the photo comparison, the Texas unit) tick only once this browser opens their page: none under the welcome card
       in step 0, the photo beat where the tour's last button lands (on the Move-out tab the guide is one line, the
@@ -42,9 +42,9 @@ the words that matter and every money figure against what the code computes, sav
   12. The demo guide's own ground: a property's tab switched in place (no load) ticks the look beat whose page it is,
       and the cookie keeps it; a move-out date set on the Texas unit leaves every step where it was (the unit each
       beat runs on is the address the demo script names, not the copy's latest move-out); its route answers with the
-      copy's eight steps; a click from one page to another makes it read them again rather than keep the last page's;
+      copy's seven steps; a click from one page to another makes it read them again rather than keep the last page's;
       its state (one line off Properties until the browser chooses, the head's choice holding on every page, Hide
-      putting it away for the browser, a reload keeping it away, the account menu bringing it back). Its eight steps
+      putting it away for the browser, a reload keeping it away, the account menu bringing it back). Its seven steps
       and the two properties they name are also checked against the beat table of docs/DEMO_SCRIPT.md, with no browser;
       so is the README's Checks section: its CI row names the scripts .github/workflows/checks.yml runs, and its
       sentence (and HOW_IT_WORKS's) counts those scripts and gives that row's sum of assertions
@@ -686,10 +686,10 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
     check(f"deductions: {usd(E['deductions'])} in all, the demo's {usd(DEMO['deductions'])}; refund {usd(E['refund'])}, the demo's {usd(DEMO['refund'])}",
           abs(E["deductions"] - DEMO["deductions"]) < 0.005 and abs(E["refund"] - DEMO["refund"]) < 0.005 and abs(E["deposit"] - DEMO["deposit"]) < 0.005,
           json.dumps({k: E[k] for k in ("deposit", "deductions", "refund")}))
-    # The demo guide's eight steps are docs/DEMO_SCRIPT.md's eight beats: the same numbers and titles, in its order
+    # The demo guide's seven steps are docs/DEMO_SCRIPT.md's seven beats: the same numbers and titles, in its order
     # (src/lib/demo-guide.ts). Checked here, so a beat renamed or reordered in one file fails until it moves in both.
     beats, guided = doc_beats(), guide_beats()
-    check(f"demo guide: the demo script has eight numbered beats ({len(beats)} found)", len(beats) == 8, json.dumps(beats))
+    check(f"demo guide: the demo script has seven numbered beats ({len(beats)} found)", len(beats) == 7, json.dumps(beats))
     check("demo guide: its steps are those beats, by number and title, in that order", beats == guided,
           f"the demo script has {json.dumps(beats)}, the guide {json.dumps(guided)}")
     # The guide picks the unit a beat runs on by the address that beat's own row names, so nothing a judge does in the
@@ -697,7 +697,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
     units_named, rows = guide_units(), doc_beat_rows()
     astray = {n: u for n, u in units_named.items() if u not in rows.get(n, "")}
     check("demo guide: the live unit and the second state's unit are the ones their own beats name in the demo script",
-          2 in units_named and 8 in units_named and not astray, f"the guide names {json.dumps(units_named)}; astray {json.dumps(astray)}")
+          1 in units_named and 7 in units_named and not astray, f"the guide names {json.dumps(units_named)}; astray {json.dumps(astray)}")
     # The README's Checks section against the tree: the CI row of its table names the scripts checks.yml runs, and its
     # sentence counts those scripts ("fourteen") and gives that row's sum of assertions (HOW_IT_WORKS's sentence too).
     # The row's counts are refreshed by hand from a run of the scripts, so a refresh that moves the row without the
@@ -769,18 +769,18 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         words = re.sub(r"\s+", " ", card.inner_text()) if card.count() else ""
         want = ["You're the landlord at Harbor View Rentals",
                 f"Luke Jones and Lane Forti moved out of 1140 E. Juniper Hollow Ln. Close out their {dep} deposit. California gives you 21 days.",
-                "PayPal runs in its sandbox", "8 steps, ticked off in the checklist"]
+                "PayPal runs in its sandbox", "7 steps, ticked off in the checklist"]
         check("Welcome: the card opens on Properties, with the copy's own tenants, unit, deposit and clock",
               card.count() == 1 and all(w.lower() in words.lower() for w in want), f"wanted {want}; the card reads {words[:500]!r}")
-        # The guide under the card, on a browser that has opened nothing yet: the four beats the copy already holds
-        # (the lease, the deposit, the photo comparison, the Texas unit) are not ticked until this browser opens their
-        # page (LOOK_BEATS, src/lib/demo-guide.ts), so a fresh copy reads none done, the lease check next.
+        # The guide under the card, on a browser that has opened nothing yet: the three beats the copy already holds
+        # (the photo comparison, the lease, the Texas unit) are not ticked until this browser opens their page
+        # (LOOK_BEATS, src/lib/demo-guide.ts), so a fresh copy reads none done, the move-out photos next.
         page.locator('[data-guide-step="1"][data-guide-state="now"]').wait_for(timeout=10_000)
         g = guide(page)
-        check("Demo guide: a fresh copy has nothing ticked, the beats it already holds included, and the lease check is next",
-              [g[i][0] for i in range(1, 9)] == ["now", "todo", "todo", "todo", "todo", "todo", "todo", "todo"],
+        check("Demo guide: a fresh copy has nothing ticked, the beats it already holds included, and the move-out photos are next",
+              [g[i][0] for i in range(1, 8)] == ["now", "todo", "todo", "todo", "todo", "todo", "todo"],
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
-        sees("Demo guide, fresh", page, "0 of 8 done")
+        sees("Demo guide, fresh", page, "0 of 7 done")
         shot(page, "welcome")
         page.get_by_role("button", name="Show me around").click()
         RING = """(sel) => {
@@ -825,7 +825,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
             if len(stops) < 4:
                 pop.get_by_role("button", name="Next").click()
         check("Welcome tour: four stops, in order, each ringing its own part of Properties on screen",
-              [s["title"] for s in stops] == ["Your move-out", "What the law needs next", "A second state", "Your 8 steps"]
+              [s["title"] for s in stops] == ["Your move-out", "What the law needs next", "A second state", "Your 7 steps"]
               and [s["count"] for s in stops] == ["1 of 4", "2 of 4", "3 of 4", "4 of 4"]
               and all(s["ring"] and s["ring"]["around"] and s["ring"]["seen"] for s in stops), json.dumps(stops))
         page.get_by_role("link", name="Start with the move-out").click()
@@ -833,19 +833,19 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         seen = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_welcome"]
         check("Welcome tour: its last button opens the move-out photos, and the browser keeps that it has seen the welcome",
               seen == ["seen"], f"the cookie: {seen}")
-        # That page is beat 3's, so the guide ticks the photo beat here, the first tick of the walk. Off Properties, until
+        # That page is beat 1's, so the guide ticks the photo beat here, the first tick of the walk. Off Properties, until
         # this browser chooses otherwise, the guide is its one line (guideDefault, src/lib/demo-guide.ts): no rows, the
         # count, and the next beat as a link to its page, so the photos the tour sent the judge to are not pushed down
         # by the checklist. A judge's click on its head opens the rows, and that choice holds on every page from here.
-        page.wait_for_function("() => document.querySelector('[data-guide-count]')?.textContent === '1 of 8 done'", timeout=10_000)
+        page.wait_for_function("() => document.querySelector('[data-guide-count]')?.textContent === '1 of 7 done'", timeout=10_000)
         line = guide_line(page)
-        check("Demo guide: on the Move-out tab the tour opened, with no choice made yet, it is one line under 64 px: no rows, the count with the photo beat ticked, and the next beat, the lease check, as a link to Check a lease",
-              line["rows"] == 0 and line["expanded"] == "false" and line["count"] == "1 of 8 done" and line["next"] == "1"
-              and (line["next_text"] or "").startswith("Next: 1. Lease check") and line["next_href"] == "/lease" and 0 < line["height"] < 64, json.dumps(line))
+        check("Demo guide: on the Move-out tab the tour opened, with no choice made yet, it is one line under 64 px: no rows, the count with the photo beat ticked, and the next beat, the refund, as a link to Review refund",
+              line["rows"] == 0 and line["expanded"] == "false" and line["count"] == "1 of 7 done" and line["next"] == "2"
+              and (line["next_text"] or "").startswith("Next: 2. Refund approval") and line["next_href"] == f"/tenancy/{mo}/refund" and 0 < line["height"] < 64, json.dumps(line))
         page.locator("section[aria-label='Demo guide']").get_by_role("button", name=re.compile(r"^Demo guide")).click()
-        page.wait_for_function("() => document.querySelector('[data-guide-step=\"3\"]')?.dataset.guideState === 'done'", timeout=10_000)
+        page.wait_for_function("() => document.querySelector('[data-guide-step=\"1\"]')?.dataset.guideState === 'done'", timeout=10_000)
         chose = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_guide"]
-        check("Demo guide: its head opens the eight rows, the photo beat ticked, and the browser keeps the choice", guide(page)[3][0] == "done" and chose == ["open"],
+        check("Demo guide: its head opens the seven rows, the photo beat ticked, and the browser keeps the choice", guide(page)[1][0] == "done" and chose == ["open"],
               f"{json.dumps(guide(page))}; cookie {chose}")
         # The refund review has its own layout, and Back from it brings the landlord pages back from the browser's
         # history as they were first drawn, before the welcome was seen: Properties still opens without it.
@@ -882,7 +882,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Welcome tour: a page change under it ends it, and Properties opens again without it",
               left == {"stop": 0, "card": 0, "overflow": "visible"}, json.dumps(left))
 
-        # 1. Properties (and beat 8: the Texas unit under its own rules).
+        # 1. Properties (and beat 7: the Texas unit under its own rules).
         go(page, "/units")
         t = sees("Properties", page, "Properties", "1140 E. Juniper Hollow Ln", "482 N. Glassell St, Unit B", "2317 Mesquite Bend Dr, Unit 3",
                  "Move-out review", "Notice given", "Closed")
@@ -891,53 +891,79 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         sees("Properties: deposits held", page, f"Deposits held\n{usd(E['portfolio']['held'])}")
         shot(page, "properties")
 
-        # 1b. The demo guide (components/demo-guide.tsx): the eight beats above every page of a judge's own copy, each
-        # a link into this copy. The four beats the copy was made with (the lease Claude read, the paid deposit, the
-        # photo comparison, the unit in the second state) are held by its rows but ticked only once this browser has
+        # 1b. The demo guide (components/demo-guide.tsx): the seven beats above every page of a judge's own copy, each
+        # a link into this copy. The three beats the copy was made with (the photo comparison, the lease Claude read,
+        # the unit in the second state) are held by its rows but ticked only once this browser has
         # opened their page (LOOK_BEATS, src/lib/demo-guide.ts): the tour's last button opened the Move-out tab, so the
         # photo beat is ticked and nothing else is; the live part, from the refund on, is ticked by the copy's rows.
         g = guide(page)
-        check("Demo guide: the eight beats are listed in order", sorted(g) == [1, 2, 3, 4, 5, 6, 7, 8], f"{sorted(g)}")
-        check("Demo guide: after the tour, the photo beat alone is ticked, the other beats the copy holds wait to be opened, and the lease check is next",
-              [g[i][0] for i in range(1, 9)] == ["now", "todo", "done", "todo", "todo", "todo", "todo", "todo"],
+        check("Demo guide: the seven beats are listed in order", sorted(g) == [1, 2, 3, 4, 5, 6, 7], f"{sorted(g)}")
+        check("Demo guide: after the tour, the photo beat alone is ticked, the other beats the copy holds wait to be opened, and the refund is next",
+              [g[i][0] for i in range(1, 8)] == ["done", "now", "todo", "todo", "todo", "todo", "todo"],
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
-        sees("Demo guide", page, "Demo guide", "1 of 8 done", "1. Lease check", "4. Refund approval", "8. Multi-state",
-             "Claude boxes what changed between the photos.")
-        want = {1: "/lease", 2: f"/tenancy/{mo}#move-in", 3: f"/tenancy/{mo}?tab=move-out#photos", 4: f"/tenancy/{mo}/refund",
-                5: f"/tenancy/{mo}/statement#delivery", 6: f"/tenancy/{mo}?tab=move-out#negotiation",
-                7: f"/tenancy/{mo}?tab=move-out#negotiation", 8: f"/tenancy/{tx}"}
+        sees("Demo guide", page, "Demo guide", "1 of 7 done", "1. Move-out boxes", "2. Refund approval", "6. Lease check", "7. Multi-state",
+             "Claude boxes what changed between the move-in and move-out photos.")
+        want = {1: f"/tenancy/{mo}?tab=move-out#photos", 2: f"/tenancy/{mo}/refund", 3: f"/tenancy/{mo}/statement#delivery",
+                4: f"/tenancy/{mo}?tab=move-out#negotiation", 5: f"/tenancy/{mo}?tab=move-out#negotiation", 6: "/lease", 7: f"/tenancy/{tx}"}
         wrong = {k: g[k][1] for k in want if g[k][1] != want[k]}
         check("Demo guide: every step opens that beat's own page and card in this copy", not wrong, f"wanted {json.dumps(want)}, got {json.dumps(wrong)}")
 
+        # 1c. The next-step bar (components/guide-bar.tsx): one line at the foot of the page with the one control to press
+        # next; Take me there opens that control's page, scrolls it into view and rings it, and the bar never covers it,
+        # at phone width too.
+        bar = page.locator("[data-guide-bar]")
+        bar.wait_for(timeout=10_000)
+        page.wait_for_function("() => /Step 2 of 7:\\s*press Prepare refund/.test(document.querySelector('[data-guide-bar]')?.innerText ?? '')", timeout=10_000)
+        check("Next-step bar: on Properties it reads Step 2 of 7, press Prepare refund", True)
+        bar.get_by_role("button", name="Take me there").click()
+        page.wait_for_url(re.compile(rf"/tenancy/{mo}/refund$"), timeout=30_000)
+        CLEAR = """(t) => { const el = document.querySelector(`[data-guide-ring][data-guide-target="${t}"]`), b = document.querySelector('[data-guide-bar]');
+          if (!el || !b) return null; const r = el.getBoundingClientRect(), q = b.getBoundingClientRect();
+          return { seen: r.top >= 0 && r.bottom <= innerHeight, clear: r.bottom <= q.top, ring: getComputedStyle(el).outlineStyle }; }"""
+        page.wait_for_function(f"() => !!({CLEAR})('prepare-refund')?.seen", timeout=15_000)
+        wide = page.evaluate(CLEAR, "prepare-refund")
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_timeout(400)
+        page.locator("[data-guide-bar]").get_by_role("button", name="Take me there").click()
+        page.wait_for_function(f"() => !!({CLEAR})('prepare-refund')?.seen", timeout=15_000)
+        page.wait_for_timeout(600)
+        narrow = page.evaluate(CLEAR, "prepare-refund")
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        check("Next-step bar: Take me there opens the refund review and rings Prepare refund on screen, clear of the bar, at 1440 and 390 px",
+              bool(wide and narrow and wide["seen"] and wide["clear"] and narrow["seen"] and narrow["clear"] and wide["ring"] == "solid"),
+              json.dumps({"wide": wide, "phone": narrow}))
+        sees("Demo strip, landlord", page, "Demo copy: you're the landlord")
+        shot(page, "next-step-bar")
+
         go(page, f"/tenancy/{tx}")
         sees("Texas unit", page, "Rules: Tex. Prop. Code ch. 92", "Austin, TX 78745", "Notice given")
-        # Opening the Texas unit is beat 8: the guide ticks it here, while the page is open, and nothing else.
-        page.wait_for_function("() => document.querySelector('[data-guide-step=\"8\"]')?.dataset.guideState === 'done'", timeout=10_000)
+        # Opening the Texas unit is beat 7: the guide ticks it here, while the page is open, and nothing else.
+        page.wait_for_function("() => document.querySelector('[data-guide-step=\"7\"]')?.dataset.guideState === 'done'", timeout=10_000)
         g = guide(page)
         check("Demo guide: opening the Texas unit ticks the multi-state beat, and only it",
-              [g[i][0] for i in range(1, 9)] == ["now", "todo", "done", "todo", "todo", "todo", "todo", "done"],
+              [g[i][0] for i in range(1, 8)] == ["done", "now", "todo", "todo", "todo", "todo", "done"],
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
-        sees("Demo guide, Texas unit", page, "2 of 8 done")
+        sees("Demo guide, Texas unit", page, "2 of 7 done")
         page.get_by_role("button", name=re.compile(r"^Rules: Tex\. Prop\. Code")).first.hover()
         page.wait_for_timeout(300)
         tip = " ".join(page.locator("[role=tooltip]").all_inner_texts())
         check("Texas unit: the Rules chip's tip names the Texas statute and its bad-faith penalty", "92" in tip and "$100" in tip, tip[:300])
         shot(page, "texas-rules")
 
-        # 2. Check a lease (beat 1). First the sample in one click, from the facts Claude read when the demo was built
+        # 2. Check a lease (beat 6). First the sample in one click, from the facts Claude read when the demo was built
         # (no Claude call: the server-log check at the end counts the lease stub's answers), then the stubbed live read
         # of demo/lease-single-owner.pdf, judged by the code.
         go(page, "/lease")
         check("Sample lease: the PDF itself opens from the link beside the button",
               page.get_by_role("link", name="open it").get_attribute("href") == "/api/lease/sample")
-        # Opening Check a lease is not the beat: the guide ticks beat 1 once a check's result is on the page.
-        check("Demo guide: Check a lease opened, with no check yet, leaves the lease beat next, not ticked", guide(page)[1][0] == "now", json.dumps(guide(page)))
+        # Opening Check a lease is not the beat: the guide ticks beat 6 once a check's result is on the page.
+        check("Demo guide: Check a lease opened, with no check yet, leaves the lease beat unticked", guide(page)[6][0] == "todo", json.dumps(guide(page)))
         page.get_by_role("button", name="Check the sample lease").click()
         page.get_by_role("heading", name="Findings").wait_for(timeout=30_000)
-        page.wait_for_function("() => document.querySelector('[data-guide-step=\"1\"]')?.dataset.guideState === 'done'", timeout=10_000)
+        page.wait_for_function("() => document.querySelector('[data-guide-step=\"6\"]')?.dataset.guideState === 'done'", timeout=10_000)
         g = guide(page)
-        check("Demo guide: the sample lease's result ticks the lease beat, and the deposit is next",
-              [g[i][0] for i in (1, 2, 8)] == ["done", "now", "done"], json.dumps({k: v[0] for k, v in sorted(g.items())}))
+        check("Demo guide: the sample lease's result ticks the lease beat, and the refund is still next",
+              [g[i][0] for i in (1, 2, 6, 7)] == ["done", "now", "done", "done"], json.dumps({k: v[0] for k, v in sorted(g.items())}))
         sees("Sample lease", page, "lease-single-owner.pdf", "1140 E. Juniper Hollow Ln, Orange, CA 92867", "Sample", "Checked",
              "The sample lease, from the facts Claude read when the demo was built", f"Lawful deposit\n{usd(DEMO['deposit'])}",
              f"Lease asks {usd(DEMO['over_cap'])} more", "3 violations", "1 warning")
@@ -961,21 +987,22 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         only_amounts("Lease check", t, [DEMO["lease_total"], DEMO["deposit"], DEMO["over_cap"], DEMO["rent"], 300.0])
         shot(page, "lease-check")
 
-        # 3. The move-out unit's Overview (beat 2): the deposit through a PayPal invoice, the signed refund agreement.
+        # 3. The move-out unit's Overview: the deposit through a PayPal invoice, the signed refund agreement (the deposit
+        # the refund review of beat 2 names).
         go(page, f"/tenancy/{mo}")
         t = sees("Overview", page, "1140 E. Juniper Hollow Ln", "Move-out review", "Rules: Civ. Code 1950.5", f"Deposit held\n{D}", f"Rent\n{usd(DEMO['rent'])}",
                  "Refund agreement", "PayPal to e2e-tenant@example.com", "Deposit through PayPal", setup["pool"]["invoice"], "Paid")
         only_amounts("Overview", t, [E["deposit"], DEMO["rent"]])
-        # A full load: the lease and Texas ticks came with the page (the server reads the browser's cookie), and the
-        # Overview is beat 2's page, ticked on arrival.
-        page.wait_for_function("() => document.querySelector('[data-guide-step=\"2\"]')?.dataset.guideState === 'done'", timeout=10_000)
+        # A full load: the photo, lease and Texas ticks came with the page (the server reads the browser's cookie); the
+        # Overview is no beat's page, so it ticks nothing.
+        page.wait_for_function("() => document.querySelector('[data-guide-step=\"6\"]')?.dataset.guideState === 'done'", timeout=10_000)
         g = guide(page)
-        check("Demo guide: after a full load the ticks are kept, and opening the Overview ticks the deposit beat",
-              [g[i][0] for i in range(1, 9)] == ["done", "done", "done", "now", "todo", "todo", "todo", "done"],
+        check("Demo guide: after a full load the ticks are kept, and the Overview ticks nothing",
+              [g[i][0] for i in range(1, 8)] == ["done", "now", "todo", "todo", "todo", "done", "done"],
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
         shot(page, "overview")
 
-        # 4. Move-out (beat 3): the photo pairs with Claude's boxes, and the deductions computed in code.
+        # 4. Move-out (beat 1): the photo pairs with Claude's boxes, and the deductions computed in code.
         # The tab, clicked as a judge does (it switches in the browser, no request).
         page.get_by_role("link", name="Move-out", exact=True).first.click()
         page.get_by_text("Photo comparison").first.wait_for()
@@ -999,12 +1026,12 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Move-out: the deductions grid has each charge at its computed amount, wear and tear at $0.00",
               all(usd(a) in gtext for a in line_amounts) and "Not deductible" in gtext and "$0.00" in gtext, gtext[:500])
         only_amounts("Move-out", t, [E["deposit"], E["deductions"], E["refund"], *line_amounts, 0.0, 1800.0, 50.0])
-        # The four beats the copy holds are all opened now, and ticked; the refund, the first the judge does, is next.
+        # The three beats the copy holds are all opened now, and ticked; the refund, the first the judge does, is next.
         g = guide(page)
-        check("Demo guide: on the Move-out tab the four held beats are ticked and the refund is next",
-              [g[i][0] for i in range(1, 9)] == ["done", "done", "done", "now", "todo", "todo", "todo", "done"],
+        check("Demo guide: on the Move-out tab the three held beats are ticked and the refund is next",
+              [g[i][0] for i in range(1, 8)] == ["done", "now", "todo", "todo", "todo", "done", "done"],
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
-        sees("Demo guide, Move-out", page, "4 of 8 done")
+        sees("Demo guide, Move-out", page, "3 of 7 done")
         # The tenants' photo route before the statement goes out: a move-in photo is theirs ((g)(1)); a move-out photo is
         # the landlord's draft until then, and an after-repair photo never leaves the statement's packet.
         tp = setup["tenantPath"]
@@ -1028,7 +1055,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check(f"README picture: the Move-out tab's header through the first room's card, {README_PX} px wide, with the demo guide hidden",
               abs(w - README_PX) <= 4 and guide_gone, f"{w} px wide; guide {'hidden' if guide_gone else 'shown'}")
 
-        # 5. Review refund (beat 4): the agent's plan and steps, the approval, PayPal's (fake) refund.
+        # 5. Review refund (beat 2): the agent's plan and steps, the approval, PayPal's (fake) refund.
         go(page, f"/tenancy/{mo}/refund")
         sees("Review refund", page, "Review refund", R, f"{D} deposit less {P} in deductions", "PayPal refund to the original payment", "Prepare refund")
         # The rail in words beside Method: how long ago PayPal says the deposit was paid (the fake deposit, three days
@@ -1139,26 +1166,37 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Refund sent: the receipt's steps name get_invoice, create_refund and get_refund, in the order the agent called them",
               tools == ["get_invoice", "create_refund", "get_refund"], json.dumps(tools))
 
-        # 6. The itemized statement, its delivery, and the tenants' page.
+        # 6. The statement's delivery by the Landlord | Tenants switch (components/guide-bar.tsx): with the refund sent
+        # and the statement not yet delivered, the bar points at Tenants, and one press records the delivery (in person,
+        # today) and opens the tenants' page; Landlord brings the landlord back where they were.
+        page.wait_for_function("() => /Step 3 of 7:\\s*press Tenants at the top/.test(document.querySelector('[data-guide-bar]')?.innerText ?? '')", timeout=20_000)
+        check("Next-step bar: with the refund sent, it reads Step 3 of 7, press Tenants at the top", True)
+        back_to = page.url
+        page.locator('[data-guide-target="side-tenants"]').first.click()
+        page.wait_for_url(re.compile(re.escape(setup["tenantPath"]) + r"$"), timeout=30_000)
+        sees("Switch: Tenants records the delivery and opens the tenants' page", page, "Demo copy: you're the tenants", "Your deposit refund", "Dispute it")
+        pressed = page.locator('[data-guide-target="side-tenants"]').get_attribute("aria-pressed")
+        page.locator('[data-guide-target="side-landlord"]').first.click()
+        page.wait_for_url(re.compile(re.escape(back_to.split("?")[0]) + r"$"), timeout=30_000)
+        check("Switch: Tenants is pressed on the tenants' page, and Landlord goes back to the page the switch left", pressed == "true", f"aria-pressed {pressed}; back at {page.url}")
+
+        # The itemized statement, delivered by the switch, and the tenants' page.
         go(page, f"/tenancy/{mo}/statement")
         t = sees("Statement", page, "Itemized statement", f"Security held\n{D}", f"Deductions\n{P}", f"Refunded\n{R}", "The lease asked for $5,100.00; the cap is $4,800.00",
                  *[usd(a) for a in line_amounts], "$1,800.00 × 4 years left of a 10-year useful life (6 years old) = $720.00", "3 hours × $50.00/hour = $150.00", rid,
                  "Required: repair and cleaning total $1,010.00, over $125.00")
         only_amounts("Statement", t, [E["deposit"], E["deductions"], E["refund"], DEMO["lease_total"], *line_amounts, 1800.0, 50.0, 125.0])
-        page.get_by_role("button", name="Record delivery").first.click()
-        page.get_by_role("dialog").get_by_role("button", name="In person").click()
-        page.get_by_role("dialog").get_by_role("button", name="Record delivery").click()
         page.get_by_text("Open the tenant's view").first.wait_for(timeout=30_000)
         sees("Statement delivered", page, "Delivered", "In person")
         link = page.get_by_role("link", name=re.compile("Open the tenant's view")).first
         href = link.get_attribute("href")
         check("Statement: Open the tenant's view opens this copy's tenants' page in a new tab", href == setup["tenantPath"] and link.get_attribute("target") == "_blank", f"{href} {link.get_attribute('target')}")
         # The guide ticks itself off the copy's rows: the refund it pointed at is done, and the tenant-dispute step now
-        # opens the card that opens the tenants' page, where before the delivery it opened the delivery card.
+        # opens the tenants' page, where before the delivery it opened the delivery card.
         g = guide(page)
-        check("Demo guide: the refund step is ticked once the refund is sent", g[4][0] == "done", json.dumps({k: v[0] for k, v in sorted(g.items())}))
-        check("Demo guide: with the statement delivered, the tenant-dispute step opens the Tenant link card",
-              g[5] == ("now", f"/tenancy/{mo}?tab=tenants#tenant-link"), json.dumps(g[5]))
+        check("Demo guide: the refund step is ticked once the refund is sent", g[2][0] == "done", json.dumps({k: v[0] for k, v in sorted(g.items())}))
+        check("Demo guide: with the statement delivered, the tenant-dispute step opens the tenants' page",
+              g[3][0] == "now" and g[3][1] == setup["tenantPath"], json.dumps(g[3]))
         shot(page, "statement-delivered")
 
         tenant = ctx.new_page()
@@ -1201,7 +1239,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Tenants' photo route, after the statement: still refuses an after-repair photo", not after_ph or tenant.request.get(f"{base}/api{setup['tenantPath']}/photos/{after_ph[0]}?size=thumb").status == 404, "after-repair photo served")
         shot(tenant, "tenants-page")
 
-        # 7. The tenants' dispute and their advocate's case (beat 5).
+        # 7. The tenants' dispute and their advocate's case (beat 3).
         tenant.get_by_role("link", name="Dispute it").first.click()
         tenant.get_by_text("Which charges?").wait_for()
         tenant.get_by_label("1. Bedroom carpet", exact=False).check()
@@ -1239,7 +1277,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         sees("Dispute sent", tenant, f"You asked back\n{case_back}", "Sent to Teddy Buettner")
         shot(tenant, "dispute-sent")
 
-        # 8. The negotiation (beat 6): the landlord's negotiator and the tenants' advocate, checked by code each turn.
+        # 8. The negotiation (beat 4): the landlord's negotiator and the tenants' advocate, checked by code each turn.
         # The tenants' page stays open on the dispute they sent ("Their answer comes back to this page").
         stay(tenant)
         # The unit was closed out (statement delivered, refund sent); with a dispute waiting it is an open move-out again,
@@ -1333,7 +1371,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         tenant_marks = tenant.get_by_role("button", name=re.compile(r"^Checked$")).count()
         check(f"Tenants' page: the same Checked mark on every one of the {want_turns} turns", tenant_marks == want_turns, f"{tenant_marks} marks")
 
-        # 9. The settlement (beat 7): both humans say yes, PayPal (fake) refunds the agreed amount, the statement amends.
+        # 9. The settlement (beat 5): both humans say yes, PayPal (fake) refunds the agreed amount, the statement amends.
         # The landlord's Move-out tab stays open beside it: "Approve and pay" is off until the tenants accept, and while
         # it waits the page asks its small status route and refreshes nothing.
         pay = page.get_by_role("button", name=re.compile(r"^Approve and pay")).first
@@ -1511,12 +1549,12 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
                  f"−{R}", f"−{usd(E['settled'])}", "Settlement", "Refund", rid, sid)
         only_amounts("Payments tab", t, [E["deposit"], E["kept"], 0.0, E["returned"], E["refund"], E["settled"], E["deductions"], *line_amounts])
         g = guide(page)
-        check("Demo guide: all eight beats are ticked once the settlement is paid", [v[0] for _, v in sorted(g.items())] == ["done"] * 8,
+        check("Demo guide: all seven beats are ticked once the settlement is paid", [v[0] for _, v in sorted(g.items())] == ["done"] * 7,
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
-        sees("Demo guide, walked", page, "8 of 8 done")
+        sees("Demo guide, walked", page, "7 of 7 done", "All 7 steps done.")
         shot(page, "property-payments")
 
-        # 10. Payments, the AG Grid ledger, and Insights (beat 3b), against the whole copy's figures as they stand now.
+        # 10. Payments, the AG Grid ledger, and Insights (beat 1b), against the whole copy's figures as they stand now.
         E = {**E, **{k: v for k, v in expected(f3, U).items() if k in ("portfolio", "by_state")}}
         PF = E["portfolio"]
         go(page, "/ledger")
@@ -1728,21 +1766,21 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         # Move-out tab, beat 3, which changes the address's ?tab with no load). The cookie is set back to everything but
         # beat 3, so the Overview arrives with the photo beat the one waiting (held by the copy, not yet opened in this
         # browser), and the tab click alone ticks it.
-        page.evaluate("() => { document.cookie = 'gf_guide_seen=1.2.8; path=/; samesite=lax'; }")
+        page.evaluate("() => { document.cookie = 'gf_guide_seen=6.7; path=/; samesite=lax'; }")
         go(page, f"/tenancy/{mo}")
         g = guide(page)
         check("Demo guide: with this browser's cookie set back to all but the photo beat, the Overview opens with that beat waiting and the rest ticked",
-              g[3][0] == "now" and all(v[0] == "done" for k, v in g.items() if k != 3), json.dumps({k: v[0] for k, v in sorted(g.items())}))
+              g[1][0] == "now" and all(v[0] == "done" for k, v in g.items() if k != 1), json.dumps({k: v[0] for k, v in sorted(g.items())}))
         page.get_by_role("link", name="Move-out", exact=True).first.click()
         page.get_by_text("Photo comparison").first.wait_for()
-        page.wait_for_function("() => document.querySelector('[data-guide-step=\"3\"]')?.dataset.guideState === 'done'", timeout=10_000)
+        page.wait_for_function("() => document.querySelector('[data-guide-step=\"1\"]')?.dataset.guideState === 'done'", timeout=10_000)
         kept = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_guide_seen"]
         check("Demo guide: the Move-out tab, switched in place with no load, ticks the photo beat and the cookie keeps it",
-              [v[0] for _, v in sorted(guide(page).items())] == ["done"] * 8 and kept == ["1.2.3.8"], f"{json.dumps(guide(page))}; cookie {kept}")
-        sees("Demo guide, tab switched in place", page, "8 of 8 done")
+              [v[0] for _, v in sorted(guide(page).items())] == ["done"] * 7 and kept == ["1.6.7"], f"{json.dumps(guide(page))}; cookie {kept}")
+        sees("Demo guide, tab switched in place", page, "7 of 7 done")
 
         # 12a. The unit a beat runs on is the address docs/DEMO_SCRIPT.md names for it, not the copy's latest move-out:
-        # the Texas unit's own page offers a move-out date and beat 8 sends a judge there, so a date set on it must
+        # the Texas unit's own page offers a move-out date and beat 7 sends a judge there, so a date set on it must
         # leave every step's link and tick where it was (liveUnit, src/lib/demo-guide.ts).
         go(page, "/units")
         before = guide(page)
@@ -1756,7 +1794,8 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Demo guide: a move-out date set on the Texas unit leaves every step where it was", after == before,
               f"was {json.dumps(before)}, now {json.dumps(after)}")
         check("Demo guide: the live beats still open the California move-out unit, and the multi-state beat the Texas one",
-              all(f"/tenancy/{mo}" in (after[i][1] or "") for i in (2, 3, 4, 5, 6, 7)) and after[8][1] == f"/tenancy/{tx}",
+              all(f"/tenancy/{mo}" in (after[i][1] or "") for i in (1, 2, 4, 5)) and after[3][1] in (setup["tenantPath"], f"/tenancy/{mo}/statement#delivery")
+              and after[7][1] == f"/tenancy/{tx}",
               json.dumps({k: v[1] for k, v in sorted(after.items())}))
 
         # 12b. The ticks don't go stale: Next keeps a layout it has already rendered when a click opens another page
@@ -1765,8 +1804,8 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
           const r = await fetch('/api/demo/guide', { cache: 'no-store' });
           return { status: r.status, body: await r.json() }; }""")
         steps = (asked.get("body") or {}).get("steps") or []
-        check("Demo guide: its own route answers with this copy's eight steps, all of them done by now",
-              asked["status"] == 200 and [x["n"] for x in steps] == [1, 2, 3, 4, 5, 6, 7, 8] and all(x["done"] for x in steps),
+        check("Demo guide: its own route answers with this copy's seven steps, all of them done by now",
+              asked["status"] == 200 and [x["n"] for x in steps] == [1, 2, 3, 4, 5, 6, 7] and all(x["done"] for x in steps),
               json.dumps(asked)[:500])
         since = time.time()
         page.get_by_role("navigation", name="Main").get_by_role("link", name="Tenants").click()
@@ -1775,21 +1814,21 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         again = [u for t, u in asked_l if t >= since and "/api/demo/guide" in u]
         check("Demo guide: a click from one page to another makes it read the copy again", len(again) >= 1,
               f"{len(again)} requests to its route since the click")
-        check("Demo guide: it still shows the eight beats, all ticked, on the page the click opened",
-              [v[0] for _, v in sorted(guide(page).items())] == ["done"] * 8, json.dumps(guide(page)))
+        check("Demo guide: it still shows the seven beats, all ticked, on the page the click opened",
+              [v[0] for _, v in sorted(guide(page).items())] == ["done"] * 7, json.dumps(guide(page)))
 
         # 12c. Its state: a choice made in this browser holds on every page, Properties included, and with none made the
         # page decides, the rows on Properties and the one line everywhere else (guideView, src/lib/demo-guide.ts).
         go(page, "/units")
         line = guide_line(page)
-        check("Demo guide: on Properties the rows are open, as chosen at the tour's end", line["rows"] == 8 and line["expanded"] == "true", json.dumps(line))
+        check("Demo guide: on Properties the rows are open, as chosen at the tour's end", line["rows"] == 7 and line["expanded"] == "true", json.dumps(line))
         page.locator("section[aria-label='Demo guide']").get_by_role("button", name=re.compile(r"^Demo guide")).click()
         page.wait_for_function("() => document.querySelectorAll('[data-guide-step]').length === 0", timeout=10_000)
         go(page, "/units")
         line = guide_line(page)
         chose = [c["value"] for c in ctx.cookies(base) if c["name"] == "gf_guide"]
         check("Demo guide: collapsed by its head on Properties, it stays one line there after a reload, reading all done with no next beat, the choice kept by the browser",
-              line["rows"] == 0 and line["expanded"] == "false" and line["count"] == "8 of 8 done" and line["next"] == "" and line["next_text"] == "All done"
+              line["rows"] == 0 and line["expanded"] == "false" and line["count"] == "7 of 7 done" and line["next"] == "" and line["next_text"] == "All done"
               and line["next_href"] is None and chose == ["shut"], f"{json.dumps(line)}; cookie {chose}")
         page.evaluate("() => { document.cookie = 'gf_guide=; path=/; max-age=0'; }")
         go(page, "/units")
@@ -1797,7 +1836,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         go(page, f"/tenancy/{mo}")
         on_unit = guide_line(page)
         check("Demo guide: with the choice forgotten, Properties opens the rows and a property's page the one line",
-              on_home["rows"] == 8 and on_home["expanded"] == "true" and on_unit["rows"] == 0 and on_unit["expanded"] == "false" and 0 < on_unit["height"] < 64,
+              on_home["rows"] == 7 and on_home["expanded"] == "true" and on_unit["rows"] == 0 and on_unit["expanded"] == "false" and 0 < on_unit["height"] < 64,
               json.dumps({"properties": on_home, "unit": on_unit}))
 
         # 12d. Its controls: Hide puts it away for this browser and a reload keeps it away (the choice is a cookie the
@@ -1811,8 +1850,16 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         page.get_by_role("button", name="Account").first.click()
         page.get_by_role("button", name="Demo guide").click()
         page.locator("[data-guide-step]").first.wait_for(timeout=10_000)
-        check("Demo guide: Demo guide in the account menu brings it back, open", page.locator("[data-guide-step]").count() == 8)
+        check("Demo guide: Demo guide in the account menu brings it back, open", page.locator("[data-guide-step]").count() == 7)
         shot(page, "demo-guide")
+        # The next-step bar's own Hide: the bar goes for this browser, a reload keeps it gone (a corner button in its
+        # place), and that button brings it back.
+        page.locator("[data-guide-bar]").get_by_role("button", name="Hide the next step").click()
+        go(page, "/units")
+        gone = page.locator("[data-guide-bar]").count() == 0 and page.get_by_role("button", name="Next step").count() == 1
+        page.get_by_role("button", name="Next step").click()
+        page.locator("[data-guide-bar]").wait_for(timeout=10_000)
+        check("Next-step bar: Hide puts it away across a reload, and its corner button brings it back", gone)
 
         # 12e. The welcome, opened again from the account menu after the whole demo: it reads the copy again, as the
         # guide does, so it says what is true now (the deposit closed out, no longer held).
