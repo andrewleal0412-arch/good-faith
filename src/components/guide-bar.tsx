@@ -62,10 +62,16 @@ const store = {
   },
 };
 
+/** The control the ring is on, by its data-guide-target, until it is pressed: a page that draws that control again
+ *  (a part streamed in after the first paint, PayPal's part of the refund review swapping in for its placeholder) gets a
+ *  new element with no ring, so the bar puts it back on the new one. */
+let rung: string | null = null;
+
 /** The ring: one control at a time, a steady outline in the brand color (globals.css, [data-guide-ring]). */
 function ring(el: HTMLElement | null) {
   for (const r of document.querySelectorAll("[data-guide-ring]")) if (r !== el) r.removeAttribute("data-guide-ring");
   el?.setAttribute("data-guide-ring", "");
+  rung = el?.dataset.guideTarget ?? null;
 }
 
 /** The steps once they are in, as a promise of this window's own (the server's arrives as React's thenable). */
@@ -100,7 +106,8 @@ export function GuideBar({ steps: from, hidden: hiddenAtFirst, shell = false, co
 
   useEffect(() => {
     const n = ++asked.current;
-    settled(from).then((l) => take(n, l), (e) => console.error("next-step bar: the steps didn't load", e));
+    // A warning, not an error: a page left mid-load drops its stream, and the bar then shows nothing until the next read.
+    settled(from).then((l) => take(n, l), (e) => console.warn("next-step bar: the steps didn't load", e));
   }, [from, take]);
 
   const ask = useCallback(async () => {
@@ -110,8 +117,9 @@ export function GuideBar({ steps: from, hidden: hiddenAtFirst, shell = false, co
       if (!res.ok) return;
       take(n, ((await res.json()) as { steps?: GuideStep[] | null }).steps ?? null);
     } catch (e) {
-      // The bar keeps what it shows: it is never the reason a page looks broken.
-      console.error("next-step bar: couldn't read the steps", e);
+      // The bar keeps what it shows: it is never the reason a page looks broken. A warning, since a read cut off by
+      // the page being left (a link, a reload) lands here too.
+      console.warn("next-step bar: couldn't read the steps", e);
     }
   }, [take]);
 
@@ -130,6 +138,7 @@ export function GuideBar({ steps: from, hidden: hiddenAtFirst, shell = false, co
       if (!t) return;
       pressed.current = (t as HTMLElement).dataset.guideTarget ?? null;
       if (t.hasAttribute("data-guide-ring")) t.removeAttribute("data-guide-ring");
+      if (rung === pressed.current) rung = null;
       for (const ms of [1200, 3500, 8000]) later.push(setTimeout(() => void ask(), ms));
     };
     const soon = () => void ask();
@@ -152,10 +161,16 @@ export function GuideBar({ steps: from, hidden: hiddenAtFirst, shell = false, co
   // Which guided controls this page shows, kept as the page changes (a form's next part, a dialog, a page arriving).
   useEffect(() => {
     let frame = 0;
-    const look = () => setHere((was) => {
-      const now = targetsHere();
-      return now.length === was.length && now.every((t, i) => t === was[i]) ? was : now;
-    });
+    const look = () => {
+      if (rung && !document.querySelector("[data-guide-ring]")) {
+        const el = targetOf(rung);
+        if (el) ring(el);
+      }
+      setHere((was) => {
+        const now = targetsHere();
+        return now.length === was.length && now.every((t, i) => t === was[i]) ? was : now;
+      });
+    };
     look();
     const watch = new MutationObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(look); });
     watch.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-guide-target", "hidden", "disabled"] });

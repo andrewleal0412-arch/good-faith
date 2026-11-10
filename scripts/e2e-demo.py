@@ -932,7 +932,10 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Next-step bar: Take me there opens the refund review and rings Prepare refund on screen, clear of the bar, at 1440 and 390 px",
               bool(wide and narrow and wide["seen"] and wide["clear"] and narrow["seen"] and narrow["clear"] and wide["ring"] == "solid"),
               json.dumps({"wide": wide, "phone": narrow}))
-        sees("Demo strip, landlord", page, "Demo copy: you're the landlord")
+        # The strip and the bar sit outside the page's main column, so they are read by their own parts.
+        strip = page.get_by_text("Demo copy: you're the landlord", exact=True)
+        check("Demo strip: the refund review says whose side this is, with the switch beside it",
+              strip.count() == 1 and page.locator('[data-guide-target="side-tenants"]').count() == 1, f"{strip.count()} strips")
         shot(page, "next-step-bar")
 
         go(page, f"/tenancy/{tx}")
@@ -1174,7 +1177,8 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         back_to = page.url
         page.locator('[data-guide-target="side-tenants"]').first.click()
         page.wait_for_url(re.compile(re.escape(setup["tenantPath"]) + r"$"), timeout=30_000)
-        sees("Switch: Tenants records the delivery and opens the tenants' page", page, "Demo copy: you're the tenants", "Your deposit refund", "Dispute it")
+        sees("Switch: Tenants records the delivery and opens the tenants' page", page, "Your deposit refund", "Dispute it")
+        check("Demo strip: the tenants' page says it is the tenants' side", page.get_by_text("Demo copy: you're the tenants", exact=True).count() == 1)
         pressed = page.locator('[data-guide-target="side-tenants"]').get_attribute("aria-pressed")
         page.locator('[data-guide-target="side-landlord"]').first.click()
         page.wait_for_url(re.compile(re.escape(back_to.split("?")[0]) + r"$"), timeout=30_000)
@@ -1551,7 +1555,9 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         g = guide(page)
         check("Demo guide: all seven beats are ticked once the settlement is paid", [v[0] for _, v in sorted(g.items())] == ["done"] * 7,
               json.dumps({k: v[0] for k, v in sorted(g.items())}))
-        sees("Demo guide, walked", page, "7 of 7 done", "All 7 steps done.")
+        sees("Demo guide, walked", page, "7 of 7 done")
+        done_bar = page.locator("[data-guide-bar]").inner_text()
+        check("Next-step bar: once the settlement is paid it reads All 7 steps done", "All 7 steps done." in done_bar, done_bar[:200])
         shot(page, "property-payments")
 
         # 10. Payments, the AG Grid ledger, and Insights (beat 1b), against the whole copy's figures as they stand now.
