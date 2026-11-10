@@ -293,6 +293,8 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
   const forfeited = forfeit?.forfeits ? forfeit : null;
   // Paid where no refund was owed (the deductions took the deposit), the settlement is all that went back.
   const settledHere = !forfeited && settledPaid > 0 ? settledPaid : 0;
+  // Everything returned once a settlement is paid, the strip's hero (and the bottom line of the deductions' totals).
+  const returnedInAll = Math.round(((returnedOk ? returnedHere : 0) + settledHere) * 100) / 100;
   // The deductions grid on Move-out: whether its inputs may change, and each line's limits from its lawful range (the
   // same range engine the tenants' dispute and the edit route run). Read only once the deductions are final or while a
   // dispute the tenants sent is open (deductionsLock, the rule the deduction routes refuse by), and for the demo's
@@ -521,7 +523,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           : <Fact label="Deductions" value={<RollMoney quick value={money.total} />} sub={`${deductions.length} item${deductions.length === 1 ? "" : "s"}${forfeited ? ", forfeited" : ""}`}
             info={forfeited ? <InfoTip title={forfeited.label}>{forfeited.note}</InfoTip> : undefined} />}
         <Fact label={settledHere > 0 ? "Returned" : returned ? (returned.kind === "dispute_refund" ? "Returned" : "Refunded") : forfeited ? "Owed back" : money.balanceClaimed > 0 ? "Balance claimed" : prior ? "Left to refund" : "Refund due"} big
-          value={<RollMoney value={settledHere > 0 ? Math.round(((returnedOk ? returnedHere : 0) + settledHere) * 100) / 100 : returned ? returnedHere : forfeited ? Math.max(0, Math.round(((held ?? 0) - prior) * 100) / 100)
+          value={<RollMoney value={settledHere > 0 ? returnedInAll : returned ? returnedHere : forfeited ? Math.max(0, Math.round(((held ?? 0) - prior) * 100) / 100)
             : money.balanceClaimed > 0 ? money.balanceClaimed : prior ? refundLeft(summary) ?? 0 : money.refund} cents="small" phoneCents="full" />}
           sub={settledHere > 0 ? (returnedOk ? `${usd(returnedHere)} refund, ${usd(settledHere)} settlement` : `${usd(settledHere)} settlement`)
             : forfeited && returned && (held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0) > 0.005 ? `${usd(Math.round(((held ?? 0) - returnedHere - (own ? prior : 0) - (summary.settledBack ?? 0)) * 100) / 100)} still owed`
@@ -573,6 +575,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
             viaDispute={via ? { amount: via.amount, notKept } : null}
             outside={outside ? { amount: outside.amount, notKept: via ? 0 : notKept } : null}
             forfeited={forfeited ? { label: forfeited.label, note: forfeited.note } : null}
+            settlement={settledHere > 0 ? { amount: settledHere, returnedInAll, refundOk: !!returnedOk } : null}
             removeAll={next.removeDeductions ? { title: next.label, detail: next.detail, cite: next.cite } : null}
           />
         </section>

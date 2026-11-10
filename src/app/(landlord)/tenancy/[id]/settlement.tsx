@@ -62,6 +62,11 @@ export function Settlement(p: {
   // refund owed. When they cover what is owed they are `returned` (kind outside_refund) and read as the refund.
   outside?: { amount: number; notKept: number } | null;
   edit: { allowed: boolean; reason: string | null; limits: Record<string, EditLimits> };
+  // A dispute's settlement paid on top of the refund (the page's settledHere, the strip's figures): its amount,
+  // everything returned with it (the strip's hero; a close-out refund or Payout that failed is not in it, and
+  // `refundOk` says so). The totals then end as the amended statement's own reconciliation does, Refunded with the
+  // statement, Settlement, Returned in all.
+  settlement?: { amount: number; returnedInAll: number; refundOk: boolean } | null;
   // The next step when it asks for every deduction to come off, in the state pack's words (the step's removeDeductions,
   // next-step.ts): the card then offers to remove them all at once.
   removeAll?: { title: string; detail: string; cite: string | null } | null;
@@ -86,6 +91,11 @@ export function Settlement(p: {
   const totals = (live: { total: number; refund: number; balanceClaimed: number }): TotalLine[] => {
     const stillOwed = own ? cents((p.depositHeld ?? 0) - own.amount - prior) : 0;
     const claim = live.balanceClaimed > 0 && !p.forfeited;
+    // Once a settlement is paid, the refund line is named for the statement it went with (or for its failure, which
+    // the strip's figure leaves out), and the settlement and the whole returned follow it, so the bottom line is the
+    // strip's Returned (page.tsx) and the amended statement's Returned in all, not a Refunded figure the settlement
+    // has since added to. A balance claimed keeps its line, no longer the last; forfeited deductions keep theirs.
+    const settled = p.settlement && p.settlement.amount > 0 && !p.forfeited ? p.settlement : null;
     return [
       { key: "held", label: "Deposit held", amount: p.depositHeld },
       { key: "deductions", label: "Deductions", amount: live.total, sign: live.total ? "minus" : undefined },
@@ -96,11 +106,15 @@ export function Settlement(p: {
       ...(via ? [{ key: "via", label: "Through the PayPal dispute", amount: via.amount, sign: "minus" as const }] : []),
       ...(outside ? [{ key: "outside", label: "Refunded in PayPal", amount: outside.amount, sign: "minus" as const }] : []),
       {
-        key: "final", strong: true,
-        label: claim ? "Balance claimed" : own ? "Refunded" : p.forfeited ? "Owed back" : prior ? "Left to refund" : "Refund due",
+        key: "final", strong: !settled,
+        label: claim ? "Balance claimed" : own ? (settled ? (settled.refundOk ? "Refunded with the statement" : "Refund not completed") : "Refunded") : p.forfeited ? "Owed back" : prior ? "Left to refund" : "Refund due",
         amount: claim ? live.balanceClaimed : own ? own.amount : Math.max(0, cents((p.forfeited ? p.depositHeld ?? 0 : live.refund) - prior)),
         ...(claim ? { tip: { title: "Balance claimed", text: "The statement lists this as a claim, not a demand for payment. The agent never collects it on its own." } } : {}),
       },
+      ...(settled ? [
+        { key: "settlement", label: "Settlement", amount: settled.amount },
+        { key: "returned", strong: true, label: "Returned in all", amount: settled.returnedInAll },
+      ] : []),
       ...(p.forfeited && own && stillOwed > 0.005 ? [{ key: "still", label: "Still owed", amount: stillOwed }] : []),
     ];
   };
