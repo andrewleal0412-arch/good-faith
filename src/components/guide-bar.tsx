@@ -278,14 +278,16 @@ export function GuideBar({ steps: from, hidden: hiddenAtFirst, shell = false, co
                 )}
               </span>
             </p>
-            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {/* On a phone the button takes its own row at thumb size (40px tall, full width), as a tenant's main
+                actions do. */}
+            <div className="ml-auto flex shrink-0 items-center gap-1.5 max-sm:w-full max-sm:justify-end max-sm:gap-1">
               {move && (move.href || (move.target && here.includes(move.target))) && (
-                <Button variant={move.wait ? "secondary" : "primary"} size="md" onClick={go}>
+                <Button variant={move.wait ? "secondary" : "primary"} size="md" onClick={go} className="max-sm:h-10 max-sm:flex-1">
                   {move.wait ? "Show me" : "Take me there"}
                 </Button>
               )}
               <button type="button" aria-label="Hide the next step" onClick={() => hide(true)}
-                className="inline-flex size-[34px] items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-surface hover:text-ink">
+                className="inline-flex size-[34px] items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-surface hover:text-ink max-sm:h-10">
                 <Icon name="x" />
               </button>
             </div>
