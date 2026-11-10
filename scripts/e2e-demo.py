@@ -1427,11 +1427,46 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Tenants' page once paid: 'amended statement' is a link to their statement's PDF, in a new tab",
               amended.count() == 1 and amended.first.get_attribute("href") == tenant_pdf and amended.first.get_attribute("target") == "_blank",
               f"{amended.count()} links; href {amended.first.get_attribute('href') if amended.count() else None!r}")
+        # The tenants' page that watched it settle keeps Your case open (components/case-fold.tsx reads the fold once,
+        # when it mounts): the summary and each charge's verdict still on it, no fold line, and Hide the case over them.
+        # (Only on the page that watched it: the fallback above loaded the page afresh, which folds it, as checked below.)
+        tcase_fold = tenant.locator("[data-case-folded]")
+        if live:
+            check("Side by side: the tenants' page that watched it settle keeps its case open, the charges' verdicts on it, with Hide the case over them",
+                  tcase_fold.count() == 0 and "Charge looks weak" in text(tenant) and f"back of {usd(E['carpet'])}" in text(tenant)
+                  and tenant.get_by_role("button", name="Hide the case").count() == 1 and tenant.get_by_role("button", name="Show the case").count() == 0,
+                  f"{tcase_fold.count()} fold lines, {tenant.get_by_role('button', name='Hide the case').count()} Hide, {tenant.get_by_role('button', name='Show the case').count()} Show")
         shot(tenant, "tenants-settled")
         done = time.time()
         page.wait_for_timeout(9000)
         check("Side by side: once it is settled, neither page asks again", asks(asked_l, done)[0] == 0 and asks(asked_t, done)[0] == 0,
               f"landlord {asks(asked_l, done)[0]}, tenants {asks(asked_t, done)[0]} status requests in 9 s")
+        # Their dispute page loaded afresh once settled: the headline is the settlement, and Your case is folded to one
+        # line (what their advocate asked back of what was deducted, and when) with Show the case, so the case's own
+        # figures ($360.00 back of $720.00) are not on a page whose headline says Settled $270.00; Show the case brings
+        # the summary and the charges back, and the fold is worth their height.
+        go(tenant, f"{setup['tenantPath']}/dispute")
+        sees("Tenants' dispute page, loaded afresh once settled: the settlement is the headline", tenant, f"Settled\n{usd(E['settled'])}", "Sent by PayPal", sid, "The negotiation", "Your case", "Your reasons")
+        tcase_words = re.compile(rf"^Your advocate asked {re.escape(usd(E['case_back']))} back of the {re.escape(usd(E['deductions']))} deducted, [A-Z][a-z]{{2}} \d{{1,2}}, \d{{4}}\.$")
+        check("Tenants' dispute page, loaded afresh: Your case is folded to one line naming what their advocate asked back of what was deducted, no verdict or figure of it on the page",
+              tcase_fold.count() == 1 and tcase_words.match(re.sub(r"\s+", " ", tcase_fold.first.inner_text()).strip()) is not None
+              and "Charge looks weak" not in text(tenant) and "Charge looks solid" not in text(tenant) and f"back of {usd(E['carpet'])}" not in text(tenant)
+              and tenant.get_by_role("button", name="Show the case").count() == 1 and tenant.get_by_role("button", name="Show the case").first.get_attribute("aria-expanded") == "false",
+              f"{tcase_fold.count()} fold lines reading {tcase_fold.first.inner_text() if tcase_fold.count() else None!r}; {text(tenant)[:400]!r}")
+        tcase_folded_height = tenant.evaluate("document.documentElement.scrollHeight")
+        shot(tenant, "tenants-settled-folded")
+        tenant.get_by_role("button", name="Show the case").click()
+        tenant.get_by_role("button", name="Hide the case").wait_for(timeout=10_000)
+        tcase_open_height = tenant.evaluate("document.documentElement.scrollHeight")
+        check("Tenants' dispute page: Show the case brings back the summary and the charges with their verdicts, and the fold line goes",
+              tcase_fold.count() == 0 and "Charge looks weak" in text(tenant) and "Charge looks solid" in text(tenant) and f"back of {usd(E['carpet'])}" in text(tenant),
+              f"{tcase_fold.count()} fold lines; {text(tenant)[:400]!r}")
+        check("Tenants' dispute page: the case's fold takes at least 200 px off the page (three charges and the summary)", tcase_open_height - tcase_folded_height >= 200,
+              f"folded {tcase_folded_height} px, opened {tcase_open_height} px")
+        tenant.get_by_role("button", name="Hide the case").click()
+        tenant.get_by_role("button", name="Show the case").wait_for(timeout=10_000)
+        check("Tenants' dispute page: Hide the case folds it again", tcase_fold.count() == 1 and "Charge looks weak" not in text(tenant),
+              f"{tcase_fold.count()} fold lines; {text(tenant)[:200]!r}")
         # Their deposit page: everything returned, the statement's refund and the settlement apart, both PayPal ids,
         # and the dispute's one line with what they asked back.
         go(tenant, setup["tenantPath"])

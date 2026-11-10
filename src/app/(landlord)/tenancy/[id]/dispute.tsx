@@ -3,7 +3,7 @@ import { Card, CardHead, LineMark, Money, StatusChip } from "@/components/ui";
 import { dateIn, PACIFIC, shortDate } from "@/lib/dates";
 import type { DisputeStatus, LandlordDisputeView } from "@/lib/disputes";
 import { CHECKED_NOTE } from "@/lib/jev-notes";
-import { CaseFold } from "./case-fold";
+import { CaseFold } from "@/components/case-fold";
 
 // The tenants' dispute on the property's Move-out tab: what they dispute and why, the case their advocate wrote, each
 // charge's lawful range as the code computed it, and their photos. Read-only: the answer, the negotiation and the

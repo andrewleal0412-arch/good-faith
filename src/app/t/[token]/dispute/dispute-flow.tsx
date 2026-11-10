@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button, buttonClass, pickerFocus } from "@/components/button";
+import { CaseFold } from "@/components/case-fold";
 import { useConfirm } from "@/components/confirm";
 import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
@@ -768,10 +769,16 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
         </Block>
       )}
 
+      {/* Settled, the case folds to one line (components/case-fold.tsx): what the advocate asked back of what was
+          deducted, and when it went; the figures it proposed charge by charge are the case's, not the settlement's,
+          which the top of the page gives. A page that watched the settlement land keeps the case open. */}
       {d.sentWithCase && d.advocate && (
         <Block title="Your case">
-          <p className="mb-3 text-sm text-ink-2">{d.advocate.summary}</p>
-          <CaseLines c={d.advocate} view={view} />
+          <CaseFold settled={settled} count={d.items.length} id="tenant-case" className="" openClassName="mb-3"
+            line={`Your advocate asked ${usd(d.advocate.amountBack)} back of the ${usd(view.totals.retained)} deducted${d.sentAt ? `, ${shortDate(dayOf(d.sentAt))}` : ""}.`}>
+            <p className="mb-3 text-sm text-ink-2">{d.advocate.summary}</p>
+            <CaseLines c={d.advocate} view={view} />
+          </CaseFold>
         </Block>
       )}
 

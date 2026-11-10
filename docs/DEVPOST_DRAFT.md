@@ -85,7 +85,7 @@ to a PayPal dispute are each claimed once in the database and recomputed from th
 the call, so a double click cannot pay twice.
 
 The path a judge takes through the demo is also an automated test. It builds the app, walks the demo script in a real
-browser on a production build, and works every dollar on screen out again from the demo copy's own rows: 203 checks. A
+browser on a production build, and works every dollar on screen out again from the demo copy's own rows: 209 checks. A
 second script holds every page to WCAG 2.2 AA at 1280 and 390 px, 397 checks, with the three things still open written
 down.
 
