@@ -552,6 +552,11 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               f"missing {missing}; the page reads: {t[:600]!r}")
         return t
 
+    def grid_totals(page):
+        """The Deductions card's words on the Move-out tab (#deductions, the grid's rows and its pinned totals included),
+        every run of white space one space, so a totals line reads as its label then its figure."""
+        return re.sub(r"\s+", " ", page.locator("#deductions").inner_text()).strip()
+
     def guide_line(page):
         """The demo guide's head as the page shows it: how many rows are open, the head's aria-expanded, the count, and
         the collapsed line's next beat (its number, words and path; "" and no path once all done), with the section's
@@ -983,6 +988,11 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         t = sees("Move-out", page, f"Deposit held\n{D}", f"Deductions\n{P}", f"Refund due\n{R}", "Large carpet stain, center", "Three small wall holes",
                  "Wear and tear", "Wall hole with cracks", "Grease spots on range", "Prorated, 4 of 10 years left", f"{R} to Luke Jones and Lane Forti",
                  "Nothing moves until you approve it.")
+        # The grid's pinned totals before any refund: Deposit held, Deductions and Refund due, and nothing of a
+        # settlement (the lines a settlement adds come only once one is paid; checked at the settled tab below).
+        gt = grid_totals(page)
+        check(f"Move-out: the deductions' totals end in Refund due {R}, with no settlement line",
+              f"Deposit held {D}" in gt and f"Deductions −{P}" in gt and f"Refund due {R}" in gt and "Settlement" not in gt and "Returned in all" not in gt, gt[-300:])
         boxes = page.locator(".gf-mark")
         titles = boxes.evaluate_all("els => els.map(e => e.getAttribute('title'))")
         check("Move-out: Claude's damage boxes are drawn on the move-out photos", len(titles) >= 4 and any("carpet stain" in (x or "") for x in titles), json.dumps(titles))
@@ -1414,6 +1424,14 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         card = re.sub(r"\s+", " ", page.locator("#refund").inner_text())
         check("Settled: the Refund card carries the settlement with its PayPal id",
               f"Refund of {usd(E['refund'])} sent" in card and f"Also {usd(E['settled'])} under the settlement" in card and sid in card, card[:400])
+        # The Deductions grid's pinned totals, 1,000 px under the strip, end where the strip and the amended statement
+        # do once a settlement is paid (settlement.tsx): the statement's refund named as such, the settlement under it,
+        # and Returned in all as the bottom line, the strip's hero figure; the lines the grid showed before (Deposit
+        # held, Deductions) stay, and no line reads a bare Refunded any more.
+        gt = grid_totals(page)
+        check(f"Settled: the deductions' totals end in Refunded with the statement {usd(E['refund'])}, Settlement {usd(E['settled'])} and Returned in all {usd(E['returned'])}, the strip's figure",
+              f"Deposit held {D}" in gt and f"Deductions −{P}" in gt and f"Refunded with the statement {usd(E['refund'])}" in gt
+              and f"Settlement {usd(E['settled'])}" in gt and gt.endswith(f"Returned in all {usd(E['returned'])}") and f"Refunded {usd(E['refund'])}" not in gt and "Refund due" not in gt, gt[-300:])
         shot(page, "settled")
         # The tenants' page, open since they accepted, shows the payment; then neither page asks again.
         live = arrives(tenant, lambda: tenant.get_by_text("Sent by PayPal").first.is_visible())
@@ -1664,6 +1682,10 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               f"{fold.count()} fold lines reading {fold.first.inner_text() if fold.count() else None!r}; {page.get_by_role('button', name=re.compile(r'^Checked$')).count()} Checked marks")
         sees("Settled tab, loaded afresh: the settlement line stays above the fold with its PayPal id", page, f"Settled: {usd(E['settled'])} back", sid, "Amended statement")
         shot(page, "settled-folded")
+        gt = grid_totals(page)
+        check(f"Settled tab, loaded afresh: the deductions' totals still end in Settlement {usd(E['settled'])} and Returned in all {usd(E['returned'])}",
+              f"Refunded with the statement {usd(E['refund'])}" in gt and f"Settlement {usd(E['settled'])}" in gt and gt.endswith(f"Returned in all {usd(E['returned'])}")
+              and f"Refunded {usd(E['refund'])}" not in gt, gt[-300:])
         page.get_by_role("button", name="Show the thread").click()
         page.get_by_role("button", name="Hide the thread").wait_for(timeout=10_000)
         opened_height = page.evaluate("document.documentElement.scrollHeight")
