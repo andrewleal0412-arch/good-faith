@@ -17,7 +17,7 @@ export function CaseFold({ settled, count, line, id = "dispute-case", className 
     <>
       <div className={["flex flex-wrap items-center gap-x-3 gap-y-1", className, open ? openClassName : ""].filter(Boolean).join(" ")}>
         <p className="min-w-0 flex-1 text-sm text-ink-2" data-case-folded={open ? undefined : count}>{line}</p>
-        <button type="button" aria-expanded={open} aria-controls={id} className="text-sm font-medium text-brand hover:underline" onClick={() => setOpen((o) => !o)}>
+        <button type="button" aria-expanded={open} aria-controls={id} className="inline-flex min-h-6 items-center text-sm font-medium text-brand hover:underline" onClick={() => setOpen((o) => !o)}>
           {open ? "Hide the case" : "Show the case"}
         </button>
       </div>
