@@ -87,7 +87,7 @@
 @layer base {
   /* The durations, in step with src/components/motion.tsx: fast for hover, press and focus; enter for a page's or a
      tab's content arriving; base for things that open or change; slow for a drawer, a row opening and a line filling;
-     moment for the demo moments (a box traced, an amount counting). */
+     moment for the demo moments (a box traced, a check drawn). */
   :root {
     --dur-fast: 120ms;
     --dur-enter: 150ms;
@@ -260,7 +260,7 @@
    Arrivals use the standard curve, departures the exit curve. An arrival fills backwards only, so once it ends nothing
    is left on the element (no transform holding a containing block for a menu or a tip inside it), and an element that
    is hidden and shown again (a tab) plays its arrival again, while one that only re-renders does not. A departure holds
-   its end state until the element is removed. Scripted moments (a check drawn, a row opening, an amount counting) are
+   its end state until the element is removed. Scripted moments (a check drawn, a row opening, an amount landing) are
    in src/components/motion.tsx, on the same tokens. */
 @keyframes gf-focus-in {
   from {
@@ -416,6 +416,21 @@
   .gf-page > :nth-child(n + 4) {
     animation-delay: 60ms;
   }
+  /* Peer cards that arrive together as one part of a page (Insights' four charts, drawn once the font is in): the part
+     holds still (.gf-still) and its cards ease up 40 ms apart, the fourth at 120 ms, so the set is at rest about
+     270 ms after it shows. */
+  .gf-stagger > * {
+    animation: gf-enter var(--dur-enter) var(--ease-standard) backwards;
+  }
+  .gf-stagger > :nth-child(2) {
+    animation-delay: 40ms;
+  }
+  .gf-stagger > :nth-child(3) {
+    animation-delay: 80ms;
+  }
+  .gf-stagger > :nth-child(n + 4) {
+    animation-delay: 120ms;
+  }
   /* A property's tab: shown at once on a click, easing into place with no wait. */
   .gf-page > .gf-tab {
     animation: gf-enter var(--dur-enter) var(--ease-standard) backwards;
@@ -423,6 +438,17 @@
   }
   .gf-fade-in {
     animation: gf-fade-in var(--dur-base) var(--ease-standard) backwards;
+  }
+  /* The demo's next-step bar (components/guide-bar.tsx) eases up into place when a page first shows it. */
+  .gf-bar {
+    animation: gf-enter var(--dur-base) var(--ease-standard) backwards;
+  }
+  /* The control the next-step bar points at: a steady outline in the brand color, the focus ring's own, until it is
+     pressed. It settles in from a little further out, once. */
+  [data-guide-ring] {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    animation: gf-focus-in var(--dur-base) var(--ease-standard) backwards;
   }
   /* The welcome tour's words: each stop's arrive from a faint copy over the slow token, while its card glides there
      (components/demo-welcome.tsx). */

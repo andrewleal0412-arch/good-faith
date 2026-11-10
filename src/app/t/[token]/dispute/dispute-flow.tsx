@@ -9,7 +9,7 @@ import { FormField } from "@/components/field";
 import { Icon } from "@/components/icons";
 import { InfoTip, TipLabel } from "@/components/info-tip";
 import { WorkingDots } from "@/components/motion";
-import { CheckedMark, NegotiationThread, Position } from "@/components/negotiation-thread";
+import { CheckedMark, Elapsed, NegotiationThread, Position } from "@/components/negotiation-thread";
 import { useRefresh } from "@/components/refresh";
 import { LineMark, Money, Notice, StatusChip, inputClass, textareaClass } from "@/components/ui";
 import { useWatch } from "@/components/watch";
@@ -227,9 +227,9 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
 
   if (mode === "working") {
     return (
-      <div role="status" className="mt-6 rounded-lg border border-line-2 bg-surface px-4 py-5">
+      <div role="status" data-guide-target="advocate-working" className="mt-6 rounded-lg border border-line-2 bg-surface px-4 py-5">
         <p className="flex items-center gap-2.5 font-medium">
-          Your advocate is reading your file
+          Your advocate, Claude, is reading your file
           <WorkingDots className="text-ink-4" />
         </p>
         <ul className="mt-3 flex flex-col gap-1.5 text-sm text-ink-3">
@@ -237,7 +237,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
             <li key={s} className="flex items-center gap-2"><span className="size-1.5 rounded-full bg-ink-4" />{s}</li>
           ))}
         </ul>
-        <p className="mt-3 text-xs text-ink-3">This takes about a minute. If you leave, it keeps going, and this page shows the case when you come back.</p>
+        <p className="mt-3 text-xs text-ink-3">This takes about a minute (<Elapsed /> so far). If you leave, it keeps going, and this page shows the case when you come back.</p>
       </div>
     );
   }
@@ -256,7 +256,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
           {serverStale ? (
             <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy} onClick={askAdvocate}>Ask my advocate again</Button>
           ) : (
-            <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy} onClick={() => send(true)}>
+            <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy} onClick={() => send(true)} data-guide-target="send-dispute">
               <Icon name="send" />{busy === "send" ? "Sending..." : `Send to ${landlord}`}
             </Button>
           )}
@@ -348,7 +348,7 @@ export function DisputeFlow({ token, landlord, view, stateName, notLegalAdvice, 
       <div className="mt-6 border-t border-line pt-6">
         {/* Both ways forward are off until a charge is picked, so the page says so rather than leaving two gray buttons. */}
         {!picked.length && <p className="mb-3 text-center text-sm text-ink-3">Pick a charge above first.</p>}
-        <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy || !picked.length} onClick={askAdvocate}>
+        <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy || !picked.length} onClick={askAdvocate} data-guide-target="ask-advocate">
           {advocate ? "Ask my advocate again" : "Ask my advocate"}
         </Button>
         <p className="mt-2.5 flex items-start justify-center gap-1.5 text-center text-sm text-ink-3">
@@ -644,7 +644,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
         {!s.tenantAcceptedAt && (
           <div className="mt-4 flex flex-col gap-3">
             {pickName}
-            <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy} onClick={acceptSettlement}>
+            <Button variant="primary" size="lg" className="h-11 w-full" disabled={!!busy} onClick={acceptSettlement} data-guide-target="accept-settlement">
               {busy === "accept" ? "Accepting..." : "Accept settlement"}
             </Button>
           </div>

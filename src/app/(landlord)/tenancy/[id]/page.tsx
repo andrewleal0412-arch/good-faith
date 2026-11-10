@@ -543,7 +543,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           record moves to the foot of the tab. */}
       {!inspected && notice}
 
-      <section id="photos" className="scroll-mt-8">
+      <section id="photos" data-guide-target="photos" className="scroll-mt-8">
         <MoveOut
           tenancyId={id}
           state={pack.code}
@@ -655,7 +655,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
         </Card>
       )}
 
-      <section id="tenant-link" className="scroll-mt-8">
+      <section id="tenant-link" data-guide-target="tenant-link" className="scroll-mt-8">
         <TenantLinkPanel tenancyId={id} address={prop.address} contacts={contacts} active={tenantLink} quiet={quiet} demoHref={tenantPath} zone={zone} />
       </section>
     </div>
@@ -680,7 +680,7 @@ export default async function TenancyPage({ params, searchParams }: PageProps<"/
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-ink-3">
             <span>{addr.cityLine}</span>
-            <RulesChip state={pack.code} city={prop.city} />
+            <span data-guide-target="rules" className="inline-flex rounded-sm"><RulesChip state={pack.code} city={prop.city} /></span>
           </div>
         </div>
         {primaryOnPayments === primary ? actions(primary) : <OnTab tab="payments" on={actions(primaryOnPayments)}>{actions(primary)}</OnTab>}

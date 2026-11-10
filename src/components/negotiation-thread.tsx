@@ -49,7 +49,7 @@ export function NegotiationThread({ turns, perspective, names, working }: {
             <div role="status" className="flex min-h-6 flex-wrap items-center gap-x-2.5 gap-y-1">
               <span className="font-medium">{writer}</span>
               <WorkingDots className="text-ink-4" />
-              <span className="text-xs text-ink-3">is writing its turn, a live Claude call. It lands here the moment it is done. <Elapsed key={working} /></span>
+              <span className="text-xs text-ink-3">is writing its turn, a live Claude call of about half a minute. It lands here the moment it is done. <Elapsed key={working} /></span>
             </div>
           </li>
         )}
@@ -61,7 +61,7 @@ export function NegotiationThread({ turns, perspective, names, working }: {
 /** The seconds since this page saw the turn start (the typing row appeared), so whoever is watching can see the wait
  *  is moving. Keyed by the writing side, so it starts again from zero when the other agent's turn begins. Hidden from
  *  the live region: the words are read once, the count is for the eye. */
-function Elapsed() {
+export function Elapsed() {
   const [since] = useState(() => Date.now());
   const [now, setNow] = useState(since);
   useEffect(() => {

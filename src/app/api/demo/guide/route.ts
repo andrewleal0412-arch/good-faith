@@ -6,7 +6,8 @@ import { currentWorkspace } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
-// The demo guide's eight steps for this copy, read again (components/demo-guide.tsx). The guide is rendered in the
+// The demo guide's seven steps for this copy, read again (components/demo-guide.tsx and the next-step bar,
+// components/guide-bar.tsx). The guide is rendered in the
 // landlord layout, and Next keeps a layout it has already rendered when a click opens another page under it, so without
 // this the ticks and the links would be the ones from the last full load: a judge who disputed in the tenants' tab and
 // then moved around the landlord side by the sidebar would see a beat they had done still waiting. The panel asks here

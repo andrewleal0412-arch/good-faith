@@ -150,7 +150,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
   const working = v.running || busy === "run" ? (v.turns[v.turns.length - 1]?.side === "landlord" ? "tenant" : "landlord") : null;
 
   return (
-    <Card id="negotiation" className="scroll-mt-8">
+    <Card id="negotiation" data-guide-target="negotiation" className="scroll-mt-8">
       <CardHead title="Negotiation" meta={v.turns.length > 1 ? <span className="max-sm:hidden">{exchangesUsed} of 3 exchanges</span> : undefined}
         right={<>{chip}
           <InfoTip align="end" title="Two agents, inside the law">
@@ -214,7 +214,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
                     <Icon name="search" />{busy === "pay" ? "Checking..." : "Check with PayPal"}
                   </Button>
                 ) : (
-                  <Button variant={quiet ? "secondary" : "primary"} disabled={!s.tenantAcceptedAt || !!busy || s.status === "sending" || !!v.payBlock || v.wholeOwed} onClick={pay}>
+                  <Button variant={quiet ? "secondary" : "primary"} disabled={!s.tenantAcceptedAt || !!busy || s.status === "sending" || !!v.payBlock || v.wholeOwed} onClick={pay} data-guide-target="approve-pay">
                     <Icon name="send" />{busy === "pay" ? "Sending..." : s.wholeBack || v.wholeOwed ? "Approve" : s.retry ? `Try again: pay ${usd(s.amount)}` : `Approve and pay ${usd(s.amount)}`}
                   </Button>
                 )}
@@ -273,7 +273,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <Button variant={quiet ? "secondary" : "primary"} disabled={!!busy} onClick={run}>
+            <Button variant={quiet ? "secondary" : "primary"} disabled={!!busy} onClick={run} data-guide-target="negotiate">
               {v.turns.length > 1 ? "Continue negotiating" : "Let my negotiator answer"}
             </Button>
             <span className="text-xs text-ink-3">{v.agentTurnsLeft === 6 ? "Up to 3 exchanges with their advocate" : `${Math.floor(v.agentTurnsLeft / 2)} exchange${Math.floor(v.agentTurnsLeft / 2) === 1 ? "" : "s"} left`}, each turn a live Claude call that lands below the moment it is done</span>

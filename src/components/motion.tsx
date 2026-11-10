@@ -7,7 +7,7 @@ import {
 
 // Good Faith's motion (docs/DESIGN.md, Motion): the timing tokens, in step with globals.css, and the few pieces every
 // moving part shares. Calm and quick, Mercury rather than a landing page: a page eases into place, a list row opens to
-// its height, a popover drops from its trigger, an amount counts to its new figure, a check draws itself.
+// its height, a popover drops from its trigger, an amount lands on its new figure, a check draws itself.
 //
 // Five rules hold everywhere:
 // - Reduced motion turns all of it off: every script asks motionOff() first and shows the final state at once (CSS
@@ -53,9 +53,6 @@ function subscribeReduce(onChange: () => void) {
 export function useMotionOff(): boolean {
   return useSyncExternalStore(subscribeReduce, motionOff, () => true);
 }
-
-/** The standard curve as a function of time (0 to 1), for an amount counted in a script. */
-export const standardCurve = cubicBezier(0, 0, 0.2, 1);
 
 /** The curve for a part moved by a script from one resting place to another (the welcome tour's ring and card): it
  *  starts gently and slows to rest, where the standard curve would leave at full speed and read as a jump. */
@@ -263,7 +260,12 @@ export function usePresence(open: boolean, exitMs: number = DUR.base): { mounted
 }
 
 type Phase = "rest" | "in" | "out";
-type Entry = { key: string; el: ReactElement; phase: Phase };
+// `wave` is a row's place among the rows that arrived in the same update, which come in one after another (STAGGER).
+type Entry = { key: string; el: ReactElement; phase: Phase; wave?: number };
+
+/** The gap between rows that arrive together (two negotiation turns landing in one read): each comes in after the one
+ *  before it, the third and later with the third, so the last is at rest within half a second. */
+const STAGGER = 140;
 
 /** A list whose rows ease in when one is added and ease out when one is removed (height and opacity; a table row by
  *  opacity alone), with no jump. The children are the rows themselves, each with a key; nothing wraps them, so the
@@ -305,10 +307,12 @@ function merge(prev: Entry[], rows: ReactElement[]): Entry[] {
     else after.set(anchor, [...(after.get(anchor) ?? []), { ...e, phase: "out" }]);
   }
   const out: Entry[] = [...(after.get(null) ?? [])];
+  let wave = 0;
   for (const el of rows) {
     const key = String(el.key);
     const was = before.get(key);
-    out.push({ key, el, phase: !was || was.phase === "out" ? "in" : was.phase });
+    const arriving = !was || was.phase === "out";
+    out.push(arriving ? { key, el, phase: "in", wave: Math.min(wave++, 2) } : { key, el, phase: was.phase, wave: was.wave });
     out.push(...(after.get(key) ?? []));
   }
   const same = out.length === prev.length && out.every((e, i) => e.key === prev[i].key && e.el === prev[i].el && e.phase === prev[i].phase);
@@ -318,6 +322,7 @@ function merge(prev: Entry[], rows: ReactElement[]): Entry[] {
 function PresenceRow({ entry, live, onDone }: { entry: Entry; live: RefObject<boolean>; onDone: (key: string, phase: Phase) => void }) {
   const node = useRef<HTMLElement | null>(null);
   const { key, phase } = entry;
+  const delay = phase === "in" ? (entry.wave ?? 0) * STAGGER : 0;
   // The row itself, drawn with a ref to its root (a row component takes `ref`, React 19); a row's own ref is not kept.
   const Row = entry.el.type as ElementType;
   const props = entry.el.props as Record<string, unknown>;
@@ -330,20 +335,21 @@ function PresenceRow({ entry, live, onDone }: { entry: Entry; live: RefObject<bo
       return;
     }
     const a = el.animate(rowFrames(el, phase), {
-      duration: phase === "in" ? DUR.slow : DUR.base, easing: phase === "in" ? EASE.standard : EASE.exit, fill: phase === "out" ? "forwards" : "none",
+      duration: phase === "in" ? DUR.slow : DUR.base, easing: phase === "in" ? EASE.standard : EASE.exit, delay,
+      fill: phase === "out" ? "forwards" : "backwards",
     });
     a.onfinish = () => onDone(key, phase);
     // What the row marks as settling (a negotiation turn's move and the app's check on it) comes in just after it.
     const settling = phase === "in" ? [...el.querySelectorAll<HTMLElement>(".gf-settle")].map((n) => n.animate(
       [{ opacity: 0, transform: "scale(0.9)" }, { opacity: 1, transform: "none" }],
-      { duration: DUR.base, delay: DUR.slow - 80, easing: EASE.standard, fill: "backwards" },
+      { duration: DUR.base, delay: delay + DUR.slow - 80, easing: EASE.standard, fill: "backwards" },
     )) : [];
     return () => {
       a.onfinish = null;
       a.cancel();
       settling.forEach((x) => x.cancel());
     };
-  }, [phase, key, live, onDone]);
+  }, [phase, key, live, onDone, delay]);
   return <Row {...props} ref={node} />;
 }
 
@@ -465,46 +471,4 @@ export function ChipFace({ k, children }: { k: string; children: ReactNode }) {
     if (chip) width.current = chip.offsetWidth;
   });
   return <span ref={face} className="inline-flex items-center gap-1.5">{children}</span>;
-}
-
-/** The figure an amount shows while it counts to a new value: when the value changes while it is seen (a deduction
- *  edited, a filter picked), it counts there over `ms` on the standard curve and lands on the exact value;
- *  null at rest. Never on a first paint, a tab shown again or a refresh with the same value. RollMoney draws it, with
- *  the final figure for a screen reader throughout. */
-export function useRoll(value: number, ms: number = DUR.moment): number | null {
-  const [shown, setShown] = useState<{ to: number; v: number } | null>(null);
-  const frame = useRef(0);
-  const at = useRef<number | null>(null); // the figure on screen while counting
-  // Hidden (a tab) or unmounted mid-count: the next change starts from the figure at rest, not a stale one.
-  useLayoutEffect(() => () => {
-    at.current = null;
-  }, []);
-  useLiveChange(value, (from, to) => {
-    if (motionOff() || document.visibilityState !== "visible") {
-      at.current = null;
-      return;
-    }
-    const start = performance.now(), origin = at.current ?? from;
-    // The old figure in this same frame (a layout effect's update is drawn before the browser paints), so the new
-    // one is never glimpsed before the count starts.
-    at.current = origin;
-    setShown({ to, v: origin });
-    const step = (now: number) => {
-      const p = Math.min(1, (now - start) / ms);
-      if (p >= 1) {
-        at.current = null;
-        setShown(null);
-        return;
-      }
-      at.current = Math.round((origin + (to - origin) * standardCurve(p)) * 100) / 100;
-      setShown({ to, v: at.current });
-      frame.current = requestAnimationFrame(step);
-    };
-    frame.current = requestAnimationFrame(step);
-    return () => {
-      cancelAnimationFrame(frame.current);
-      setShown(null);
-    };
-  });
-  return shown && shown.to === value ? shown.v : null;
 }

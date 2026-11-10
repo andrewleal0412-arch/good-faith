@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "@/components/link";
-import { useEffect, useRef, useState, type FocusEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent } from "react";
 import { Icon } from "./icons";
-import { motionOff } from "./motion";
+import { DUR, EASE, motionOff } from "./motion";
 import type { TabItem } from "./ui";
 
 type Common = { active: string; className?: string; label?: string };
@@ -17,6 +17,30 @@ export function Tabs({ items, active, className, label = "Sections", onSelect }:
 )) {
   const nav = useRef<HTMLElement>(null);
   const [more, setMore] = useState(false);
+  const slider = useRef<HTMLSpanElement>(null);
+  const was = useRef<{ left: number; width: number } | null>(null);
+
+  // When the active tab changes, its underline slides there from the old tab's (the base token, the standard curve):
+  // a 1px bar scaled to each tab's width, laid exactly over the new tab's own underline, which shows again when it
+  // lands. The first render, and reduced motion, draw the new tab's underline in place.
+  useLayoutEffect(() => {
+    const on = nav.current?.querySelector<HTMLElement>("[data-on]");
+    const to = on ? { left: on.offsetLeft, width: on.offsetWidth } : null;
+    const from = was.current;
+    was.current = to;
+    const bar = slider.current;
+    if (!on || !to || !from || !bar || motionOff() || (from.left === to.left && from.width === to.width)) return;
+    bar.style.top = `${on.offsetTop + on.offsetHeight - 2}px`;
+    bar.style.display = "block";
+    on.style.borderBottomColor = "transparent";
+    const a = bar.animate(
+      [{ transform: `translateX(${from.left}px) scaleX(${from.width})` }, { transform: `translateX(${to.left}px) scaleX(${to.width})` }],
+      { duration: DUR.base, easing: EASE.standard },
+    );
+    const land = () => { on.style.borderBottomColor = ""; bar.style.display = "none"; };
+    a.onfinish = land;
+    return () => { a.onfinish = null; a.cancel(); land(); };
+  }, [active]);
 
   useEffect(() => {
     const el = nav.current;
@@ -45,10 +69,12 @@ export function Tabs({ items, active, className, label = "Sections", onSelect }:
   return (
     <div className={`relative ${className ?? ""}`}>
       <nav ref={nav} aria-label={label} onFocus={reveal}
-        className="-mx-4 flex gap-0.5 overflow-x-auto border-b border-line px-4 [scrollbar-width:none] sm:mx-0 sm:gap-1 sm:px-0 [&::-webkit-scrollbar]:hidden">
+        className="relative -mx-4 flex gap-0.5 overflow-x-auto border-b border-line px-4 [scrollbar-width:none] sm:mx-0 sm:gap-1 sm:px-0 [&::-webkit-scrollbar]:hidden">
+        <span ref={slider} aria-hidden className="pointer-events-none absolute left-0 hidden h-0.5 w-px origin-left bg-brand" />
         {(items as (Omit<TabItem, "href"> & { href?: string })[]).map((t) => {
           const on = t.key === active;
-          // The underline and the words ease from the old tab to the new one (the fast token), in the frame of the click.
+          // The words ease from the old tab to the new one (the fast token), in the frame of the click; the underline
+          // slides (above).
           // Keyboard focus draws the app's outline inside the tab, as a grid cell's is: the row scrolls sideways, so it
           // clips what lies outside its box (and the tab's last pixel row, which sits on the row's border), and an
           // outline 3px in keeps all four sides whole.

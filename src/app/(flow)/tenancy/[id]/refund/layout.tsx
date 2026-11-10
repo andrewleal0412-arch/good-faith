@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
+import { DemoFrame } from "@/components/demo-frame";
+import { canSignOut } from "@/lib/session-server";
 import { pageTenancy } from "@/lib/workspace";
 
 // The refund review answers 404 for a tenancy that doesn't exist or is another workspace's before its skeleton
-// streams (loading.tsx, which this layout wraps): after that the status can no longer change.
+// streams (loading.tsx, which this layout wraps): after that the status can no longer change. In a private demo copy
+// it has the Landlord | Tenants switch above it and the next-step bar at its foot, as every demo page does
+// (components/demo-frame.tsx).
 export default async function RefundLayout({ children, params }: { children: ReactNode; params: Promise<{ id: string }> }) {
-  await pageTenancy((await params).id);
-  return children;
+  const ws = await pageTenancy((await params).id);
+  return canSignOut() && ws.kind === "demo" ? <DemoFrame side="landlord">{children}</DemoFrame> : children;
 }

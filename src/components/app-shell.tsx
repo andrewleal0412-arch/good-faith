@@ -6,6 +6,7 @@ import { Suspense, use, useEffect, useId, useRef, useState, type MouseEvent, typ
 import { ConfirmDialog } from "./confirm";
 import { DemoGuide } from "./demo-guide";
 import { DemoWelcome } from "./demo-welcome";
+import { GuideBar, SideSwitch } from "./guide-bar";
 import { Icon, PayPalMark, type IconName } from "./icons";
 import { InfoTip } from "./info-tip";
 import { Menu } from "./menu";
@@ -13,6 +14,7 @@ import { arriveAgain, PresenceList, usePresence } from "./motion";
 import { flowSkeletonFor, skeletonFor } from "./skeleton-route";
 import { Avatar, LineMark, Notice, Wordmark } from "./ui";
 import type { GuideState, GuideStep } from "@/lib/demo-guide";
+import type { DemoSide } from "@/lib/demo-guide-server";
 import type { DemoWelcome as Welcome } from "@/lib/demo-welcome";
 import { sectionOf } from "@/lib/tenancy-tabs";
 
@@ -38,8 +40,10 @@ type ShellProps = {
   account: { account: string; initials: string } | null; // known before any read (a demo copy, or GOOD_FAITH_ACCOUNT)
   chrome: Promise<ShellChrome>;
   // The demo guide at the top of every page, in a private demo copy only (null in the owner's workspace): what this
-  // browser last chose to do with it, and the eight beats of this copy, which stream in with the rest of the chrome.
-  guide: { choice: GuideState | null; steps: Promise<GuideStep[] | null> } | null;
+  // browser last chose to do with it, and the seven beats of this copy, which stream in with the rest of the chrome.
+  // The same steps drive the next-step bar at the foot of the page (`bar`, whether this browser hid it), and `side` is
+  // what the top bar's Landlord | Tenants switch needs (components/guide-bar.tsx).
+  guide: { choice: GuideState | null; steps: Promise<GuideStep[] | null>; bar: boolean; side: Promise<DemoSide | null> } | null;
   // The welcome card and tour, in a private demo copy only: whether this browser has yet to see it, and its words,
   // which stream in with the rest of the chrome (components/demo-welcome.tsx).
   welcome: { show: boolean; data: Promise<Welcome | null> } | null;
@@ -154,7 +158,9 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, guide, 
             className="-ml-1.5 inline-flex size-[34px] items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-surface md:hidden">
             <Icon name="menu" />
           </button>
-          <Link href="/units" className="md:hidden"><Wordmark /></Link>
+          {/* A demo copy's phone top bar gives the wordmark's room to the Landlord | Tenants switch. */}
+          <Link href="/units" className={guide ? "hidden" : "md:hidden"}><Wordmark /></Link>
+          {guide && <SideSwitch side="landlord" demo={guide.side} className="md:order-last md:ml-1" />}
           <Suspense fallback={<div className="hidden h-9 w-[400px] md:block" />}>
             <Search onSearch={opens} />
           </Suspense>
@@ -188,16 +194,18 @@ export function AppShell({ sandbox, signOut, startOver, account, chrome, guide, 
           </div>
         </header>
         <main id="main" tabIndex={-1} className="w-full max-w-content px-4 pb-12 pt-5 outline-none md:px-7 md:pt-7 print:max-w-none print:p-0">
-          {/* A judge's own copy opens with the eight beats of the demo script, each a link into this copy
+          {/* A judge's own copy opens with the seven beats of the demo script, each a link into this copy
               (components/demo-guide.tsx). It sits in the page's flow above the heading, so it covers nothing it points
               at, and stays where it is while the next page arrives. */}
-          {guide && <DemoGuide {...guide} />}
+          {guide && <DemoGuide choice={guide.choice} steps={guide.steps} />}
           {/* The page stays mounted while the next one is opened, under its skeleton; a filter being applied dims it,
               after a moment, so a quick answer doesn't flicker. A page arriving rises into place (gf-page, globals.css):
               its parts are new, or were hidden under the skeleton, so their arrival plays; a re-render plays nothing. */}
           <div aria-busy={live?.same || undefined} className={`gf-page ${opening ? "hidden" : live?.same ? "block opacity-60 transition-opacity delay-150 duration-(--dur-base)" : "contents"}`}>{children}</div>
           {opening}
         </main>
+        {/* The one next thing to press, pinned to the foot of the page (components/guide-bar.tsx). */}
+        {guide && <GuideBar steps={guide.steps} hidden={guide.bar} shell />}
       </div>
       {startOver && <StartOver />}
       {welcome && <DemoWelcome {...welcome} />}

@@ -50,7 +50,7 @@ export function RefundActions(p: {
     refresh(() => setBusy(null));
   }
 
-  const progress = busy === "start" ? "The agent is reading the file and checking the deposit with PayPal"
+  const progress = busy === "start" ? "Claude, the close-out agent, is reading the file and checking the deposit with PayPal. This usually takes under a minute"
     : busy === "approve" ? "Sending it through PayPal" : "Recording that";
 
   return (
@@ -58,7 +58,8 @@ export function RefundActions(p: {
       {error && <Notice className="mt-8">{error}</Notice>}
       <div className="mt-8 flex flex-wrap items-center gap-2.5">
         <ButtonLink size="lg" href={p.back}><Icon name="chev-left" />Back</ButtonLink>
-        <Button variant="primary" size="lg" disabled={!!busy || p.disabled}
+        {/* The controls the demo's next-step bar points at (components/guide-bar.tsx). */}
+        <Button variant="primary" size="lg" disabled={!!busy || p.disabled} data-guide-target={p.mode === "send" ? "send-refund" : "prepare-refund"}
           onClick={() => call(p.mode === "send" ? "approve" : "start")}>
           {busy === "approve" ? "Sending..." : busy === "start" ? "Preparing..." : p.label}
         </Button>
@@ -70,7 +71,7 @@ export function RefundActions(p: {
         )}
       </div>
       {busy
-        ? <p className="mt-4 text-sm text-ink-3" role="status">{progress}... {elapsed}s</p>
+        ? <p className="mt-4 text-sm text-ink-3" role="status" data-guide-target={busy === "start" ? "refund-working" : undefined}>{progress}... <span className="tabular-nums">{elapsed}s</span></p>
         : <p className="mt-4 text-sm text-ink-3">{p.auth}</p>}
       {dialog}
     </>

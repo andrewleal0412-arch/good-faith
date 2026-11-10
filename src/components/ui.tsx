@@ -1,5 +1,5 @@
 import Link from "@/components/link";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 import { Icon, type IconName } from "./icons";
 import { ChipFace } from "./motion";
 
@@ -67,14 +67,14 @@ const fmt = (n: number) => AMOUNT.format(Math.abs(n));
  *  `phoneCents` says what the cents do, so one strip never mixes precisions: "hide" (the default) when every cell in
  *  the strip is a small-cents figure, "full" when its neighbours print full cents, "raised" for a tile that spans the
  *  screen. Outflows pass `sign="minus"` and get a true minus. */
-export function Money({ value, cents = "full", sign, phoneCents = "hide", className }: {
-  value: number; cents?: "small" | "full"; sign?: "minus" | "plus"; phoneCents?: "hide" | "full" | "raised"; className?: string;
+export function Money({ value, cents = "full", sign, phoneCents = "hide", className, ref }: {
+  value: number; cents?: "small" | "full"; sign?: "minus" | "plus"; phoneCents?: "hide" | "full" | "raised"; className?: string; ref?: Ref<HTMLSpanElement>;
 }) {
   const [whole, frac] = fmt(value).split(".");
   const pre = sign === "minus" || (value < 0 && sign !== "plus") ? "−" : sign === "plus" ? "+" : "";
   const phone = phoneCents === "hide" ? "max-sm:hidden" : phoneCents === "full" ? "max-sm:static max-sm:align-baseline max-sm:text-[1em]" : "";
   return (
-    <span className={cx("whitespace-nowrap tabular-nums", className)}>
+    <span ref={ref} className={cx("whitespace-nowrap tabular-nums", className)}>
       {pre}${whole}
       {cents === "small" ? <span className={cx("relative top-[0.18em] align-top text-[0.6em] tracking-normal", phone)}>.{frac}</span> : <>.{frac}</>}
     </span>

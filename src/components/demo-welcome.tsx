@@ -12,7 +12,7 @@ import type { DemoWelcome as Welcome, TourStop } from "@/lib/demo-welcome";
 // The welcome a judge's own copy opens with, once per browser, on Properties: a card on whose shoes they are in and
 // what the demo is (src/lib/demo-welcome.ts writes its words from the copy's own units), then, if they want it, a tour
 // of four parts of the page: the move-out the demo runs on, the next steps, the unit in a second state, and the demo
-// guide's eight steps, where the tour ends. Its last button opens the move-out photos.
+// guide's seven steps, where the tour ends. Its last button opens the move-out photos.
 //
 // Closing the card any way (either button, Escape, a click beside it) keeps a cookie that says this browser has seen
 // it, which the server reads, so it never opens on a later visit and never flashes. "Welcome tour" in the account menu

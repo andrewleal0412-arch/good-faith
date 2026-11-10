@@ -126,7 +126,7 @@ export default async function TenantPage({ params }: PageProps<"/t/[token]">) {
             {st.deductions.length > 0 && canDispute && (
               <p className="mt-3 border-t border-line-2 pt-3 text-sm text-ink-3">
                 Disagree with a charge?{" "}
-                <a href={`/t/${token}/dispute`} className="font-medium text-brand hover:underline">
+                <a href={`/t/${token}/dispute`} data-guide-target="dispute-start" className="font-medium text-brand hover:underline">
                   {disputeVerb ?? "Dispute it"}
                 </a>
               </p>

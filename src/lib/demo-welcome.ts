@@ -5,7 +5,7 @@ import type { TenancySummary } from "./next-step";
 import { packFor } from "./states";
 
 // The welcome a judge's copy opens with: one card on what this is and whose shoes they are in, then, if they want it,
-// a four-stop tour of Properties that ends on the demo guide's eight steps (components/demo-welcome.tsx). A judge meets
+// a four-stop tour of Properties that ends on the demo guide's seven steps (components/demo-welcome.tsx). A judge meets
 // three new ideas before the first screen (the judges' code, a private copy, the guide), and this is the one place
 // that puts them together.
 //
@@ -16,7 +16,7 @@ import { packFor } from "./states";
 /** One stop of the tour: the part of Properties it rings (a selector the page carries), and what it says there. */
 export type TourStop = { anchor: string; title: string; body: string };
 
-/** The card's words and the tour's stops. `start` is where the tour's last button goes: the move-out photos, beat 3. */
+/** The card's words and the tour's stops. `start` is where the tour's last button goes: the move-out photos, beat 1. */
 export type DemoWelcome = { title: string; lead: string; lines: string[]; stops: TourStop[]; start: string };
 
 /** What the welcome reads off one unit, from the rows Properties has already loaded (src/lib/units.ts, loadUnits). */
@@ -82,12 +82,12 @@ export function welcomeOf({ units, account, today, sandbox }: { units: WelcomeUn
     {
       anchor: '[data-tour="guide"]',
       title: `Your ${BEATS.length} steps`,
-      body: "The demo in order. Each step opens where it happens in your copy, and ticks itself off once your copy shows it done; the four your copy already holds, once you open them. On other pages it folds to one line with your next step. The account menu brings this tour back.",
+      body: "The demo in order. Each step opens where it happens in your copy, and ticks itself off once your copy shows it done; the three your copy already holds, once you open them. The bar at the bottom of every page says what to press next, and Take me there rings it. The account menu brings this tour back.",
     },
   ];
 
-  // Beat 3's own link, as the guide builds it, so the two never disagree on where the move-out photos are.
-  const start = guideSteps([{ ...live, leaseChecked: false, statementDelivered: false, payments: [], disputesSent: [] }])!.find((s) => s.n === 3)!.href;
+  // Beat 1's own link, as the guide builds it, so the two never disagree on where the move-out photos are.
+  const start = guideSteps([{ ...live, leaseChecked: false, statementDelivered: false, payments: [], disputesSent: [] }])!.find((s) => s.n === 1)!.href;
 
   return {
     title: `You're the landlord at ${account}`,

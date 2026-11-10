@@ -6,14 +6,14 @@ import { Suspense, use, useCallback, useEffect, useId, useRef, useState } from "
 import { Icon } from "./icons";
 import { StepMark } from "./steps";
 import { Card, LineMark } from "./ui";
-import { BEAT_EVENT, BEATS, GUIDE_COOKIE, guideView, pageBeat, SEEN_COOKIE, seenBeats, seenValue, type GuideState, type GuideStep } from "@/lib/demo-guide";
+import { BEAT_EVENT, BEATS, GUIDE_COOKIE, guideView, pageBeat, SEEN_COOKIE, SEEN_EVENT, seenBeats, seenValue, type GuideState, type GuideStep } from "@/lib/demo-guide";
 
-// The demo guide, at the top of every page of a private demo copy: the eight beats of docs/DEMO_SCRIPT.md in order,
+// The demo guide, at the top of every page of a private demo copy: the seven beats of docs/DEMO_SCRIPT.md in order,
 // each a link to where that beat happens in this copy, each ticked off by the copy's own rows (src/lib/demo-guide.ts),
-// and the four beats a fresh copy already holds (LOOK_BEATS) only once this browser has opened their page. In the
+// and the three beats a fresh copy already holds (LOOK_BEATS) only once this browser has opened their page. In the
 // page's own flow above its heading, so it never covers a control it points at.
 //
-// Until this browser chooses otherwise it shows its eight rows on Properties only, and on every other page its one
+// Until this browser chooses otherwise it shows its seven rows on Properties only, and on every other page its one
 // line: the count, and the next beat as a link to where it happens (guideDefault, src/lib/demo-guide.ts), so the
 // screen a beat sends the judge to is not pushed down by the checklist. Its head opens or collapses it, and Hide puts
 // it away for good; the choice is kept in this browser as a cookie, which the server reads, and holds on every page,
@@ -74,8 +74,10 @@ export function DemoGuide({ choice: chosen, steps }: { choice: GuideState | null
     if (!s || !s.held || s.done) return;
     rememberSeen(n);
     setOpened((o) => (o.includes(n) ? o : [...o, n]));
+    // The next-step bar reads the steps again, now that the cookie holds this beat (components/guide-bar.tsx).
+    window.dispatchEvent(new Event(SEEN_EVENT));
   }, []);
-  // Beat 1 comes from the lease check, once a check's result is on its page (src/app/(landlord)/lease/lease-check.tsx).
+  // The lease beat comes from the lease check, once a check's result is on its page (src/app/(landlord)/lease/lease-check.tsx).
   useEffect(() => {
     const onBeat = (e: Event) => {
       const n = Number((e as CustomEvent).detail);
@@ -94,7 +96,7 @@ export function DemoGuide({ choice: chosen, steps }: { choice: GuideState | null
 
   // Next keeps a layout it has already rendered when a click opens another page under it, so after a click the steps
   // the panel holds are the ones from the last full load. It asks the route for them again when the page under it
-  // changes, and when this window is given focus again (beats 5 to 7 happen in the tenants' tab beside it).
+  // changes, and when this window is given focus again (beats 3 to 5 happen on the tenants' page).
   useEffect(() => {
     if (view === "off") { seen.current = ""; return; }
     let alive = true;
@@ -147,15 +149,16 @@ export function DemoGuide({ choice: chosen, steps }: { choice: GuideState | null
             Hide
           </button>
         </div>
-        {/* In two columns where there is room, filled down the first and then the second (1 to 4, then 5 to 8), so the
-            eight read in order either way; one column below that. */}
+        {/* In two columns where there is room, filled down the first and then the second (1 to 4, then 5 to 7), so the
+            seven read in order either way; one column below that. */}
         {open && (
           <ol id={list} className="mt-1 border-t border-line-2 pt-1 lg:grid lg:auto-cols-fr lg:grid-flow-col lg:grid-rows-4 lg:gap-x-6">
             <Suspense fallback={<Rows list={null} />}><LoadedRows steps={steps} live={live} opened={opened} /></Suspense>
           </ol>
         )}
       </Card>
-      {/* Beats 2, 3 and 8 are ticked on arriving at their page; in its own Suspense since it reads the address's query. */}
+      {/* The photo beat and the second state are ticked on arriving at their page; in its own Suspense since it reads the
+          address's query. */}
       {watch}
     </section>
   );
@@ -188,7 +191,7 @@ function Meta({ steps, live, opened, open }: { steps: Promise<GuideStep[] | null
 
 /** The collapsed line's own pointer: the next beat, with its number and title, as a link to where it happens in this
  *  copy, and the screen it opens where there is room; "All done" once every beat is ticked. The same words and link
- *  as that beat's row, so the one line and the eight rows never disagree on what is next. */
+ *  as that beat's row, so the one line and the seven rows never disagree on what is next. */
 function NextBeat({ steps, live, opened }: { steps: Promise<GuideStep[] | null>; live: GuideStep[] | null; opened: number[] }) {
   const list = ticked(live ?? use(steps), opened);
   if (!list) return null;
@@ -208,7 +211,7 @@ function LoadedRows({ steps, live, opened }: { steps: Promise<GuideStep[] | null
   return <Rows list={ticked(live ?? use(steps), opened)} />;
 }
 
-/** The eight rows. Until the copy's own rows are in (and in a copy with no tenancy to point at) the beats are still
+/** The seven rows. Until the copy's own rows are in (and in a copy with no tenancy to point at) the beats are still
  *  listed, in the same space, without their links or ticks, so nothing shifts when they arrive. */
 function Rows({ list }: { list: GuideStep[] | null }) {
   const next = list?.find((s) => !s.done) ?? null;

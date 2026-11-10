@@ -80,7 +80,7 @@ Each read is one request of about 2,600 input tokens (the words, the state's rul
    - [ ] The pool at least 30 ready: `npm run demo:pool -- --min 30`, daily from the mini (section 9).
    - [ ] The cron job's `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, set by hand in `good-faith-sweep` > Environment on Render, the same values as the web service's. A Blueprint update doesn't ask for them (section 9).
    - [ ] The Anthropic console's spend limit set to match (section 3).
-   - [ ] `TYPESAFE_API_KEY` set, or optional beat 3c left out of the video and the README's Jev row removed, so nobody looks for a chip that isn't there.
+   - [ ] `TYPESAFE_API_KEY` set, or optional beat 1c left out of the video and the README's Jev row removed, so nobody looks for a chip that isn't there.
    - [ ] Each morning, `https://<host>/api/health?owner=1` in a browser signed in with the owner code: the pool, the day's copies and the day's Claude jobs against these numbers (section 8).
 7. What Render does not limit: there is no 4.5 MB body cap and no per-route time limit, so the `maxDuration` exports in the routes (written for Vercel) are ignored, and an inspection or a close-out run takes as long as Claude does (well under a minute each in testing). The app keeps its own 4 MB upload budget (section 8) whatever the host allows.
 8. The URL is `https://good-faith.onrender.com` (or the name Render gives if that one is taken). A custom domain is optional.
