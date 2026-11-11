@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { clientAddress } from "@/lib/access-throttle";
 import { db } from "@/lib/db";
+import { imageType } from "@/lib/images";
 import { rateLimiter } from "@/lib/rate-limit";
 import { resolveTenantToken, tokenNotFound, tooManyRequests } from "@/lib/tenant-links";
 import { statementDelivered } from "@/lib/tenant-view";
@@ -55,7 +56,8 @@ export async function GET(req: Request, ctx: RouteContext<"/api/t/[token]/photos
   if (error || !data) return tokenNotFound();
   const original = new Uint8Array(await data.arrayBuffer());
   let bytes = original, type = data.type || "image/jpeg";
-  try {
+  // Checked again before decoding, for a file stored before the upload check refused its shape (src/lib/images.ts).
+  if (await imageType(original)) try {
     bytes = new Uint8Array(await sharp(original, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: PHOTO_PX, height: PHOTO_PX, fit: "inside", withoutEnlargement: true }).jpeg({ quality: PHOTO_QUALITY }).toBuffer());
     type = "image/jpeg";
   } catch { /* sharp couldn't read it; the original goes out as stored */ }

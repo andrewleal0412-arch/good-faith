@@ -25,13 +25,17 @@ export function sniff(b: Uint8Array): "image/jpeg" | "image/png" | "image/gif" |
   return null;
 }
 
-/** The media type read from the bytes, or null when they aren't a photo the app can use. */
+/** The media type read from the bytes, or null when they aren't a photo the app can use. Pixels alone don't bound what
+ *  a decode holds: a PNG at 16 bits a channel, or an interlaced PNG or GIF, is held whole and wider while it decodes
+ *  (a 1.7 MB one peaked at 638 MB, docs/AUDIT.md), so those are refused too. The browser re-encodes a large photo as
+ *  an 8-bit JPEG; a small file it sends as is in one of these shapes is asked to come back as a JPEG. */
 export async function imageType(bytes: Uint8Array): Promise<string | null> {
   const signed = sniff(bytes);
   if (!signed || !signed.startsWith("image/")) return null;
   try {
-    const { format, width, height } = await sharp(bytes, { limitInputPixels: MAX_PIXELS }).metadata();
+    const { format, width, height, depth, isProgressive } = await sharp(bytes, { limitInputPixels: MAX_PIXELS }).metadata();
     if (!width || !height || width * height > MAX_PIXELS) return null;
+    if (depth !== "uchar" || (isProgressive && (format === "png" || format === "gif"))) return null;
     const type = (format && ACCEPTED[format]) ?? null;
     return type === signed ? type : null;
   } catch {

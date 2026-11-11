@@ -6,6 +6,7 @@
 //   node scripts/security-check.mjs
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
@@ -72,11 +73,33 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
     const row = Buffer.alloc(1 + 3 * Math.min(w, 64));
     return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(row)), chunk("IEND", Buffer.alloc(0))]));
   };
-  check("images: the pixel limit is 40 million", MAX_PIXELS === 40_000_000, String(MAX_PIXELS));
+  check("images: the pixel limit is 16 million", MAX_PIXELS === 16_000_000, String(MAX_PIXELS));
   check("images: a 16000 x 16000 PNG of a few hundred bytes is refused", (await images.imageType(png(16000, 16000))) === null);
   check("images: 8000 x 5001 is refused", (await images.imageType(png(8000, 5001))) === null);
+  check("images: 4001 x 4000 is refused", (await images.imageType(png(4001, 4000))) === null);
   check("images: a 4032 x 3024 phone-sized PNG header is accepted", (await images.imageType(png(4032, 3024))) === "image/png");
   check("images: a 64 x 64 PNG is accepted", (await images.imageType(png(64, 64))) === "image/png");
+
+  // Pixels alone don't bound the memory a decode takes: a 1.7 MB 6300 x 6300 PNG at 16 bits a channel, interlaced,
+  // peaked at 638 MB in one decode (the host has 512 MB). So a PNG or GIF must be 8 bits a channel and not interlaced.
+  // The fixtures are made here, small, so no large file is kept in the repo.
+  const sharp = createRequire(join(ROOT, "package.json"))("sharp");
+  const flat = () => sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 200, g: 120, b: 60 } } });
+  const made = async (f) => new Uint8Array(await f.toBuffer());
+  check("images: a 16-bit PNG is refused", (await images.imageType(await made(flat().toColourspace("rgb16").png()))) === null);
+  check("images: an interlaced PNG is refused", (await images.imageType(await made(flat().png({ progressive: true })))) === null);
+  check("images: a 16-bit interlaced PNG is refused", (await images.imageType(await made(flat().toColourspace("rgb16").png({ progressive: true })))) === null);
+  check("images: an interlaced GIF is refused", (await images.imageType(await made(flat().gif({ progressive: true })))) === null);
+  check("images: a plain 8-bit PNG is accepted", (await images.imageType(await made(flat().png()))) === "image/png");
+  check("images: a plain GIF is accepted", (await images.imageType(await made(flat().gif()))) === "image/gif");
+  check("images: a progressive JPEG (as some cameras save) is accepted", (await images.imageType(await made(flat().jpeg({ progressive: true })))) === "image/jpeg");
+
+  // The tenant link's own photo routes decode a stored file on every request, so a file stored before the upload
+  // check refused these shapes is checked again before it is decoded; a refused one goes out as stored.
+  for (const p of ["src/app/api/t/[token]/dispute/evidence/[evidenceId]/route.ts", "src/app/api/t/[token]/photos/[photoId]/route.ts"]) {
+    check(`a stored photo is checked before it is decoded: ${p}`, /if \(await imageType\(original\)\) try \{/.test(src(p)));
+  }
+  check("a stored photo is checked before its thumbnail is made", /if \(!given && !\(await imageType\(original\)\)\) throw /.test(src("src/lib/thumbs.ts")));
 
   // Every place the server opens a stored image does it with the same limit, so a file stored before the upload
   // check (or put in the bucket by hand) still can't take the server's memory.

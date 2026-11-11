@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { db } from "./db";
+import { imageType } from "./images";
 import { MAX_PIXELS } from "./uploads";
 
 // Small versions of the stored photos, for the photo grids and thumbnails: 480 px on the long side, WebP (6 to 10 kB
@@ -132,6 +133,9 @@ async function make(path: string, given?: { bytes: Uint8Array<ArrayBuffer>; type
     }
     let out: Thumbnail;
     try {
+      // A stored file is checked again before decoding, in case it was stored before the upload check refused its
+      // shape (src/lib/images.ts); an upload's own bytes were just checked.
+      if (!given && !(await imageType(original))) throw new Error("not a shape the server decodes");
       out = { bytes: await makeThumb(original), type: "image/webp" };
     } catch {
       // sharp couldn't read it: the original goes out as stored, as the tenants' photo route does.
