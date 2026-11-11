@@ -167,6 +167,17 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   check("safeNext: a path outside plain ASCII goes home (it can't be a Location header)", safeNext("/中") === "/" && safeNext("/a b") === "/" && safeNext("/a\u007f") === "/");
   check("safeNext: a normal path with a query is kept", safeNext("/tenancy/abc?tab=move-out") === "/tenancy/abc?tab=move-out");
   check("safeNext: another site is still refused", safeNext("//example.com") === "/" && safeNext("/\\example.com") === "/");
+  // Wrong codes from many addresses: once more than 5000 were live in the window, every wrong code scanned the whole
+  // map again (one IPv6 /64 holds that many). Now the map is pruned at most once a minute, and still pruned.
+  const throttle = await lib("access-throttle");
+  const T = 1_000_000_000_000;
+  for (let i = 0; i < 6000; i++) throttle.recordWrong(`fill-${i}`, T + i);
+  const [, scanMs] = await ms(() => { for (let i = 0; i < 3000; i++) throttle.recordWrong(`more-${i}`, T + 6000 + i); });
+  check("throttle: 3000 wrong codes with 6000 addresses live don't each scan the map", scanMs < 150, `${scanMs.toFixed(0)} ms`);
+  throttle.recordWrong("later", T + throttle.WINDOW_MS + 61_000);
+  check("throttle: expired addresses are still dropped from the map", throttle.tracked?.() === 1, String(throttle.tracked?.()));
+  check("throttle: an address with 10 wrong codes is still held", (() => { for (let i = 0; i < 10; i++) throttle.recordWrong("held", T + 700_000 + i); return throttle.throttled("held", T + 700_010); })());
+
   const access = src("src/app/api/access/route.ts");
   check("the judges' code entered again keeps this browser's copy and its session", /const prior = await currentSession\(\);/.test(access) && /sid = prior\.sid/.test(access) && /issueSession\(kind, g\.secret, \{ ws, sid \}\)/.test(access));
 }

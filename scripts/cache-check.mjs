@@ -105,6 +105,7 @@ const KEPT = {
   "src/lib/chargeback-store.ts lastCheck": "when Check PayPal last ran per tenancy, a throttle: a time, no data",
   "src/lib/access-throttle.ts tries": "wrong access codes per address, a throttle",
   "src/lib/access-throttle.ts all": "wrong access codes in all, a throttle",
+  "src/lib/access-throttle.ts pruned": "when the throttle's map was last pruned, a time, no data",
   "src/app/api/paypal/webhook/route.ts toldAddress": "whether the rate limit's address header was logged once",
   "src/proxy.ts PUBLIC_EXACT": "a fixed list of public paths, never changed",
   "src/lib/dates.ts ZONES": "date formatters, one set per time zone name (a state pack's zone): no data, only Intl formatters",

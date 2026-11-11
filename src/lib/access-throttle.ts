@@ -8,6 +8,7 @@ export const EVERYONE = 200;
 
 const tries = new Map<string, number[]>();
 let all: number[] = [];
+let pruned = 0;
 
 const recent = (xs: number[], now: number) => xs.filter((t) => now - t < WINDOW_MS);
 
@@ -43,6 +44,13 @@ export function recordWrong(address: string, now = Date.now()) {
   // The ceiling only needs to know it has been reached, so the list stays at most EVERYONE long.
   all = recent(all, now);
   if (all.length < EVERYONE) all.push(now);
-  // Keep the map small: drop addresses whose tries have all expired.
-  if (tries.size > 5000) for (const [k, v] of tries) if (!recent(v, now).length) tries.delete(k);
+  // Keep the map small: drop addresses whose tries have all expired, at most once a minute. A scan on every wrong code
+  // cost each one a pass over every address once more than 5000 were live (one IPv6 /64 holds that many).
+  if (tries.size > 5000 && now - pruned >= 60_000) {
+    pruned = now;
+    for (const [k, v] of tries) if (!recent(v, now).length) tries.delete(k);
+  }
 }
+
+/** How many addresses the map holds, for the checks. */
+export const tracked = () => tries.size;
