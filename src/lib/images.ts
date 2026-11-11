@@ -1,6 +1,6 @@
 import "server-only";
 import sharp from "sharp";
-import { mb, UPLOAD_BUDGET } from "./uploads";
+import { MAX_PIXELS, mb, UPLOAD_BUDGET } from "./uploads";
 
 // What an uploaded file really is. The browser derives a file's type from its extension, so a renamed, truncated
 // or HEIC file arrives labeled image/jpeg; stored, it would break every inspection of its room (one Claude call per
@@ -30,7 +30,8 @@ export async function imageType(bytes: Uint8Array): Promise<string | null> {
   const signed = sniff(bytes);
   if (!signed || !signed.startsWith("image/")) return null;
   try {
-    const { format } = await sharp(bytes).metadata();
+    const { format, width, height } = await sharp(bytes, { limitInputPixels: MAX_PIXELS }).metadata();
+    if (!width || !height || width * height > MAX_PIXELS) return null;
     const type = (format && ACCEPTED[format]) ?? null;
     return type === signed ? type : null;
   } catch {

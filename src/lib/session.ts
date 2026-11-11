@@ -133,7 +133,9 @@ export function sameOrigin(headers: Headers): boolean {
  *  site), never back to the access page, and "/" when there is nothing usable. */
 export function safeNext(next: unknown): string {
   if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/";
-  if (next.length > 512 || /[\u0000-\u001f]/.test(next)) return "/";
+  // Printable ASCII only: it goes out as the Location header, which can carry nothing else (the proxy's own `next` is
+  // already percent-encoded).
+  if (next.length > 512 || /[^\x21-\x7e]/.test(next)) return "/";
   if (next === "/access" || next.startsWith("/access?") || next.startsWith("/api/")) return "/";
   return next;
 }

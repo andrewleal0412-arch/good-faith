@@ -1,6 +1,6 @@
 import { audit, db } from "@/lib/db";
 import { buildStatement } from "@/lib/statement";
-import { buildStatementPdf } from "@/lib/statement-pdf";
+import { buildStatementPdf, PACKET_BUSY, packetSlot } from "@/lib/statement-pdf";
 import { isTemplate, routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -17,7 +17,9 @@ export async function GET(req: Request, ctx: RouteContext<"/api/tenancies/[id]/s
   try {
     const s = await buildStatement(id);
     if (!s) return Response.json({ error: "No such tenancy." }, { status: 404 });
-    const { bytes, pages, filename } = await buildStatementPdf(s);
+    const built = await packetSlot(() => buildStatementPdf(s));
+    if (!built) return Response.json({ error: PACKET_BUSY }, { status: 503, headers: { "Retry-After": "5" } });
+    const { bytes, pages, filename } = built;
     // The download changes nothing, and a landlord opens the packet many times, so the log keeps one row a day (and
     // none on a template, which nothing writes to).
     const { data: recent } = await db.from("audit_log").select("id").eq("tenancy_id", id).eq("action", "statement_packet_built")
@@ -32,6 +34,6 @@ export async function GET(req: Request, ctx: RouteContext<"/api/tenancies/[id]/s
     });
   } catch (e) {
     console.error("statement pdf failed", e);
-    return Response.json({ error: e instanceof Error ? e.message : "Couldn't build the packet." }, { status: 500 });
+    return Response.json({ error: "Couldn't build the packet. Try again in a minute." }, { status: 500 });
   }
 }

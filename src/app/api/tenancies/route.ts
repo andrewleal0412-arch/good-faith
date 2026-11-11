@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readJson } from "@/lib/body";
 import { audit, db } from "@/lib/db";
 import { leaseKey } from "@/lib/lease-key";
 import { takeAllowance } from "@/lib/limits";
@@ -71,7 +72,9 @@ export async function POST(req: Request) {
   // The tenancy goes into the session's workspace: the owner's, or this visitor's copy of the demo.
   const ws = await currentWorkspace();
   if (!ws) return Response.json({ error: ACCESS_MESSAGES.signedOut }, { status: 401 });
-  const parsed = bodySchema.safeParse(await req.json().catch(() => null));
+  // Read with a cap before zod sees it: zod checks every element of an oversized array, so a 4 MB body of numbers
+  // would cost the server hundreds of megabytes. Real lease terms are a few kilobytes.
+  const parsed = bodySchema.safeParse(await readJson(req, 128_000));
   if (!parsed.success) return Response.json({ error: "Those lease terms couldn't be read. Check the lease again." }, { status: 400 });
   const terms = parsed.data.terms as LeaseTerms;
   const leasePath = parsed.data.leasePath ?? null;

@@ -1,3 +1,4 @@
+import { isEmail, readJson, stringList } from "@/lib/body";
 import { audit, db } from "@/lib/db";
 import { tenancyPack } from "@/lib/tenancy-pack";
 import { routeTenancy } from "@/lib/workspace";
@@ -12,14 +13,17 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const { paypalEmail, signers } = (await req.json()) as { paypalEmail: string; signers: string[] };
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(paypalEmail ?? "")) {
+  const body = (await readJson(req, 16_000)) as { paypalEmail?: unknown; signers?: unknown } | null;
+  const paypalEmail = body?.paypalEmail;
+  if (!isEmail(paypalEmail)) {
     return Response.json({ error: "Enter the PayPal email the refund should go to." }, { status: 400 });
   }
+  // The names that signed, as a list: a single string would match every name inside it.
+  const signers = stringList(body?.signers, 20, 200) ?? [];
   const { data: t } = await db.from("tenancies").select("tenants").eq("id", id).single();
   if (!t) return Response.json({ error: "No such tenancy." }, { status: 404 });
   const adults = (t.tenants as { name: string }[]).map((x) => x.name);
-  const missing = adults.filter((n) => !signers?.includes(n));
+  const missing = adults.filter((n) => !signers.includes(n));
   if (missing.length) return Response.json({ error: `Every adult tenant must agree: ${missing.join(", ")} hasn't.` }, { status: 400 });
 
   const pack = await tenancyPack(id);

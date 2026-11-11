@@ -2,7 +2,7 @@ import { clientAddress } from "@/lib/access-throttle";
 import { audit, db } from "@/lib/db";
 import { rateLimiter } from "@/lib/rate-limit";
 import { buildStatement } from "@/lib/statement";
-import { buildStatementPdf } from "@/lib/statement-pdf";
+import { buildStatementPdf, PACKET_BUSY, packetSlot } from "@/lib/statement-pdf";
 import { resolveTenantToken, tokenNotFound, tooManyRequests } from "@/lib/tenant-links";
 import { isTemplate } from "@/lib/workspace";
 
@@ -28,7 +28,9 @@ export async function GET(req: Request, ctx: RouteContext<"/api/t/[token]/statem
   try {
     const s = await buildStatement(link.tenancyId);
     if (!s || !s.delivery) return tokenNotFound();
-    const { bytes, filename } = await buildStatementPdf(s);
+    const built = await packetSlot(() => buildStatementPdf(s));
+    if (!built) return Response.json({ error: PACKET_BUSY }, { status: 503, headers: { "Retry-After": "5" } });
+    const { bytes, filename } = built;
     // The tenants may open it many times; the landlord's log keeps one row a day.
     const { data: recent } = await db.from("audit_log").select("id").eq("tenancy_id", link.tenancyId).eq("action", "tenant_opened_statement")
       .gte("created_at", new Date(Date.now() - 86_400_000).toISOString()).limit(1);

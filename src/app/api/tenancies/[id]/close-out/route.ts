@@ -1,4 +1,4 @@
-import { startCloseOut } from "@/lib/agent";
+import { Shown, startCloseOut } from "@/lib/agent";
 import { openDisputeBlock } from "@/lib/chargeback-store";
 import { tenancyDepositBlock } from "@/lib/demo-pool";
 import { takeAllowance } from "@/lib/limits";
@@ -28,6 +28,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
     // startCloseOut throws only before the agent's first Claude call (a LIVE environment, the run row, the PayPal
     // connection); a failure after that is a failed run, which keeps its unit. So this one goes back.
     await run.giveBack();
-    return Response.json({ error: e instanceof Error ? e.message : "The agent couldn't start." }, { status: 500 });
+    if (!(e instanceof Shown)) console.error("close-out didn't start", e);
+    return Response.json({ error: e instanceof Shown ? e.message : "The agent couldn't start. Try again." }, { status: 500 });
   }
 }

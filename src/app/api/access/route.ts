@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { clientAddress, recordWrong, throttled } from "@/lib/access-throttle";
 import { ACCESS_MESSAGES as M, cookieOptions, gate, issueSession, matchCode, safeNext, sameOrigin, SESSION_COOKIE } from "@/lib/session";
-import { createDemoCopy } from "@/lib/workspace";
+import { currentSession } from "@/lib/session-server";
+import { createDemoCopy, workspaceOf } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -48,16 +49,24 @@ export async function POST(req: Request) {
 
   // The judges' code opens a private copy of the demo, made now for this browser (src/lib/workspace.ts): the owner's
   // data is never in it, and nobody else's copy either. The owner's code opens the owner's workspace.
-  let ws: string | undefined;
+  // The code entered again in a browser whose copy is still there keeps that copy and its session: a new copy would
+  // claim another sandbox deposit from the pool and start the day's per-session limits over.
+  let ws: string | undefined, sid: string | undefined;
   if (kind === "demo") {
-    const copy = await createDemoCopy(address);
-    if (!copy.ok) {
-      if (json) return Response.json({ error: copy.message }, { status: copy.status });
-      return back(copy.message === M.copiesTotal ? "copies_total" : copy.message === M.copiesAddress ? "copies" : "copy_failed");
+    const prior = await currentSession();
+    if (prior?.kind === "demo" && (await workspaceOf(prior))) {
+      ws = prior.ws;
+      sid = prior.sid;
+    } else {
+      const copy = await createDemoCopy(address);
+      if (!copy.ok) {
+        if (json) return Response.json({ error: copy.message }, { status: copy.status });
+        return back(copy.message === M.copiesTotal ? "copies_total" : copy.message === M.copiesAddress ? "copies" : "copy_failed");
+      }
+      ws = copy.ws;
     }
-    ws = copy.ws;
   }
-  const { value } = issueSession(kind, g.secret, { ws });
+  const { value } = issueSession(kind, g.secret, { ws, sid });
   const res = json
     ? NextResponse.json({ ok: true, kind })
     : new NextResponse(null, { status: 303, headers: { Location: next } });

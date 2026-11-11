@@ -19,6 +19,11 @@ export const AFTER_PHOTOS_MAX = 10;
 /** Photos are downscaled to this many pixels on the long side and re-encoded as JPEG at this quality. */
 export const PHOTO_MAX_SIDE = 2000;
 export const PHOTO_QUALITY = 0.85;
+/** The most pixels the server opens in one image: ten times a photo the browser has downscaled to PHOTO_MAX_SIDE. A PNG
+ *  of a few hundred bytes can say it is 16,000 px square, and opening it would take hundreds of megabytes of the one
+ *  server's memory, so an upload over this is refused (src/lib/images.ts) and every call to sharp passes it as
+ *  limitInputPixels. */
+export const MAX_PIXELS = 40_000_000;
 /** A photo already this small and within PHOTO_MAX_SIDE goes up untouched, EXIF and all. */
 const KEEP_UNDER = 1.5 * 1024 * 1024;
 

@@ -17,6 +17,7 @@ import { settledExtra, wholeOwedBeforeRefund } from "./refund-rail";
 import { packFor } from "./states/server";
 import type { StateCode, StatePack } from "./states/types";
 import { resolveTenantToken, tokenNotFound } from "./tenant-links";
+import { MAX_PIXELS } from "./uploads";
 import { isTemplate } from "./workspace";
 
 // Disputes of the itemized statement: the facts a dispute is weighed on (the deductions, their lawful ranges, the
@@ -289,12 +290,12 @@ export const loadCasePhoto: LoadPhoto = async (p: CasePhoto) => {
   // opens a photo for a model (docs/PERFORMANCE.md). The caller turns a null into "no photos on file", so a failure
   // to load it is logged on its way out rather than read as a line with no photos.
   const { default: sharp } = await import("sharp").catch((e) => { console.error("sharp failed to load", e); throw e; });
-  const base = sharp(new Uint8Array(await data.arrayBuffer())).rotate().resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true });
+  const base = sharp(new Uint8Array(await data.arrayBuffer()), { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true });
   const { data: jpeg, info } = await base.jpeg({ quality: 80 }).toBuffer({ resolveWithObject: true });
   if (!p.box) return { data: new Uint8Array(jpeg), mediaType: "image/jpeg" };
   const w = info.width, h = info.height, stroke = Math.max(3, Math.round(Math.max(w, h) / 220));
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect x="${Math.round(p.box.x * w)}" y="${Math.round(p.box.y * h)}" width="${Math.max(4, Math.round(p.box.w * w))}" height="${Math.max(4, Math.round(p.box.h * h))}" fill="none" stroke="#D64540" stroke-width="${stroke}"/></svg>`;
-  const boxed = await sharp(jpeg).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 80 }).toBuffer();
+  const boxed = await sharp(jpeg, { limitInputPixels: MAX_PIXELS }).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 80 }).toBuffer();
   return { data: new Uint8Array(boxed), mediaType: "image/jpeg" };
 };
 

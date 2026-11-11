@@ -1,4 +1,4 @@
-import { answerApproval } from "@/lib/agent";
+import { answerApproval, Shown } from "@/lib/agent";
 import { openDisputeBlock } from "@/lib/chargeback-store";
 import { db } from "@/lib/db";
 import { tenancyDepositBlock } from "@/lib/demo-pool";
@@ -26,6 +26,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   try {
     return Response.json(await answerApproval(id, runId, approved));
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Couldn't record that." }, { status: 400 });
+    if (!(e instanceof Shown)) console.error("approval failed", e);
+    return Response.json({ error: e instanceof Shown ? e.message : "Couldn't record that. Try again." }, { status: e instanceof Shown ? 400 : 500 });
   }
 }

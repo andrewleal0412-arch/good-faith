@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { db } from "./db";
+import { MAX_PIXELS } from "./uploads";
 
 // Small versions of the stored photos, for the photo grids and thumbnails: 480 px on the long side, WebP (6 to 10 kB
 // for a demo photo, against 150 to 230 kB for the photo itself). The full photo still goes to the move-out comparison
@@ -51,7 +52,7 @@ export const thumbEtag = (path: string) => `"t${THUMB_PX}-${createHash("sha256")
 /** One photo's small version, as every thumbnail is made (the script that makes the templates' ahead uses this too).
  *  rotate() applies the photo's EXIF orientation, as the browser does for the original, and the output keeps none. */
 export const makeThumb = async (bytes: Uint8Array) =>
-  new Uint8Array(await sharp(bytes).rotate().resize({ width: THUMB_PX, height: THUMB_PX, fit: "inside", withoutEnlargement: true })
+  new Uint8Array(await sharp(bytes, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: THUMB_PX, height: THUMB_PX, fit: "inside", withoutEnlargement: true })
     .webp({ quality: QUALITY, effort: EFFORT }).toBuffer());
 
 /** The thumbnail of one stored photo in the photos bucket, or null when the file can't be read. */

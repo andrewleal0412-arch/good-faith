@@ -24,6 +24,7 @@ import { buildStatement } from "./statement";
 import { zoneOf } from "./states/server";
 import type { TenantMoveOut } from "./tenant";
 import { loadUnit } from "./units";
+import { MAX_PIXELS } from "./uploads";
 import type { Workspace } from "./workspace";
 
 // The tenants' PayPal disputes and chargebacks of the deposit payment, with the database and PayPal: finding them
@@ -677,12 +678,12 @@ async function evidencePhoto(p: CasePhoto): Promise<Uint8Array | null> {
   // sharp loads here, with the photo it resizes. The caller skips a photo it can't read, so a failure to load the
   // library is logged on its way out rather than read as a photo that isn't there.
   const { default: sharp } = await import("sharp").catch((e) => { console.error("sharp failed to load", e); throw e; });
-  const base = sharp(new Uint8Array(await data.arrayBuffer())).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true });
+  const base = sharp(new Uint8Array(await data.arrayBuffer()), { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true });
   const { data: jpeg, info } = await base.jpeg({ quality: 82 }).toBuffer({ resolveWithObject: true });
   if (!p.box) return new Uint8Array(jpeg);
   const w = info.width, h = info.height, stroke = Math.max(3, Math.round(Math.max(w, h) / 220));
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect x="${Math.round(p.box.x * w)}" y="${Math.round(p.box.y * h)}" width="${Math.max(4, Math.round(p.box.w * w))}" height="${Math.max(4, Math.round(p.box.h * h))}" fill="none" stroke="#D64540" stroke-width="${stroke}"/></svg>`;
-  return new Uint8Array(await sharp(jpeg).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 82 }).toBuffer());
+  return new Uint8Array(await sharp(jpeg, { limitInputPixels: MAX_PIXELS }).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 82 }).toBuffer());
 }
 
 const sniff = (b: Uint8Array): "pdf" | "jpg" | "png" | null =>

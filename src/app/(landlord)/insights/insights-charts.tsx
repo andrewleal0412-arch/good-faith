@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AgCharts } from "ag-charts-react";
 import {
   AreaSeriesModule, BarSeriesModule, CartesianChartModule, CategoryAxisModule, LegendModule, NumberAxisModule,
   type AgCartesianChartOptions, type AgChartTheme,
 } from "ag-charts-community";
 import { InfoTip } from "@/components/info-tip";
-import { firstSight, motionOff, onScreen } from "@/components/motion";
 import { Card, CardHead } from "@/components/ui";
 import { usd } from "@/lib/deductions";
 import type { Category, SeriesPoint } from "@/lib/insights";
@@ -26,12 +25,6 @@ const MODULES = [CartesianChartModule, AreaSeriesModule, BarSeriesModule, Catego
 const INK = "#1b1d23", INK3 = "#64697b", LINE = "#e6e8ee", LINE2 = "#eff0f4";
 const BRAND = "#003087", GRAY = "#9a9ead";
 const CATEGORY_FILL: Record<Category, string> = { damage: "#d64540", cleaning: "#d99a1b", rent: GRAY };
-
-/** The charts draw in once, the first time this viewer opens Insights with them on screen: bars grow and the areas
- *  sweep in over 300 ms, then every later change (a filter, a grain, a visit back) redraws at rest. AG Charts animates
- *  every load and update for about a second unless told otherwise, so each chart says so. */
-const SIGHT = "insights-charts";
-const DRAW_MS = 300;
 
 /** Whole dollars, compact past a thousand: the axis ticks. */
 const compact = (n: number) => (Math.abs(n) >= 1000 ? `$${(n / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 })}k` : `$${Math.round(n)}`);
@@ -68,32 +61,17 @@ export function InsightsCharts(p: {
   states: { state: string; name: string; held: number; collected: number; returned: number; kept: number }[];
 }) {
   // Canvas text needs the loaded font by name: next/font's Hanken Grotesk, read from its CSS variable once it is ready.
-  // Whether the draw-in plays is settled in the same update that first draws the charts, since a chart created at rest
-  // has nothing left to draw in.
+  // The charts themselves draw at rest: AG Charts' animation is an Enterprise module, and the Community build answers
+  // an `animation` option with a console error and no motion. The cards still ease in (.gf-stagger).
   const [font, setFont] = useState<string | null>(null);
-  const [intro, setIntro] = useState(false);
-  const grid = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let live = true;
     const name = getComputedStyle(document.documentElement).getPropertyValue("--font-hanken").trim() || "system-ui, sans-serif";
-    const ready = (f: string) => {
-      if (!live) return;
-      const play = !motionOff() && !firstSight.seen(SIGHT) && onScreen(grid.current);
-      if (play) firstSight.mark(SIGHT);
-      setIntro(play);
-      setFont(f);
-    };
-    document.fonts.ready.then(() => ready(`${name}, system-ui, sans-serif`)).catch(() => ready("system-ui, sans-serif"));
+    document.fonts.ready.then(() => { if (live) setFont(`${name}, system-ui, sans-serif`); }).catch(() => { if (live) setFont("system-ui, sans-serif"); });
     return () => { live = false; };
   }, []);
-  useEffect(() => {
-    if (!intro) return;
-    const id = window.setTimeout(() => setIntro(false), DRAW_MS * 2);
-    return () => window.clearTimeout(id);
-  }, [intro]);
 
   const t = useMemo(() => (font ? theme(font) : null), [font]);
-  const animation = { enabled: intro, duration: DRAW_MS };
   /** The line a chart shows in its place when every value it would draw is zero. */
   const none = (values: number[], line: string) => (values.every((v) => v === 0) ? line : null);
   const heldEmpty = none(p.series.map((x) => x.held), "Nothing held.");
@@ -108,7 +86,7 @@ export function InsightsCharts(p: {
   // Room above the top tick and right of the last label, so nothing is clipped by the canvas edge.
   const padding = { top: 14, right: 18, bottom: 4, left: 4 };
   const held: AgCartesianChartOptions | null = t && {
-    theme: t, animation, data: p.series, height: 232, padding,
+    theme: t, data: p.series, height: 232, padding,
     series: [{
       type: "area", xKey: "key", yKey: "held", yName: "Held", fill: BRAND, fillOpacity: 0.1, stroke: BRAND, strokeWidth: 2,
       marker: { enabled: true, size: 8, fill: BRAND, stroke: "#ffffff", strokeWidth: 2 },
@@ -118,7 +96,7 @@ export function InsightsCharts(p: {
   };
 
   const returned: AgCartesianChartOptions | null = t && {
-    theme: t, animation, data: p.series, height: 232, padding,
+    theme: t, data: p.series, height: 232, padding,
     series: (["refunds", "settlements"] as const).map((k) => ({
       type: "bar" as const, xKey: "key", yKey: k, yName: k === "refunds" ? "Refunds" : "Settlements", stacked: true,
       fill: k === "refunds" ? BRAND : GRAY, stroke: "#ffffff", strokeWidth: 1, cornerRadius: 3, width: 22,
@@ -133,7 +111,7 @@ export function InsightsCharts(p: {
   // A bar's value sits past its end: the axis runs a quarter further than the longest bar so the label fits.
   const room = (max: number) => (max > 0 ? Math.ceil((max * 1.3) / 100) * 100 : 100);
   const cats: AgCartesianChartOptions | null = t && {
-    theme: t, animation, data: p.categories, height: 196, padding,
+    theme: t, data: p.categories, height: 196, padding,
     series: [{
       type: "bar", direction: "horizontal", xKey: "label", yKey: "amount", yName: "Deducted", cornerRadius: 3, width: 22,
       itemStyler: ({ datum }) => ({ fill: CATEGORY_FILL[(datum as { category: Category }).category] }),
@@ -152,7 +130,7 @@ export function InsightsCharts(p: {
 
   const byHeld = [...p.states].sort((a, b) => b.held - a.held);
   const states: AgCartesianChartOptions | null = t && {
-    theme: t, animation, data: byHeld, height: statesHeight, padding,
+    theme: t, data: byHeld, height: statesHeight, padding,
     series: [{
       type: "bar", direction: "horizontal", xKey: "name", yKey: "held", yName: "Held", fill: BRAND, cornerRadius: 3, width: 22,
       label: { enabled: true, placement: "outside-end", color: INK, formatter: ({ value }) => usd(Number(value)) },
@@ -173,7 +151,7 @@ export function InsightsCharts(p: {
 
   const by = grainWord(p.grain).toLowerCase();
   return (
-    <div ref={grid} className="gf-still gf-stagger grid gap-4 lg:grid-cols-2">
+    <div className="gf-still gf-stagger grid gap-4 lg:grid-cols-2">
       <ChartCard title="Deposits held" meta={`By ${by}`} tip="What was collected, less what went back and what a statement that went out kept, at the end of each period."
         summary={`Deposits held by ${by}. ${last ? `At the end of the ${by} of ${last.label}: ${usd(last.held)}.` : ""}`} options={held} empty={heldEmpty} height={232} />
       <ChartCard title="Returned to tenants" meta={`By ${by}`} tip="Refunds and Payouts (PayPal's refunds through a dispute among them), and what a settled dispute sent back on top."

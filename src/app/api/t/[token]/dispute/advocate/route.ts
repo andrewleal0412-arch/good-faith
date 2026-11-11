@@ -45,7 +45,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/t/[token]/disp
     const { data: saved, error } = await db.from("disputes").update({ advocate: stored, advocate_status: "done", advocate_error: null, updated_at: new Date().toISOString() })
       .eq("id", dispute.id).eq("status", "draft").select("id");
     if (error) {
-      // The catch below keeps the thrown message for the page, so the database's own words stay in the log.
+      // The database's own words stay in the log; the page gets a plain sentence from the catch below.
       console.error("advocate case save failed", error.message);
       throw new Error("Couldn't save the case.");
     }
@@ -61,8 +61,9 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/t/[token]/disp
   } catch (e) {
     console.error("advocate run failed", e);
     if (claudeNeverAnswered(e)) await allowance.giveBack();
-    // An earlier case stays in place; the error is kept for the page and the logs.
-    await release(dispute.advocate ? "done" : "failed", e instanceof Error ? e.message.slice(0, 300) : "failed");
+    // An earlier case stays in place. The page only needs to know the run failed (the tenants' page shows its own
+    // sentence); the error itself is in the log above.
+    await release(dispute.advocate ? "done" : "failed", "The advocate didn't finish.");
     return bad("Your advocate couldn't finish. Try again in a minute.", 500);
   }
 }

@@ -1649,6 +1649,22 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               "Refunded" in heads and "Settled" in heads and "Returned" not in heads and usd(refunded) in total and usd(PF["settled"]) in total,
               f"headers {heads}, total row {total[:300]!r}")
         shot(page, "insights")
+        # This walk runs with reduced motion, so anything that plays only with motion on is checked here: a second
+        # browser with motion on opens Insights for the first time (11-10: a chart animation option AG Charts
+        # Community has no module for logged one console error per chart, and only a visitor with motion on saw it).
+        c3 = browser.new_context(viewport={"width": 1440, "height": 1000})
+        c3.add_cookies([{"name": setup["cookie"]["name"], "value": setup["cookie"]["value"], "url": base}])
+        p3 = c3.new_page()
+        motion_errors = []
+        p3.on("pageerror", lambda e: motion_errors.append(f"pageerror: {e}"))
+        p3.on("console", lambda m: motion_errors.append(f"console.{m.type}: {m.text[:200]}") if m.type == "error" else None)
+        p3.goto(base + "/insights", wait_until="load")
+        p3.locator(".ag-row").first.wait_for()
+        p3.wait_for_timeout(1500)
+        motion_charts = p3.locator(".ag-charts-wrapper canvas, canvas").count()
+        c3.close()
+        check("Insights with motion on: the four charts draw with no console error", motion_charts >= 4 and not motion_errors,
+              f"{motion_charts} canvases; {'; '.join(motion_errors[:4])}")
         TXF = E["by_state"]["TX"]
         page.get_by_role("button", name=re.compile("^Texas")).first.click()
         page.wait_for_timeout(800)

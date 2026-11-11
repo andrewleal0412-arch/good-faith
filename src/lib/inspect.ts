@@ -5,6 +5,7 @@ import { z } from "zod";
 import { cleanBox, type Box } from "./boxes";
 import { claude } from "./model";
 import type { StatePack } from "./states/types";
+import { MAX_PIXELS } from "./uploads";
 
 // Move-out inspection: Claude compares a room's move-in photos with its move-out photos and lists every change,
 // classified the way the tenancy's state treats it (the pack's inspection guide), with a box around each change on the
@@ -49,7 +50,7 @@ export type InspectPhoto = { data: Uint8Array; mediaType: string };
 /** The photo's size as it is displayed: EXIF orientations 5 to 8 turn it a quarter, so its sides swap. */
 async function sizeOf(p: InspectPhoto): Promise<{ width: number; height: number } | null> {
   try {
-    const m = await sharp(p.data).metadata();
+    const m = await sharp(p.data, { limitInputPixels: MAX_PIXELS }).metadata();
     if (!m.width || !m.height) return null;
     return (m.orientation ?? 1) >= 5 ? { width: m.height, height: m.width } : { width: m.width, height: m.height };
   } catch {

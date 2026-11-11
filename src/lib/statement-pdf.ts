@@ -6,6 +6,8 @@ import { db } from "./db";
 import { usd } from "./deductions";
 import { packFor } from "./states/server";
 import { dateIn, describeDelivery, longDate, type Statement, type StatementPhoto } from "./statement";
+import { slots } from "./slots";
+import { MAX_PIXELS } from "./uploads";
 
 // The statement as one PDF packet for mail or email: the statement text, then the photo evidence for each deduction
 // (in California, Civ. Code 1950.5(g), (h)(2)(D)), then every vendor invoice ((h)(2)(B)). Its statute, deadline and
@@ -233,11 +235,14 @@ async function embedPhoto(doc: PDFDocument, f: Fetched, budget: { left: number }
   if (f.kind !== "jpeg" && f.kind !== "png") return { why: "unsupported" };
   let out: { bytes: Uint8Array; kind: "jpeg" | "png" };
   try {
-    const small = await sharp(f.bytes).rotate().resize({ width: PHOTO_PX, height: PHOTO_PX, fit: "inside", withoutEnlargement: true })
+    const small = await sharp(f.bytes, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: PHOTO_PX, height: PHOTO_PX, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: PHOTO_QUALITY }).toBuffer();
     out = { bytes: new Uint8Array(small), kind: "jpeg" };
   } catch {
-    out = { bytes: f.bytes, kind: f.kind }; // sharp couldn't read it; pdf-lib gets the original
+    // sharp couldn't read it (or it is over MAX_PIXELS): pdf-lib gets an original JPEG, which it embeds without
+    // decoding, but not a PNG, which it would decode whole in JavaScript.
+    if (f.kind === "png") return { why: "unsupported" };
+    out = { bytes: f.bytes, kind: f.kind };
   }
   if (out.bytes.byteLength > budget.left) return { why: "budget" };
   try {
@@ -265,6 +270,12 @@ async function planInvoice(doc: PDFDocument, f: Fetched, budget: { left: number 
   }
   return embedPhoto(doc, f, budget);
 }
+
+/** Packets are built two at a time across the server, with six more waiting their turn. One packet loads every photo
+ *  and invoice of the statement at once, so a page of repeated downloads would otherwise hold them all in the one small
+ *  server's memory together. A request past those is answered with BUSY. */
+export const packetSlot = slots(2, 6);
+export const PACKET_BUSY = "Statement packets are being made for other visitors right now. Try again in a few seconds.";
 
 export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Array; pages: number; filename: string }> {
   const pack = packFor(s.state);

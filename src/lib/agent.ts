@@ -192,7 +192,10 @@ async function advance(runId: string, tenancyId: string, messages: ModelMessage[
     return { status: pending ? "awaiting_approval" : "done" };
   } catch (e) {
     console.error("close-out run failed", e);
-    const error = e instanceof Error ? e.message : String(e);
+    // The run's page shows this sentence; the error itself is in the log.
+    const error = e instanceof PayPalRefused && e.status
+      ? `PayPal refused a request (HTTP ${e.status}), so nothing more was sent. Run the close-out again.`
+      : "The agent stopped before it finished. Run the close-out again.";
     await db.from("agent_runs").update({ status: "failed", error, updated_at: new Date().toISOString() }).eq("id", runId);
     return { status: "failed", error };
   } finally {
@@ -200,11 +203,15 @@ async function advance(runId: string, tenancyId: string, messages: ModelMessage[
   }
 }
 
+/** An error whose message is written for the landlord: the routes show it as it is. Any other error is logged, and the
+ *  page gets a plain sentence instead (a PayPal or Claude error carries API paths and response bodies). */
+export class Shown extends Error {}
+
 /** The landlord pages sit behind a shared demo access code (src/proxy.ts), and each visitor works in a private copy
  *  of the demo, but that is not a landlord's own login. Until there is one, the agent moves sandbox money only: a LIVE
  *  PayPal environment is refused here, before a run exists. */
 export function refuseLiveWithoutSignIn() {
-  if (!SANDBOX) throw new Error("This build has no landlord sign-in, so it won't move live money. Set PAYPAL_ENVIRONMENT=SANDBOX (docs/DEPLOY.md).");
+  if (!SANDBOX) throw new Shown("This build has no landlord sign-in, so it won't move live money. Set PAYPAL_ENVIRONMENT=SANDBOX (docs/DEPLOY.md).");
 }
 
 export async function startCloseOut(tenancyId: string) {
@@ -213,7 +220,7 @@ export async function startCloseOut(tenancyId: string) {
   if (error || !run) {
     // The close-out route answers with this message, so the database's own words stay in the log.
     console.error("agent run insert failed", error?.message);
-    throw new Error("The agent couldn't start. Try again.");
+    throw new Shown("The agent couldn't start. Try again.");
   }
   await audit(tenancyId, "agent", "close_out_started", { run_id: run.id });
   const messages: ModelMessage[] = [{ role: "user", content: "Close out the security deposit for this tenancy." }];
@@ -224,13 +231,13 @@ export async function startCloseOut(tenancyId: string) {
 export async function answerApproval(tenancyId: string, runId: string, approved: boolean) {
   refuseLiveWithoutSignIn();
   const { data: run } = await db.from("agent_runs").select("*").eq("id", runId).eq("tenancy_id", tenancyId).single();
-  if (!run) throw new Error("No such run.");
+  if (!run) throw new Shown("No such run.");
   const pending = run.pending as Pending | null;
-  if (run.status !== "awaiting_approval" || !pending) throw new Error("Nothing is waiting for approval.");
+  if (run.status !== "awaiting_approval" || !pending) throw new Shown("Nothing is waiting for approval.");
   // Claim the approval atomically, so a double click can't resume the run twice.
   const { data: claimed } = await db.from("agent_runs").update({ status: "running", pending: null, updated_at: new Date().toISOString() })
     .eq("id", runId).eq("status", "awaiting_approval").select("id");
-  if (!claimed?.length) throw new Error("That was already answered.");
+  if (!claimed?.length) throw new Shown("That was already answered.");
   const amt = pending.toolName === "create_refund" ? (pending.input.amount as { value?: string })?.value : pending.input.amount;
   await audit(tenancyId, "landlord", approved ? "refund_approved" : "refund_declined", { run_id: runId, amount: Number(amt), tool: pending.toolName });
   const messages: ModelMessage[] = [...(run.messages as ModelMessage[]), {

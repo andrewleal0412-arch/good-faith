@@ -1,6 +1,6 @@
 # Audit before judging
 
-A whole-app check on 2026-10-05, at commit `417664d` plus the fixes listed under [Fixed](#fixed) and [Fixed after review](#fixed-after-review). Every page was opened at desktop and phone width in two places: the owner workspace and a private demo copy like the one a judge gets. The repository was also checked for what it would expose once public. Nothing here is legal advice; the audit covers the software only.
+A whole-app check on 2026-10-05, at commit `417664d` plus the fixes listed under [Fixed](#fixed) and [Fixed after review](#fixed-after-review). Every page was opened at desktop and phone width in two places: the owner workspace and a private demo copy like the one a judge gets. The repository was also checked for what it would expose once public. Nothing here is legal advice; the audit covers the software only. A security pass on 2026-11-10 is at the end: [Security pass, 2026-11-10](#security-pass-2026-11-10).
 
 ## How it was checked
 
@@ -162,3 +162,33 @@ The counts in this section are as of 2026-10-05. The current ones are in the REA
 7. **To make it public:** GitHub > the repository > Settings > General > Danger Zone > Change visibility. Then turn on secret scanning and push protection (Settings > Code security), which are free for public repositories.
 
 `LICENSE` (MIT, Andrew Leal, 2026) matches `package.json` and the README. The demo photos are Pexels-licensed with credits; the leases and invoices are made up.
+
+## Security pass, 2026-11-10
+
+Two reviews at `96f892e` read every route the way a judge holding the access code, or a tenant holding a link, could use it: one covered the gate, the sessions and the walls between demo copies, the other money, uploads, the agents and the database. Each finding was checked against the code first. Each fix starts with a check in `scripts/security-check.mjs` that failed before it (49 assertions, now in CI).
+
+### Fixed
+
+| What | Where |
+|---|---|
+| One request could freeze the server. The agreement route checked the PayPal email with a pattern that slows down quadratically on `x@`, many dots and a space: 20,000 characters took 1.0 s and 40,000 took 3.7 s, and the proxy lets 4.5 MB through, so one 4 MB body would have blocked the single instance for hours. The body is now read with a 16 KB cap and the email is refused past 254 characters before the pattern runs. The signers must be a list of at most 20 names; one string naming everyone used to count every adult as signed | `src/lib/body.ts`, `src/app/api/tenancies/[id]/agreement/route.ts` |
+| One request could run the server out of memory. Starting a tenancy parsed the whole body, and zod 3 checks every element of an array even after `.max(20)` has failed (GHSA-mrhx-c7xc-m3w5): a 4.5 MB array of tenants took 759 MB of heap, on an instance with 512 MB. The body is now refused past 128 KB, before zod sees it | `src/app/api/tenancies/route.ts` |
+| A photo file of a few hundred kilobytes can say it is 16,000 px square. Opening one took about 300 MB, so two uploads were enough through the thumbnails. Uploads over 40 million pixels are refused, and every call to sharp opens images with the same limit, so a file already in storage can't do it either | `MAX_PIXELS` in `src/lib/uploads.ts`, `src/lib/images.ts`, all 10 calls to sharp |
+| Nothing limited how many statement packets were built at once, and each holds its photos in memory. Two are built at a time, six wait their turn, and any more get a 503 with `Retry-After: 5`. A packet photo the server won't open is left out when it is a PNG, which pdf-lib would decode whole | `src/lib/slots.ts`, `packetSlot` in `src/lib/statement-pdf.ts`, both PDF routes |
+| A failed close-out, packet or advocate run sent the upstream error's own text to the browser: an AI SDK or PayPal message, with up to 300 characters of PayPal's reply. The routes now log it and send a plain sentence; the close-out's own messages for the landlord (`Shown`) still reach the page | `src/lib/agent.ts`, the two close-out routes, the landlord's PDF route, the advocate route |
+| A `next` outside plain ASCII (`/access?next=%2F%E4%B8%AD`) made the sign-in answer 500 after the demo copy was made, since a Location header can't carry it. It now goes to `/` | `safeNext` in `src/lib/session.ts` |
+| Entering the judges' code again in the same browser made a second copy, which claimed a second pool deposit and started the per-session limits over. A browser whose copy is still there now keeps that copy and its session | `src/app/api/access/route.ts` |
+| A lone carriage return in an address got past the calendar file's escaping, so a parser that reads CR as a line break could see an injected line | `escapeText` in `src/lib/ics.ts` |
+| The guide build (`8c3a272`) asked AG Charts Community for its Enterprise-only animation, so Insights logged console errors and the charts never drew in. The charts draw at rest and the cards still ease in. The end-to-end test now opens Insights with motion on and fails on any console error | `insights-charts.tsx`, `scripts/e2e-demo.py` |
+
+### Found, not changed
+
+- **One person can still spend the day's shared budget** by opening new private windows, since each is a new session. The daily totals (`GOOD_FAITH_DAILY_AI_TOTAL`, `GOOD_FAITH_DAILY_COPIES`) protect the bill, so they are shared. A cap per address was left out because judges at one company may share one address and would lock each other out. Raise the totals on Render for the judging days instead.
+- **Each new copy still claims a pool deposit.** Claiming it at the first refund instead needs a database migration. Refill the pool before judging (`npm run demo:pool -- --fill N`).
+- **The inspection holds all of a tenancy's photos at once** (up to 72 of 4 MB each, then base64). Not measured; the daily limit of 3 inspections per session bounds it.
+- **The code throttle counts per full address, in memory.** Rotating IPv6 addresses inside one /64 gets 10 more tries each. Guessing a code this way is not a realistic path.
+- **Sessions can't be revoked** (above, under the first audit).
+- **PayPal's signature check can be flooded.** A request with the five webhook headers set to anything makes the app ask PayPal to verify it, up to 600 a minute, so real deliveries could be answered 429 and retried later by PayPal. The fix is to admit only a `paypal-cert-url` on PayPal's API hosts and a `paypal-transmission-time` within 5 minutes.
+- **The negotiator's private limit can leak in other words.** The filter blanks "limit", "authorized" and "ceiling", but not "The most we can return is $450".
+- **The close-out agent's `get_invoice` and `get_refund` accept any id in the shared sandbox merchant.** Steering them takes text injected into the landlord's own data plus an id nobody can guess.
+- **The other high dependency advisories are not reachable.** They sit in `@paypal/agent-toolkit`'s tree; the app imports only `@paypal/agent-toolkit/mcp`, whose order tools (the only users of `mathjs`) are off.
