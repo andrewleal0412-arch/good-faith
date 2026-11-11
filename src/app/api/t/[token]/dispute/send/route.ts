@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { audit, db } from "@/lib/db";
 import { ADVOCATE_STALE_SECONDS, bad, caseIsCurrent, disputeFacts, firstTurn, liveDispute, tenantWrite } from "@/lib/disputes";
 import { tokenNotFound } from "@/lib/tenant-links";
@@ -13,7 +14,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const { token } = await ctx.params;
   const link = await tenantWrite(token);
   if (link instanceof Response) return link;
-  const body: unknown = await req.json().catch(() => null);
+  const body: unknown = await readJson(req, 16_000);
   const withCase = !!body && typeof body === "object" && (body as { withCase?: unknown }).withCase === true;
   const [dispute, facts] = await Promise.all([liveDispute(link.tenancyId), disputeFacts(link.tenancyId)]);
   if (!facts) return tokenNotFound();

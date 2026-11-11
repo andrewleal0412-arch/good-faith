@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { bad, disputeFacts, tenantWrite } from "@/lib/disputes";
 import { acceptSettlement, negotiationDispute } from "@/lib/negotiation";
 import { tokenNotFound } from "@/lib/tenant-links";
@@ -10,7 +11,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const { token } = await ctx.params;
   const link = await tenantWrite(token);
   if (link instanceof Response) return link;
-  const b = (await req.json().catch(() => null)) as { name?: unknown } | null;
+  const b = (await readJson(req, 16_000)) as { name?: unknown } | null;
   const [d, facts] = await Promise.all([negotiationDispute(link.tenancyId), disputeFacts(link.tenancyId)]);
   if (!facts) return tokenNotFound();
   if (!d) return bad("There's no dispute to settle.", 409);

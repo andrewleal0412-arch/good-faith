@@ -56,6 +56,16 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   check("the agreement route reads the signers as a capped list", /stringList\(/.test(agreement));
   const tenancies = src("src/app/api/tenancies/route.ts");
   check("starting a tenancy reads its body with readJson before zod", /bodySchema\.safeParse\(await readJson\(req, /.test(tenancies) && !/req\.json\(\)/.test(tenancies));
+
+  // The tenant link's JSON routes held a whole 4.5 MB body across their database calls (96 MB of heap for one of
+  // `{}`s; about five at once reach the host's 512 MB). Their honest bodies are a name, a date, an address of at most
+  // 240 characters or a message cut at 600.
+  for (const r of ["moving-out", "dispute/offer", "dispute/accept", "dispute/withdraw", "dispute/send"]) {
+    const t = src(`src/app/api/t/[token]/${r}/route.ts`);
+    check(`the tenant route ${r} reads its body with readJson(req, 16_000)`, /readJson\(req, 16_000\)/.test(t) && !/req\.json\(\)/.test(t));
+  }
+  const [cut, cutMs] = await ms(() => body.readJson(post(JSON.stringify({ name: "Luke Jones", message: "x".repeat(16_001) })), 16_000));
+  check("readJson: a body just over 16 KB is refused quickly", cut === null && cutMs < 50, `${JSON.stringify(cut)?.slice(0, 40)}, ${cutMs.toFixed(0)} ms`);
 }
 
 /* ---------- Photos: a small file that decodes to a huge image is refused ---------- */

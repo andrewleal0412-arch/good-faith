@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { addDays, longDate, realDate, todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { zoneOf } from "@/lib/states";
@@ -23,7 +24,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/movin
   // The demo's template tenancies don't change, through their own tenant link either.
   if (await isTemplate(link.tenancyId)) return bad("This is a demo page, so it can't be changed. Your landlord's copy of the demo can.", 409);
 
-  const body: unknown = await req.json().catch(() => null);
+  const body: unknown = await readJson(req, 16_000);
   if (!body || typeof body !== "object" || Array.isArray(body)) return bad("Send your move-out date and a forwarding address.");
   const b = body as { name?: unknown; plannedMoveOut?: unknown; forwardingAddress?: unknown };
   const address = line(b.forwardingAddress);

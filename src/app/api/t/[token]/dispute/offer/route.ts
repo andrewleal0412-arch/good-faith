@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { bad, disputeFacts, tenantWrite } from "@/lib/disputes";
 import { makeOffer, negotiationDispute } from "@/lib/negotiation";
 import { tokenNotFound } from "@/lib/tenant-links";
@@ -10,7 +11,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const { token } = await ctx.params;
   const link = await tenantWrite(token);
   if (link instanceof Response) return link;
-  const b = (await req.json().catch(() => null)) as { amount?: unknown; accept?: unknown; message?: unknown; name?: unknown } | null;
+  const b = (await readJson(req, 16_000)) as { amount?: unknown; accept?: unknown; message?: unknown; name?: unknown } | null;
   if (!b || typeof b !== "object") return bad("Say how much you ask back.");
   const accept = b.accept === true;
   const amount = accept ? null : Number(b.amount);
