@@ -140,6 +140,21 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   }
   check("a stored photo is checked before its thumbnail is made", /if \(!given && !\(await imageType\(original\)\)\) throw /.test(src("src/lib/thumbs.ts")));
 
+  // Those two routes' full-size GETs (60 a minute per address) decoded as many at once as were asked, at up to 191 MB
+  // each, so three at once could reach the host's 512 MB. They now take the thumbnail maker's turns, two at a time.
+  for (const p of ["src/app/api/t/[token]/dispute/evidence/[evidenceId]/route.ts", "src/app/api/t/[token]/photos/[photoId]/route.ts"]) {
+    check(`a full-size photo is decoded in the thumbnail maker's turn: ${p}`, /bytes = await inTurn\(async \(\) => new Uint8Array\(await sharp\(original/.test(src(p)));
+  }
+  for (const [k, v] of Object.entries({ SUPABASE_URL: "http://127.0.0.1:9", SUPABASE_SECRET_KEY: "placeholder" })) process.env[k] ??= v;
+  const thumbs = await lib("thumbs");
+  let now = 0, most = 0;
+  const decode = () => thumbs.inTurn?.(async () => { most = Math.max(most, ++now); await new Promise((r) => setTimeout(r, 20)); now--; return "decoded"; });
+  const six = await Promise.all(Array.from({ length: 6 }, decode));
+  check("inTurn: six decodes asked at once run two at a time", most === 2 && six.every((d) => d === "decoded"), `${most} at once, ${JSON.stringify(six)}`);
+  await Promise.all([1, 2, 3].map(() => thumbs.inTurn?.(async () => { throw new Error("x"); }).catch(() => {})));
+  const after = await Promise.race([decode(), new Promise((r) => setTimeout(() => r("stuck"), 1000))]);
+  check("inTurn: a decode that throws hands its turn on", after === "decoded", String(after));
+
   // Every place the server opens a stored image does it with the same limit, so a file stored before the upload
   // check (or put in the bucket by hand) still can't take the server's memory.
   const files = [];

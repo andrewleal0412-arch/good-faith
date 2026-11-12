@@ -91,6 +91,17 @@ function done() {
   else running--;
 }
 
+/** Another decode of a stored photo, in the same turns as the thumbnails: the tenant link's full-size photos are
+ *  resized on every request, at up to 191 MB each, so they wait here rather than all decode at once. */
+export async function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  await turn();
+  try {
+    return await work();
+  } finally {
+    done();
+  }
+}
+
 /** A template photo's thumbnail made ahead, or null when the path has none (any other photo, or no index). */
 async function madeAhead(path: string): Promise<Thumbnail | null> {
   bundled ??= readFile(join(TEMPLATE_THUMBS_DIR, "index.json"), "utf8")

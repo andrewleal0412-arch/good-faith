@@ -5,7 +5,7 @@ import { bad, evidencePrefix, liveDispute, tenantWrite, type Evidence } from "@/
 import { imageType } from "@/lib/images";
 import { rateLimiter } from "@/lib/rate-limit";
 import { resolveTenantToken, tokenNotFound, tooManyRequests } from "@/lib/tenant-links";
-import { thumbnail } from "@/lib/thumbs";
+import { inTurn, thumbnail } from "@/lib/thumbs";
 import { MAX_PIXELS } from "@/lib/uploads";
 
 export const runtime = "nodejs";
@@ -40,9 +40,10 @@ export async function GET(req: Request, ctx: RouteContext<"/api/t/[token]/disput
   if (error || !data) return tokenNotFound();
   const original = new Uint8Array(await data.arrayBuffer());
   let bytes = original, type = data.type || hit.type || "image/jpeg";
-  // Checked again before decoding, for a file stored before the upload check refused its shape (src/lib/images.ts).
+  // Checked again before decoding, for a file stored before the upload check refused its shape (src/lib/images.ts),
+  // and decoded in the thumbnail maker's turn, two at a time.
   if (await imageType(original)) try {
-    bytes = new Uint8Array(await sharp(original, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer());
+    bytes = await inTurn(async () => new Uint8Array(await sharp(original, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer()));
     type = "image/jpeg";
   } catch { /* sharp couldn't read it; the original goes out as stored */ }
   return new Response(bytes, { headers: { "Content-Type": type, "Content-Disposition": "inline", "Cache-Control": "private, max-age=600" } });
