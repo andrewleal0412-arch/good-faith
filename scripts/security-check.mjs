@@ -5,10 +5,13 @@
 //
 //   node scripts/security-check.mjs
 
+import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { crc32, deflateSync } from "node:zlib";
 import { createJiti } from "jiti";
 
@@ -147,6 +150,92 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   for (const p of ["src/app/api/tenancies/[id]/statement/pdf/route.ts", "src/app/api/t/[token]/statement.pdf/route.ts"]) {
     check(`the packet is built in a slot: ${p}`, /packetSlot\(\(\) => buildStatementPdf\(/.test(src(p)));
   }
+}
+
+/* ---------- Receipt PDFs: a small file can't make pdf-lib take the server's memory ---------- */
+{
+  // Loading a PDF decodes its object and cross-reference streams and reads every object they name. Before the limits
+  // a 199 KB receipt (one Flate stream of 200 MB of zeros) peaked at 526 MB, one with two Flate filters at 1.1 GB from
+  // 1 KB, a 462-byte cross-reference stream with /W [0 0 0] ran a 1.2 GB heap out, and every load of a file with new
+  // object numbers added to pdf-lib's pool for good (22 MB a load). The fixtures are made here, small.
+  const pdf = (objs) => {
+    const parts = [Buffer.from("%PDF-1.5\n", "latin1")];
+    const offs = [];
+    let pos = parts[0].length;
+    for (const b of [
+      "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+      "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+      "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n",
+    ].map((s) => Buffer.from(s, "latin1")).concat(objs)) { offs.push(pos); parts.push(b); pos += b.length; }
+    const xref = `xref\n0 ${offs.length + 1}\n0000000000 65535 f \n${offs.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+    parts.push(Buffer.from(`${xref}trailer\n<< /Size ${offs.length + 1} /Root 1 0 R >>\nstartxref\n${pos}\n%%EOF\n`, "latin1"));
+    return new Uint8Array(Buffer.concat(parts));
+  };
+  const stream = (n, dict, data) => Buffer.concat([Buffer.from(`${n} 0 obj\n<< ${dict} /Length ${data.length} >>\nstream\n`, "latin1"), data, Buffer.from("\nendstream\nendobj\n", "latin1")]);
+  const objStm = (n, decoded, filters = 1, count = 1, first = 6) => {
+    let d = decoded;
+    for (let i = 0; i < filters; i++) d = deflateSync(d);
+    return stream(n, `/Type /ObjStm /N ${count} /First ${first} /Filter [${" /FlateDecode".repeat(filters)} ]`, d);
+  };
+  const zeros = (mb, n) => Buffer.concat([Buffer.from(`${n} 0 0 `), Buffer.alloc(mb * 1048576)]);
+  const xrefZero = (start) => pdf([stream(4, `/Type /XRef /W [0 0 0] /Index [${start} 150000] /Size ${start + 150000}`, Buffer.alloc(0))]);
+  const flood = (count) => {
+    const head = Buffer.from(Array.from({ length: count }, (_, i) => `${1000 + i} 0`).join(" ") + " ", "latin1");
+    return pdf([objStm(4, Buffer.concat([head, Buffer.from("0 ")]), 1, count, head.length)]);
+  };
+
+  // pdf-lib warns as it reads past an object it couldn't parse, which each refused file here does once or twice.
+  const warn = console.warn;
+  console.warn = () => {};
+  check("pdf-lib is patched in both builds (npm's postinstall)", spawnSync(process.execPath, [join(ROOT, "scripts/patch-pdf-lib.mjs"), "--check"]).status === 0);
+  check("package.json patches pdf-lib after every install", JSON.parse(src("package.json")).scripts?.postinstall === "node scripts/patch-pdf-lib.mjs");
+  const guard = await lib("pdf-guard").catch(() => null);
+  check("pdf-guard loads", !!guard);
+  if (guard) {
+    check("pdf-guard sees the patched pdf-lib", guard.loadLimited());
+    const refused = async (name, bytes, why) => {
+      const [r, took] = await ms(() => guard.loadPdf(bytes).then(() => "loaded", (e) => e));
+      check(`receipt PDF: ${name} is refused`, r instanceof guard.PdfTooBig && why.test(r.message), r?.message ?? r);
+      check(`receipt PDF: ${name} is refused quickly`, took < 2500, `${took.toFixed(0)} ms`);
+    };
+    await refused("one Flate stream of 64 MB (64 KB)", pdf([objStm(4, zeros(64, 5))]), /decodes to more than 4 MB/);
+    await refused("two Flate filters, 256 MB (1 KB)", pdf([objStm(4, zeros(256, 5), 2)]), /decodes to more than 4 MB/);
+    await refused("three streams of 3.5 MB each", pdf([0, 1, 2].map((i) => objStm(4 + i, Buffer.concat([Buffer.from(`${10 + i} 0 0 `), Buffer.alloc(3.5 * 1048576)])))), /decodes to more than 8 MB/);
+    await refused("a cross-reference stream with /W [0 0 0] and 20 million entries (462 bytes)", pdf([stream(4, "/Type /XRef /W [0 0 0] /Index [0 20000000] /Size 20000000", Buffer.alloc(0))]), /more in it than a receipt/);
+    await refused("an object stream naming 350,000 objects", flood(350_000), /more in it than a receipt/);
+    await refused("a 3.8 MB array of zeros", pdf([Buffer.from(`4 0 obj\n[${"0 ".repeat(1_900_000)}]\nendobj\n`, "latin1")]), /more in it than a receipt/);
+    await refused("25,000 objects", pdf([Buffer.from(Array.from({ length: 25_000 }, (_, i) => `${4 + i} 0 obj 0 endobj\n`).join(""), "latin1")]), /more than 20,000 objects/);
+
+    // References a load makes go with its document: 150,000 entries with new numbers each time, loaded six times.
+    setFlagsFromString("--expose-gc");
+    const gc = runInNewContext("gc");
+    const heap = () => { gc(); gc(); return process.memoryUsage().heapUsed / 1048576; };
+    const before = heap();
+    for (let i = 1; i <= 6; i++) await guard.loadPdf(xrefZero(i * 1_000_000)).catch(() => null);
+    const grew = heap() - before;
+    check("receipt PDF: loads don't add to pdf-lib's pool for good", grew < 10, `${grew.toFixed(1)} MB kept after 6 loads`);
+
+    const { PDFDocument } = createRequire(join(ROOT, "package.json"))("pdf-lib");
+    const out = await PDFDocument.create();
+    let copied = 0;
+    for (const f of ["demo/receipts/carpet_invoice.pdf", "demo/receipts/handyman_invoice.pdf", "demo/lease-texas.pdf"]) {
+      const doc = await guard.loadPdf(new Uint8Array(readFileSync(join(ROOT, f)))).catch(() => null);
+      if (doc) for (const p of await out.copyPages(doc, doc.getPageIndices())) { out.addPage(p); copied++; }
+    }
+    const back = await PDFDocument.load(await out.save());
+    check("receipt PDF: the demo's invoices and a lease still load and copy into a packet", copied === 4 && back.getPageCount() === 4, `${copied} pages copied`);
+  }
+  console.warn = warn;
+
+  const statement = src("src/lib/statement-pdf.ts");
+  check("the packet loads each invoice with loadPdf", /await loadPdf\(f\.bytes\)/.test(statement) && !/PDFDocument\.load\(/.test(statement));
+  check("the chargeback evidence builds its packet in the slot", /m\.packetSlot\(\(\) => m\.buildStatementPdf\(st\)\)/.test(src("src/lib/chargeback-store.ts")));
+  const deductions = src("src/app/api/tenancies/[id]/deductions/route.ts");
+  check("a PDF receipt is loaded with loadPdf before it is stored", /await loadPdf\(receiptBytes\)/.test(deductions));
+  const loads = [];
+  const walk = (d) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (/\.tsx?$/.test(n) && !p.endsWith("pdf-guard.ts") && /PDFDocument\.load\(/.test(readFileSync(p, "utf8"))) loads.push(p.slice(ROOT.length + 1)); } };
+  walk(join(ROOT, "src"));
+  check("no other code loads a PDF without the limits", loads.length === 0, loads.join(", "));
 }
 
 /* ---------- Replies carry no internal error text ---------- */

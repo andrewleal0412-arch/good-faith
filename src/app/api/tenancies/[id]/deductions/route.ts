@@ -4,6 +4,7 @@ import { checkAdd, rangeBreach } from "@/lib/deduction-edit";
 import { deductionsLocked, disputeFacts } from "@/lib/disputes";
 import { type Performer, type Proration, type Work } from "@/lib/deductions";
 import { lawfulRanges, type RangeDeduction } from "@/lib/lawful-range";
+import { loadPdf, PdfTooBig } from "@/lib/pdf-guard";
 import { imageType, notAPhotoServer, readForm, sniff, UNREADABLE } from "@/lib/images";
 import { takeAllowance, uploadUnits } from "@/lib/limits";
 import { nextStep } from "@/lib/next-step";
@@ -101,8 +102,12 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   if (receipt) {
     receiptBytes = new Uint8Array(await receipt.arrayBuffer());
     const signed = sniff(receiptBytes);
-    if (signed === "application/pdf") receiptType = signed;
-    else if (signed) {
+    if (signed === "application/pdf") {
+      // The packet loads it again on every download, so a PDF pdf-lib can't load within its limits isn't kept.
+      receiptType = signed;
+      const why = await loadPdf(receiptBytes).then(() => null, (e) => (e instanceof PdfTooBig ? e.message : "It couldn't be read."));
+      if (why) return Response.json({ error: `${receipt.name} can't be used as the receipt. ${why} Save it again as a PDF, or add a photo of it.` }, { status: 400 });
+    } else if (signed) {
       const type = await imageType(receiptBytes);
       if (!type) return Response.json({ error: notAPhotoServer(receipt.name) }, { status: 400 });
       receiptType = type;

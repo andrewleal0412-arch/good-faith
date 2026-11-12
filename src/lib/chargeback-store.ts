@@ -705,10 +705,11 @@ export async function evidenceFiles(keys: string[], c: CaseBits): Promise<{ file
     if (key === "statement") {
       const st = await buildStatement(c.tenancyId).catch(() => null);
       // pdf-lib loads here, with the packet it writes. A packet that can't be built is skipped below, so a failure
-      // to load the writer is logged first rather than read as a statement that has no packet.
+      // to load the writer is logged first rather than read as a statement that has no packet. It is built in the same
+      // slot as the PDF routes' (two at a time), and skipped when that is full.
       const pdf = st ? await import("./statement-pdf")
         .catch((e) => { console.error("the PDF writer failed to load", e); throw e; })
-        .then((m) => m.buildStatementPdf(st)).catch(() => null) : null;
+        .then((m) => m.packetSlot(() => m.buildStatementPdf(st))).catch(() => null) : null;
       add(pdf ? { name: evidenceName("itemized-statement", "pdf"), type: TYPE.pdf, data: pdf.bytes } : null, key);
       continue;
     }

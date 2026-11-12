@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { DEMO_EXAMPLE } from "./copy";
 import { db } from "./db";
 import { usd } from "./deductions";
+import { loadPdf } from "./pdf-guard";
 import { packFor } from "./states/server";
 import { dateIn, describeDelivery, longDate, type Statement, type StatementPhoto } from "./statement";
 import { slots } from "./slots";
@@ -259,7 +260,8 @@ async function planInvoice(doc: PDFDocument, f: Fetched, budget: { left: number 
   if (!f) return { why: "missing" };
   if (f.kind === "pdf") {
     try {
-      const src = await PDFDocument.load(f.bytes, { ignoreEncryption: true });
+      // Within limits (src/lib/pdf-guard.ts): this runs again on every download of the packet.
+      const src = await loadPdf(f.bytes);
       const pages = await doc.copyPages(src, src.getPageIndices());
       if (!pages.length) return { why: "unsupported" };
       budget.left -= f.bytes.byteLength;
