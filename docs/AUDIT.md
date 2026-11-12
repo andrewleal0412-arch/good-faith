@@ -152,7 +152,7 @@ The counts in this section are as of 2026-10-05. The current ones are in the REA
 2. **Andrew's personal email address is the author on all 41 commits** and becomes public with the repository. To keep it off new commits, set GitHub's noreply address. Rewriting the existing ones changes every hash and needs a force push to `main`, which Render deploys from. Or keep it as is.
 3. **`PLAN.md`, the internal plan from 2026-10-01, was removed on 2026-11-11.** It held Andrew's schedule (midterms, filming at home, another competition's close date), an Obsidian note path, and a stale stack (SQLite, the name still open). It stays in the history, which holds nothing sensitive.
 4. **Demo addresses use real street names.** The people, companies and 555 numbers are fictional (`demo/photos/CREDITS.md` says so). The streets are real ones in Orange, Santa Ana and Austin (E. Chapman Ave, N. Glassell St, W. Cedar St, Mesquite Bend Dr), so a house number could match a real building. This is optional to change; check it before filming if it matters.
-5. **README: "Demo video: [to be added before submission]".**
+5. **README: "Demo video: [to be added before submission]".** Done 2026-11-12: the README links the video.
 6. **Before judging:**
    - Move Render to Starter (`plan: starter` in `render.yaml`), since the free plan sleeps.
    - Top up the pool: `npm run demo:pool -- --fill N`. It had 1 ready deposit on 2026-10-05.
