@@ -96,6 +96,8 @@ export function welcomeOf({ units, account, today, sandbox }: { units: WelcomeUn
       "Claude compares the move-in and move-out photos. Code prices each charge against the statute.",
       sandbox ? "PayPal runs in its sandbox: real API calls, test money." : "PayPal is live here: real money moves.",
       `${BEATS.length} steps, ticked off in the checklist at the top of each page. Three of them wait on Claude: the refund under a minute, the tenants' case about a minute, the negotiation a turn at a time.`,
+      // The switch (components/guide-bar.tsx) is on every demo page, the tenants' pages too, and stays with the guide hidden.
+      "You play both sides: Landlord | Tenants at the top of each page switches to the tenants' own page and back.",
     ],
     stops,
     start,
