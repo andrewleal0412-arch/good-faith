@@ -2,7 +2,7 @@
 
 [![Checks](https://github.com/andrewleal0412-arch/good-faith/actions/workflows/checks.yml/badge.svg)](https://github.com/andrewleal0412-arch/good-faith/actions/workflows/checks.yml)
 
-**Security deposits closed out the lawful way: Claude reads the lease and the photos, code computes every dollar from the state's statute, and PayPal returns the money only after a person approves.**
+**Security deposits closed out the lawful way: Claude reads the lease and the photos, code computes every dollar from state law, published guidance and the landlord's invoices, and PayPal returns the money only after a person approves.**
 
 For small landlords (one condo, a duplex, an ADU) and their tenants in California, New York, Texas, Florida and Washington. Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/). PayPal sandbox only; no real money moves. It informs, computes and drafts; it does not give legal advice.
 
@@ -203,7 +203,7 @@ City rules are shown as warnings only, never enforced. Sources, time zones and k
 
 ## Checks
 
-The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and fourteen check scripts (2,308 assertions) on every push. Three browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the eight beats of the demo script in Chromium and checks every dollar figure on the way, `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px, and `scripts/align-check.py` measures every icon, dot, tile and badge against the text beside it at both widths.
+The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and fourteen check scripts (2,308 assertions) on every push. Three browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the welcome card and the seven beats of the demo script in Chromium and checks every dollar figure on the way, `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px, and `scripts/align-check.py` measures every icon, dot, tile and badge against the text beside it at both widths.
 
 ```bash
 python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end
