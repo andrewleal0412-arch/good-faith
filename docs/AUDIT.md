@@ -194,7 +194,7 @@ Two reviews at `96f892e` read every route the way a judge holding the access cod
 
 ## Second security pass, 2026-11-10 evening
 
-Cloudflare's security-audit skill read `7ab8708` on the Mac mini and returned 11 leads without running any code. Each lead was then checked against the source, and the three about memory were measured with the repo's own sharp 0.35 and pdf-lib 1.17.1 on files made for the test. No request went to the hosted demo. As in the first pass, each fix starts with a check that failed before it; `scripts/security-check.mjs` now has 69 assertions, still run by hand (see above).
+Cloudflare's security-audit skill read `7ab8708` on the Mac mini and returned 11 leads without running any code. Each lead was then checked against the source, and the three about memory were measured with the repo's own sharp 0.35 and pdf-lib 1.17.1 on files made for the test. No request went to the hosted demo. As in the first pass, each fix starts with a check that failed before it; `scripts/security-check.mjs` now has 135 assertions, still run by hand (see above).
 
 ### Fixed
 
@@ -215,5 +215,5 @@ Cloudflare's security-audit skill read `7ab8708` on the Mac mini and returned 11
 
 ### Found, not changed
 
-- **PayPal's signature check can still be flooded** (first pass, above). The fix given there can be forged, since `paypal-cert-url` and `paypal-transmission-time` are the caller's own headers. The fix: verify the signature locally against PayPal's certificate, fetched from a pinned PayPal host and cached, and count a request against the shared limit only once that passes.
+- **PayPal's signature check can still be flooded** (first pass, above). The fix given there can be forged, since `paypal-cert-url` and `paypal-transmission-time` are the caller's own headers. The fix: verify the signature locally against PayPal's certificate, fetched from a pinned PayPal host and cached, and count a request against the shared limit only once that passes. Not changed on 2026-11-11: proving that a real sandbox delivery still verifies needs one's raw body and headers, and PayPal sends those only to the hosted demo, which doesn't keep them; a check that rejected real deliveries would stop refunds and settlements from being recorded.
 - **Already known:** the inspection holding every photo (under the first pass).
