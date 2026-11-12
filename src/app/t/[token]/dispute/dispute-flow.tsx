@@ -510,6 +510,8 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     settlement: s ? { status: s.status, tenantAccepted: !!s.tenantAcceptedAt, unconfirmed: s.unconfirmed } : null,
   });
   const offered = n?.landlordBack ?? null;
+  // The last turn this page shows: an accept names it, so it takes what the tenants read (the routes refuse a newer one).
+  const lastTurn = n?.turns.at(-1)?.n ?? null;
   const live = !!n && ["open", "negotiating", "no_agreement", "agreed"].includes(n.status) && !n.running && s?.status !== "sending" && !s?.unconfirmed && !settled;
   const lo = Math.min(offered ?? 0, n?.tenantBack ?? 0), hi = Math.max(offered ?? 0, n?.tenantBack ?? 0);
   // New York after day 14: the statement's refund is the whole deposit, so what is agreed is already inside it.
@@ -549,7 +551,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     });
     if (!ok) return;
     setBusy("accept");
-    await post("accept", { name });
+    await post("accept", { name, turn: lastTurn });
     refresh(() => setBusy(null));
   }
 
@@ -565,7 +567,7 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
     });
     if (!ok) return;
     setBusy("accept");
-    await post("offer", { accept: true, name });
+    await post("offer", { accept: true, name, turn: lastTurn });
     refresh(() => setBusy(null));
   }
 

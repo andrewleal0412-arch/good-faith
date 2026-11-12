@@ -258,6 +258,20 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   const moveOut = tenancy.slice(tenancy.indexOf("const moveOutDate = b.moveOutDate;"));
   check("the move-out date can't change once the statement is out", /statement_delivered_at/.test(tenancy) && /if \(t\.statement_delivered_at && t\.statement_delivery && moveOutDate !== t\.move_out_date\)/.test(moveOut));
   check("the move-out date is held to the tenants' own horizon", /moveOutDate > addDays\(today, PLANNED_MOVE_OUT_HORIZON_DAYS\)/.test(moveOut));
+
+  // The tenants accept the turn their page showed: a landlord turn that lands between their view and their tap (a new
+  // offer, a withdrawal from the agreed figures) is refused, not accepted in their name.
+  const nego = await lib("negotiator");
+  const turns = [{ n: 1 }, { n: 2 }, { n: 3 }];
+  check("movedSince: the turn shown is the last one", nego.movedSince?.(turns, 3) === false);
+  check("movedSince: a turn landed since", nego.movedSince?.(turns, 2) === true);
+  check("movedSince: a page that sent no turn is refused", nego.movedSince?.(turns, undefined) === true && nego.movedSince?.(turns, "3") === true);
+  const negotiation = src("src/lib/negotiation.ts");
+  check("an accept from the tenants is checked against the turn they saw", /if \(side === "tenant" && o\.accept && movedSince\(turns, o\.seen\)\)/.test(negotiation));
+  check("the tenants' offer route passes the turn shown", /seen: b\.turn/.test(src("src/app/api/t/[token]/dispute/offer/route.ts")));
+  check("accepting the settlement is checked against the turn shown", /movedSince\(await loadTurns\(d\.id\), b\?\.turn\)/.test(src("src/app/api/t/[token]/dispute/accept/route.ts")));
+  const flow = src("src/app/t/[token]/dispute/dispute-flow.tsx");
+  check("the tenants' page sends the turn it showed with both accepts", /post\("accept", \{ name, turn: lastTurn \}\)/.test(flow) && /post\("offer", \{ accept: true, name, turn: lastTurn \}\)/.test(flow));
 }
 
 /* ---------- Replies carry no internal error text ---------- */

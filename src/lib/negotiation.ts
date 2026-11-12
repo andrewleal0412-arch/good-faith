@@ -6,7 +6,7 @@ import { audit, db } from "./db";
 import { caseFile, disputeFacts, sentDispute, wholeDepositFirst, type DisputeFacts, type DisputeRow, type DisputeStatus } from "./disputes";
 import { claudeNeverAnswered, type Allowance } from "./limits";
 import {
-  agentTurns, agreed, cleanPolicy, effectiveLimit, keepsOf, latestOf, MAX_AGENT_TURNS, MAX_TURNS, offerTurn, runNegotiation,
+  agentTurns, agreed, cleanPolicy, effectiveLimit, keepsOf, latestOf, MAX_AGENT_TURNS, MAX_TURNS, movedSince, offerTurn, runNegotiation,
   statementKeeps, type NegotiationPolicy, type Side, type StopReason, type Turn, type TurnLine, type TurnMove,
 } from "./negotiator";
 import { allowedCitations, checkProposal } from "./lawful-range";
@@ -235,7 +235,7 @@ export type OfferResult = { ok: true; agreed: boolean; amountBack: number } | { 
 /** The landlord's or the tenants' own offer (an amount back, or the other side's last figures accepted as they are),
  *  checked against the lawful range and stored as a turn. A tenant's acceptance of the landlord's offer is their
  *  acceptance of the settlement too. */
-export async function makeOffer(tenancyId: string, d: NegotiationRow, side: Side, o: { amount: number | null; accept: boolean; message: string | null; tenantName?: string | null }): Promise<OfferResult> {
+export async function makeOffer(tenancyId: string, d: NegotiationRow, side: Side, o: { amount: number | null; accept: boolean; message: string | null; tenantName?: string | null; seen?: unknown }): Promise<OfferResult> {
   const from: DisputeStatus[] = ["open", "negotiating", "no_agreement", "agreed"];
   if (!from.includes(d.status)) return { ok: false, error: d.status === "settled" ? "This dispute is settled." : "This dispute is closed.", status: 409 };
   // A run that started too long ago and never finished died with its process: it no longer holds the humans back.
@@ -256,6 +256,10 @@ export async function makeOffer(tenancyId: string, d: NegotiationRow, side: Side
   const mine = latestOf(turns, side), theirs = latestOf(turns, otherSide);
   if (side === "tenant" && !theirs) return { ok: false, error: "Your landlord hasn't answered yet.", status: 409 };
   if (o.accept && !theirs) return { ok: false, error: "There's no offer to accept yet.", status: 409 };
+  // The tenants accept the offer their page showed, not one that landed since.
+  if (side === "tenant" && o.accept && movedSince(turns, o.seen)) {
+    return { ok: false, error: "Your landlord answered since this page loaded. Read the new offer, then decide.", status: 409 };
+  }
   const last = turns[turns.length - 1];
   const res = offerTurn({
     side, ranges: facts.ranges, amount: o.amount, accept: o.accept, message: o.message,

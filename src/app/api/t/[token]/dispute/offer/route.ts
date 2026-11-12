@@ -11,7 +11,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const { token } = await ctx.params;
   const link = await tenantWrite(token);
   if (link instanceof Response) return link;
-  const b = (await readJson(req, 16_000)) as { amount?: unknown; accept?: unknown; message?: unknown; name?: unknown } | null;
+  const b = (await readJson(req, 16_000)) as { amount?: unknown; accept?: unknown; message?: unknown; name?: unknown; turn?: unknown } | null;
   if (!b || typeof b !== "object") return bad("Say how much you ask back.");
   const accept = b.accept === true;
   const amount = accept ? null : Number(b.amount);
@@ -22,7 +22,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/t/[token]/dispu
   const name = typeof b.name === "string" && b.name ? b.name : d.opened_by ?? (facts.tenants.length === 1 ? facts.tenants[0] : "");
   if (!name || !facts.tenants.includes(name)) return bad("Pick your name as it appears on the lease.");
   const message = typeof b.message === "string" ? b.message.slice(0, 600) : null;
-  const r = await makeOffer(link.tenancyId, d, "tenant", { amount, accept, message, tenantName: name });
+  // `turn`: the last turn the page showed, so an accept takes the offer the tenants read (makeOffer).
+  const r = await makeOffer(link.tenancyId, d, "tenant", { amount, accept, message, tenantName: name, seen: b.turn });
   if (!r.ok) return bad(r.error, r.status);
   return Response.json(r);
 }

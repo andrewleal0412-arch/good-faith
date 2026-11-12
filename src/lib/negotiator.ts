@@ -108,6 +108,11 @@ export const statementKeeps = (r: Ranges): Record<string, number> => Object.from
 
 export const latestOf = (turns: Turn[], side: Side): Turn | null => [...turns].reverse().find((t) => t.side === side) ?? null;
 
+/** Whether a turn landed after the one a page showed (`seen`, the last turn's n as the page had it). The tenants accept
+ *  what they read: a landlord turn between their view and their tap (a new offer, a withdrawal from the agreed figures)
+ *  makes the accept fail, as does a page that sent no turn. */
+export const movedSince = (turns: Pick<Turn, "n">[], seen: unknown): boolean => turns.length > 0 && turns[turns.length - 1].n !== seen;
+
 /** Agent turns after the tenants' case: what the three exchanges count. */
 export const agentTurns = (turns: Turn[]) => turns.filter((t) => t.actor === "agent" && t.move !== "case").length;
 
