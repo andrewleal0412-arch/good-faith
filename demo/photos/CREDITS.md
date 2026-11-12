@@ -1,8 +1,10 @@
 # Demo photos
 
 Move-in photos are free stock photos from Pexels (Pexels License: free to use and modify). The move-out versions are
-the same photos with damage added programmatically for testing (scripts in the commit history): a pet stain and nail
-holes (bedroom), a wall hole and baseboard scuffs (living room), burnt grime on the range (kitchen).
+the same photos with damage added for testing: a stain about a foot across and nail holes (bedroom), a wall hole about
+five inches across (living room), burnt-on grease on the cooktop and its grates (kitchen). Since 2026-11-11 the damage is drawn by an AI
+image model, cut to the damaged area, scaled to a realistic size and blended onto the move-in photo, so everything
+else matches it pixel for pixel.
 
 - Bedroom: https://www.pexels.com/photo/empty-room-with-a-wall-to-wall-carpet-17181941/
 - Living room: https://www.pexels.com/photo/spacious-empty-room-with-white-walls-7031603/

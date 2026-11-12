@@ -125,7 +125,7 @@ const DEDUCTIONS = [
     name: "kitchen range", room: "Kitchen", kinds: ["cleaning", "damage"], remedies: ["clean"],
     item: /\brange\b|cooktop|stove|oven|burner/i, match: /\brange\b|cooktop|stove|oven|burner|grease|grime|burnt|hob/i,
     form: { work: "clean", performer: "own_labor", hours: 3, hourlyRate: 50, proration: "none",
-      laborDescription: "Degreased the cooktop, control panel and oven door back to move-in condition" },
+      laborDescription: "Degreased the cooktop and burner grates back to move-in condition" },
     receipt: null, after: "kitchen.jpg",
   },
 ];

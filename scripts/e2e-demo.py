@@ -1015,8 +1015,8 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         page.get_by_role("link", name="Move-out", exact=True).first.click()
         page.get_by_text("Photo comparison").first.wait_for()
         page.wait_for_load_state("networkidle")
-        t = sees("Move-out", page, f"Deposit held\n{D}", f"Deductions\n{P}", f"Refund due\n{R}", "Large carpet stain, center", "Three small wall holes",
-                 "Wear and tear", "Wall hole with cracks", "Grease spots on range", "Prorated, 4 of 10 years left", f"{R} to Luke Jones and Lane Forti",
+        t = sees("Move-out", page, f"Deposit held\n{D}", f"Deductions\n{P}", f"Refund due\n{R}", "Carpet stain, center", "Three small wall holes",
+                 "Wear and tear", "Wall hole, torn edges", "Grease spots on range", "Prorated, 4 of 10 years left", f"{R} to Luke Jones and Lane Forti",
                  "Nothing moves until you approve it.")
         # The grid's pinned totals before any refund: Deposit held, Deductions and Refund due, and nothing of a
         # settlement (the lines a settlement adds come only once one is paid; checked at the settled tab below).
@@ -1025,13 +1025,13 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
               f"Deposit held {D}" in gt and f"Deductions −{P}" in gt and f"Refund due {R}" in gt and "Settlement" not in gt and "Returned in all" not in gt, gt[-300:])
         boxes = page.locator(".gf-mark")
         titles = boxes.evaluate_all("els => els.map(e => e.getAttribute('title'))")
-        check("Move-out: Claude's damage boxes are drawn on the move-out photos", len(titles) >= 4 and any("carpet stain" in (x or "") for x in titles), json.dumps(titles))
+        check("Move-out: Claude's damage boxes are drawn on the move-out photos", len(titles) >= 4 and any("carpet stain" in (x or "").lower() for x in titles), json.dumps(titles))
         outs = page.locator("img[data-out]")
         for i in range(outs.count()):
             outs.nth(i).scroll_into_view_if_needed()
         page.wait_for_function("() => { const xs = [...document.querySelectorAll('img[data-out]')]; return xs.length >= 3 && xs.every(i => i.complete && i.naturalWidth > 0); }", timeout=30_000)
         check("Move-out: the three rooms' move-out photos load", outs.count() >= 3, f"{outs.count()} photos")
-        carpet_box = page.locator(".gf-mark[title*='carpet stain']").first
+        carpet_box = page.locator(".gf-mark[title*='carpet stain' i]").first
         carpet_box.scroll_into_view_if_needed()
         carpet_box.hover()
         grid = page.locator(".gf-deductions .ag-row").evaluate_all("rs => rs.map(r => r.innerText.replace(/\\s+/g, ' ').trim())")
@@ -1783,7 +1783,7 @@ def walk(base, setup, shots, check, facts, engine="chromium"):
         check("Settled tab: Hide the case folds it again", case_fold.count() == 1 and "Their advocate's summary" not in case.inner_text(),
               f"{case_fold.count()} fold lines; {case.inner_text()[:200]!r}")
         sees("Findings final: the Move-out tab keeps the findings the statement was sent with", page,
-             "Large carpet stain, center", "Three small wall holes", "Wall hole with cracks", "Grease spots on range")
+             "Carpet stain, center", "Three small wall holes", "Wall hole, torn edges", "Grease spots on range")
         check("Findings final: the Move-out tab offers neither Compare again nor Add photos",
               page.get_by_role("button", name=re.compile(r"^Compare (again|with move-in)")).count() == 0 and page.get_by_text("Add photos", exact=True).count() == 0,
               f"{page.get_by_role('button', name=re.compile(r'^Compare')).count()} Compare buttons, {page.get_by_text('Add photos', exact=True).count()} Add photos")

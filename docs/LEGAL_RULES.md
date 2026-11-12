@@ -118,7 +118,7 @@ This is the scenario `npm run demo:seed` builds (HOW_IT_WORKS.md, "Demo data and
 
 **The outcome** (move-in, before and after photos on file):
 1. A few small nail holes in the bedroom: wear and tear, $0 (D9; DRE p. 85).
-2. Bedroom carpet with a large stain, replaced: $1,800 invoice. The carpet is 6 years old with a 10-year life, so 4 years remain: **$720** (DRE p. 84 proration, marked as guidance). The inspection may say to try cleaning first; the deduction then carries the landlord's note that spot cleaning did not lift the stain, as part of the written explanation of the cost (D20, (h)(2)(D)).
+2. Bedroom carpet with a stain about a foot across, replaced: $1,800 invoice. The carpet is 6 years old with a 10-year life, so 4 years remain: **$720** (DRE p. 84 proration, marked as guidance). The inspection may say to try cleaning first; the deduction then carries the landlord's note that spot cleaning did not lift the stain, as part of the written explanation of the cost (D20, (h)(2)(D)).
 3. Hole in the living room wall, patched by a handyman: invoice $140, with name, address and phone: **$140**.
 4. Range cleaning by the landlord: 3 hours at $50, described: **$150**. No professional cleaning was billed, so (e)(2)(C) is satisfied.
 
