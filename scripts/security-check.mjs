@@ -252,6 +252,12 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   const one = src("src/app/api/tenancies/[id]/deductions/[did]/route.ts");
   const del = one.slice(one.indexOf("export async function DELETE"), one.indexOf("export async function PATCH"));
   check("removing one deduction is refused once the statement is out", /const out = await statementOut\(id\);\s*if \(out\) return out;/.test(del));
+
+  // The move-out date starts the statement's clock: once the statement is out it stays, and it can't be years away.
+  const tenancy = src("src/app/api/tenancies/[id]/route.ts");
+  const moveOut = tenancy.slice(tenancy.indexOf("const moveOutDate = b.moveOutDate;"));
+  check("the move-out date can't change once the statement is out", /statement_delivered_at/.test(tenancy) && /if \(t\.statement_delivered_at && t\.statement_delivery && moveOutDate !== t\.move_out_date\)/.test(moveOut));
+  check("the move-out date is held to the tenants' own horizon", /moveOutDate > addDays\(today, PLANNED_MOVE_OUT_HORIZON_DAYS\)/.test(moveOut));
 }
 
 /* ---------- Replies carry no internal error text ---------- */
