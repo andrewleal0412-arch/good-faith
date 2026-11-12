@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { decideOutsideRefund } from "@/lib/outside-refunds";
 import { isRefundId } from "@/lib/reconcile";
 import { routeTenancy } from "@/lib/workspace";
@@ -16,7 +17,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const body = (await req.json().catch(() => null)) as { refundId?: unknown; decision?: unknown } | null;
+  const body = (await readJson(req, 16_000)) as { refundId?: unknown; decision?: unknown } | null;
   const decision = body?.decision === "record" || body?.decision === "dismiss" ? body.decision : null;
   if (!decision) return Response.json({ error: "Record it, or mark it not this deposit." }, { status: 400 });
   if (!isRefundId(body?.refundId)) return Response.json({ error: "Which refund?" }, { status: 400 });

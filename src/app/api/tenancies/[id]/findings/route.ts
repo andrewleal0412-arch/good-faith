@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { audit, db } from "@/lib/db";
 import { KIND, type Classification, type StoredFinding } from "@/lib/findings";
 import { openSeal } from "@/lib/jev";
@@ -17,7 +18,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const b = (await readJson(req, 16_000)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object") return Response.json({ error: "Send the finding." }, { status: 400 });
   const item = text(b.item, 120), observation = text(b.observation, 600), room = text(b.room, 60);
   const classification = b.classification as Classification;

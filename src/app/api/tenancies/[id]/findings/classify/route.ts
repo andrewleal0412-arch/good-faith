@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { db } from "@/lib/db";
 import { jevConfigured, readable, readFinding, sealRead } from "@/lib/jev";
 import { takeAllowance } from "@/lib/limits";
@@ -24,7 +25,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const ws = await currentWorkspace();
   if (!ws) return Response.json({ error: ACCESS_MESSAGES.signedOut }, { status: 401 });
   if (!isUuid(id)) return Response.json({ error: "No such tenancy." }, { status: 404 });
-  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const b = (await readJson(req, 16_000)) as Record<string, unknown> | null;
   const item = text(b?.item, 120), observation = text(b?.observation, 600);
   if (!readable(item, observation)) return Response.json({ read: null });
 

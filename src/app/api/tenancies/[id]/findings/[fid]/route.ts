@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { audit, db } from "@/lib/db";
 import type { FindingStatus, StoredFinding } from "@/lib/findings";
 import { routeTenancy } from "@/lib/workspace";
@@ -39,7 +40,7 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const { id, fid } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const b = (await req.json().catch(() => null)) as { status?: unknown } | null;
+  const b = (await readJson(req, 16_000)) as { status?: unknown } | null;
   const status = b && typeof b === "object" && "status" in b ? b.status : undefined;
   if (status !== null && status !== "accepted" && status !== "dismissed") {
     return Response.json({ error: "Send accepted, dismissed or null." }, { status: 400 });

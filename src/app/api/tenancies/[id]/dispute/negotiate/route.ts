@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { takeAllowance } from "@/lib/limits";
 import { negotiationDispute, policyOf, runNegotiator } from "@/lib/negotiation";
 import { cleanPolicy } from "@/lib/negotiator";
@@ -14,7 +15,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const body = (await req.json().catch(() => null)) as { policy?: unknown } | null;
+  const body = (await readJson(req, 16_000)) as { policy?: unknown } | null;
   const d = await negotiationDispute(id);
   if (!d) return Response.json({ error: "The tenants haven't sent a dispute." }, { status: 404 });
   const policy = body && typeof body === "object" && body.policy !== undefined ? cleanPolicy(body.policy) : policyOf(d);

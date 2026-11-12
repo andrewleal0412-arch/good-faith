@@ -15,6 +15,15 @@ export async function readJson(req: Request, max: number): Promise<unknown> {
   }
 }
 
+/** A form's fields (a plain HTML form posts them urlencoded), or null when the body is longer than `max` characters
+ *  or can't be read. Measured the same way as readJson. */
+export async function readFields(req: Request, max: number): Promise<URLSearchParams | null> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) return null;
+  const raw = await req.text().catch(() => null);
+  if (raw === null || raw.length > max) return null;
+  return new URLSearchParams(raw);
+}
+
 /** True for a string that looks like one email address. The length is checked first: the pattern backtracks on a long
  *  run of dots, and an address is at most 254 characters. */
 export const isEmail = (v: unknown): v is string => typeof v === "string" && v.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);

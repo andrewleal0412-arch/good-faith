@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { audit, db } from "@/lib/db";
 import { checkEdit, EDIT_FIELDS, editRowOf, FIELD_LABEL, inputWords, limitsFor, rangeBreach, storedColumns, type Changes, type EditField } from "@/lib/deduction-edit";
 import { deductionsLocked, disputeFacts, statementOut } from "@/lib/disputes";
@@ -39,7 +40,7 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const { id, did } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const body = (await req.json().catch(() => null)) as { changes?: unknown; math?: unknown } | null;
+  const body = (await readJson(req, 16_000)) as { changes?: unknown; math?: unknown } | null;
   const raw = body?.changes && typeof body.changes === "object" && !Array.isArray(body.changes) ? body.changes as Record<string, unknown> : null;
   const changes: Changes = raw ? Object.fromEntries(Object.entries(raw).filter(([k]) => EDIT_FIELDS.includes(k as EditField))) : {};
   if (!raw || !Object.keys(changes).length || Object.keys(changes).length !== Object.keys(raw).length) {

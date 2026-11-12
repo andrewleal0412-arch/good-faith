@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { realDate, todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { CA_NOTICE_KINDS, kindFromSlug, recordFor, type NoticeGiven, type NoticeMethod, type Notices } from "@/lib/notices";
@@ -27,7 +28,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const kind = kindFromSlug(slug, pack);
   const def = kind ? recordFor(pack, kind) : null;
   if (!kind || !def) return Response.json({ error: "No such notice." }, { status: 404 });
-  const body: unknown = await req.json().catch(() => null);
+  const body: unknown = await readJson(req, 16_000);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send the date, the method and the tenant." }, { status: 400 });
   const b = body as { date?: unknown; method?: unknown; to?: unknown; detail?: unknown; received?: unknown };
   // Today where the property is: its pack's zone, which its deadlines are counted in.

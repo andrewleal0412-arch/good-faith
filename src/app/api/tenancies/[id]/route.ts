@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { addDays, longDate, realDate, todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { zoneOf } from "@/lib/states";
@@ -15,7 +16,7 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/tenancies/[id]
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const body: unknown = await req.json().catch(() => null);
+  const body: unknown = await readJson(req, 16_000);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send the date to set." }, { status: 400 });
   const b = body as { moveOutDate?: unknown; endDate?: unknown };
   const hasEnd = "endDate" in b, hasMoveOut = "moveOutDate" in b;

@@ -1,4 +1,5 @@
 import { answerApproval, Shown } from "@/lib/agent";
+import { readJson } from "@/lib/body";
 import { openDisputeBlock } from "@/lib/chargeback-store";
 import { db } from "@/lib/db";
 import { tenancyDepositBlock } from "@/lib/demo-pool";
@@ -14,7 +15,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
   // A body that isn't JSON answers 400 in words, like every sibling route, not a framework 500.
-  const { approved } = ((await req.json().catch(() => null)) ?? {}) as { approved?: boolean };
+  const { approved } = ((await readJson(req, 16_000)) ?? {}) as { approved?: boolean };
   if (typeof approved !== "boolean") return Response.json({ error: "Approve or decline." }, { status: 400 });
   // A demo copy whose deposit went back to the pool (Start over) can't send the refund it prepared: refused here, before
   // the run resumes, rather than by guardRefund after another Claude call. Declining still works. A run id that isn't

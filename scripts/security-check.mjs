@@ -69,6 +69,32 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   }
   const [cut, cutMs] = await ms(() => body.readJson(post(JSON.stringify({ name: "Luke Jones", message: "x".repeat(16_001) })), 16_000));
   check("readJson: a body just over 16 KB is refused quickly", cut === null && cutMs < 50, `${JSON.stringify(cut)?.slice(0, 40)}, ${cutMs.toFixed(0)} ms`);
+
+  // The access route (anonymous) and the landlord's JSON routes parsed whatever they were sent, up to the proxy's
+  // 4.5 MB. Their honest bodies are a code, a date, a status, a policy, a finding's text of at most 600 characters.
+  const routes = [];
+  const walk = (dir) => {
+    for (const n of readdirSync(join(ROOT, dir))) {
+      const p = `${dir}/${n}`;
+      if (statSync(join(ROOT, p)).isDirectory()) walk(p);
+      else if (n === "route.ts") routes.push(p);
+    }
+  };
+  walk("src/app/api");
+  const uncapped = routes.filter((p) => /\b(req|request)\.json\(\)/.test(src(p)));
+  check("no API route parses a JSON body uncapped", uncapped.length === 0, uncapped.join(", "));
+  for (const r of ["", "/close-out/[runId]", "/deductions/[did]", "/dispute/negotiate", "/dispute/offer", "/findings", "/findings/[fid]", "/findings/classify", "/notice", "/notices/[kind]", "/outside-refunds", "/paypal-dispute", "/statement/delivery"]) {
+    check(`the landlord route tenancies/[id]${r} reads its body with readJson(req, 16_000)`, /readJson\(req, 16_000\)/.test(src(`src/app/api/tenancies/[id]${r}/route.ts`)));
+  }
+  const access = src("src/app/api/access/route.ts");
+  check("the access route reads its JSON with readJson(req, 16_000)", /readJson\(req, 16_000\)/.test(access));
+  check("the access route reads its form capped, not with formData()", /readFields\(req, 16_000\)/.test(access) && !/\.formData\(\)/.test(access));
+  const form = (b, headers = {}) => new Request("http://local/x", { method: "POST", body: b, headers: { "content-type": "application/x-www-form-urlencoded", ...headers } });
+  const fields = await body.readFields?.(form("code=GF-ABCD-EFGH&next=%2Ftenancy%2Fabc"), 16_000);
+  check("readFields: the access form is read", fields?.get("code") === "GF-ABCD-EFGH" && fields?.get("next") === "/tenancy/abc", String(fields));
+  const [bigForm, bigFormMs] = await ms(async () => body.readFields?.(form("code=" + "x".repeat(4_500_000)), 16_000));
+  check("readFields: a 4.5 MB form is refused quickly", bigForm === null && bigFormMs < 500, `${bigForm}, ${bigFormMs.toFixed(0)} ms`);
+  check("readFields: a declared length over the cap is refused unread", (await body.readFields?.(form("code=x", { "content-length": "20000" }), 16_000)) === null);
 }
 
 /* ---------- Photos: a small file that decodes to a huge image is refused ---------- */

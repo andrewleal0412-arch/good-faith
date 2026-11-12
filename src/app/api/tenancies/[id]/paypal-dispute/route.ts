@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { approveDefense, checkPayPalDisputes, currentDispute, declineDefense, prepareDefense, recheckDefense } from "@/lib/chargeback-store";
 import { db } from "@/lib/db";
 import { takeAllowance } from "@/lib/limits";
@@ -30,7 +31,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const body = (await req.json().catch(() => null)) as { action?: unknown; responseId?: unknown; hash?: unknown } | null;
+  const body = (await readJson(req, 16_000)) as { action?: unknown; responseId?: unknown; hash?: unknown } | null;
   const action = typeof body?.action === "string" ? body.action : "";
   const responseId = isUuid(body?.responseId) ? body!.responseId as string : null;
   if (action === "check") {

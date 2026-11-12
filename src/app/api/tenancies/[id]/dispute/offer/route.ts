@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { makeOffer, negotiationDispute } from "@/lib/negotiation";
 import { routeTenancy } from "@/lib/workspace";
 
@@ -10,7 +11,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const b = (await req.json().catch(() => null)) as { amount?: unknown; accept?: unknown; message?: unknown } | null;
+  const b = (await readJson(req, 16_000)) as { amount?: unknown; accept?: unknown; message?: unknown } | null;
   if (!b || typeof b !== "object") return Response.json({ error: "Say how much goes back." }, { status: 400 });
   const accept = b.accept === true;
   const amount = accept ? null : Number(b.amount);

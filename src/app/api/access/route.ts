@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { clientAddress, recordWrong, throttled } from "@/lib/access-throttle";
+import { readFields, readJson } from "@/lib/body";
 import { ACCESS_MESSAGES as M, cookieOptions, gate, issueSession, matchCode, safeNext, sameOrigin, SESSION_COOKIE } from "@/lib/session";
 import { currentSession } from "@/lib/session-server";
 import { createDemoCopy, workspaceOf } from "@/lib/workspace";
@@ -14,19 +15,18 @@ export async function POST(req: Request) {
   // A form on another site can't sign anyone in or out here.
   if (!sameOrigin(req.headers)) return Response.json({ error: M.otherSite }, { status: 403 });
 
+  // A code and a path, so nothing longer is read: anyone may post here.
   let code = "", next = "/";
-  try {
-    if (json) {
-      const b = (await req.json()) as { code?: unknown; next?: unknown };
-      code = typeof b.code === "string" ? b.code : "";
-      next = safeNext(b.next);
-    } else {
-      const f = await req.formData();
-      code = typeof f.get("code") === "string" ? String(f.get("code")) : "";
-      next = safeNext(f.get("next"));
-    }
-  } catch {
-    return Response.json({ error: M.empty }, { status: 400 });
+  if (json) {
+    const b = (await readJson(req, 16_000)) as { code?: unknown; next?: unknown } | null;
+    if (!b || typeof b !== "object") return Response.json({ error: M.empty }, { status: 400 });
+    code = typeof b.code === "string" ? b.code : "";
+    next = safeNext(b.next);
+  } else {
+    const f = await readFields(req, 16_000);
+    if (!f) return Response.json({ error: M.empty }, { status: 400 });
+    code = f.get("code") ?? "";
+    next = safeNext(f.get("next"));
   }
 
   const back = (e: string) => {

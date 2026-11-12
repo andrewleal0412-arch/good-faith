@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/body";
 import { longDate, realDate, todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { inspectionWindowOpens } from "@/lib/notices";
@@ -15,7 +16,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   const { id } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
   if (ws instanceof Response) return ws;
-  const body: unknown = await req.json().catch(() => null);
+  const body: unknown = await readJson(req, 16_000);
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Send the notice date and the planned move-out date." }, { status: 400 });
   const b = body as { noticeGivenOn?: unknown; plannedMoveOut?: unknown; givenBy?: unknown };
   // Today where the property is: its pack's zone, which its deadlines are counted in.
