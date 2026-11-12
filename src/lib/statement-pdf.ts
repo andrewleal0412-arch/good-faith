@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { DEMO_EXAMPLE } from "./copy";
 import { db } from "./db";
 import { usd } from "./deductions";
+import { imageType } from "./images";
 import { loadPdf } from "./pdf-guard";
 import { packFor } from "./states/server";
 import { dateIn, describeDelivery, longDate, type Statement, type StatementPhoto } from "./statement";
@@ -236,12 +237,15 @@ async function embedPhoto(doc: PDFDocument, f: Fetched, budget: { left: number }
   if (f.kind !== "jpeg" && f.kind !== "png") return { why: "unsupported" };
   let out: { bytes: Uint8Array; kind: "jpeg" | "png" };
   try {
+    // A stored file is checked again before decoding, in case it was stored before the upload check refused its shape
+    // (src/lib/images.ts).
+    if (!(await imageType(f.bytes))) throw new Error("not a shape the server decodes");
     const small = await sharp(f.bytes, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: PHOTO_PX, height: PHOTO_PX, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: PHOTO_QUALITY }).toBuffer();
     out = { bytes: new Uint8Array(small), kind: "jpeg" };
   } catch {
-    // sharp couldn't read it (or it is over MAX_PIXELS): pdf-lib gets an original JPEG, which it embeds without
-    // decoding, but not a PNG, which it would decode whole in JavaScript.
+    // sharp couldn't read it (or it is over MAX_PIXELS, or a shape the upload check refuses): pdf-lib gets an original
+    // JPEG, which it embeds without decoding, but not a PNG, which it would decode whole in JavaScript.
     if (f.kind === "png") return { why: "unsupported" };
     out = { bytes: f.bytes, kind: f.kind };
   }

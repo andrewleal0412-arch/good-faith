@@ -678,7 +678,11 @@ async function evidencePhoto(p: CasePhoto): Promise<Uint8Array | null> {
   // sharp loads here, with the photo it resizes. The caller skips a photo it can't read, so a failure to load the
   // library is logged on its way out rather than read as a photo that isn't there.
   const { default: sharp } = await import("sharp").catch((e) => { console.error("sharp failed to load", e); throw e; });
-  const base = sharp(new Uint8Array(await data.arrayBuffer()), { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true });
+  // Checked again before decoding, for a file stored before the upload check refused its shape (src/lib/images.ts).
+  const { imageType } = await import("./images");
+  const bytes = new Uint8Array(await data.arrayBuffer());
+  if (!(await imageType(bytes))) return null;
+  const base = sharp(bytes, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true });
   const { data: jpeg, info } = await base.jpeg({ quality: 82 }).toBuffer({ resolveWithObject: true });
   if (!p.box) return new Uint8Array(jpeg);
   const w = info.width, h = info.height, stroke = Math.max(3, Math.round(Math.max(w, h) / 220));

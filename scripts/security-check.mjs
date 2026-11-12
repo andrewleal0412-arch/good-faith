@@ -139,6 +139,14 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
     check(`a stored photo is checked before it is decoded: ${p}`, /if \(await imageType\(original\)\) try \{/.test(src(p)));
   }
   check("a stored photo is checked before its thumbnail is made", /if \(!given && !\(await imageType\(original\)\)\) throw /.test(src("src/lib/thumbs.ts")));
+  // The landlord's side decodes stored files too: the statement packet, the advocate's photos for a dispute and the
+  // chargeback's exhibits. Each checks the file's shape before sharp opens it. (The inspection only reads a photo's
+  // header, which a 16-bit interlaced PNG of 16 million pixels doesn't grow, and sends the bytes to Claude.)
+  for (const [file, fn] of [["src/lib/statement-pdf.ts", "async function embedPhoto("], ["src/lib/disputes.ts", "export const loadCasePhoto"], ["src/lib/chargeback-store.ts", "async function evidencePhoto("]]) {
+    const text = src(file), at = text.indexOf(fn), body = text.slice(at, text.indexOf("\n}", at));
+    const checked = body.search(/await imageType\(/), opened = body.search(/\bsharp\(/);
+    check(`a stored photo is checked before it is decoded: ${fn} in ${file}`, at >= 0 && checked >= 0 && opened > checked, `imageType at ${checked}, sharp at ${opened}`);
+  }
 
   // Those two routes' full-size GETs (60 a minute per address) decoded as many at once as were asked, at up to 191 MB
   // each, so three at once could reach the host's 512 MB. They now take the thumbnail maker's turns, two at a time.

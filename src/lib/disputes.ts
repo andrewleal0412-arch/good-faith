@@ -299,7 +299,11 @@ export const loadCasePhoto: LoadPhoto = async (p: CasePhoto) => {
   // opens a photo for a model (docs/PERFORMANCE.md). The caller turns a null into "no photos on file", so a failure
   // to load it is logged on its way out rather than read as a line with no photos.
   const { default: sharp } = await import("sharp").catch((e) => { console.error("sharp failed to load", e); throw e; });
-  const base = sharp(new Uint8Array(await data.arrayBuffer()), { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true });
+  // Checked again before decoding, for a file stored before the upload check refused its shape (src/lib/images.ts).
+  const { imageType } = await import("./images");
+  const bytes = new Uint8Array(await data.arrayBuffer());
+  if (!(await imageType(bytes))) return null;
+  const base = sharp(bytes, { limitInputPixels: MAX_PIXELS }).rotate().resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true });
   const { data: jpeg, info } = await base.jpeg({ quality: 80 }).toBuffer({ resolveWithObject: true });
   if (!p.box) return { data: new Uint8Array(jpeg), mediaType: "image/jpeg" };
   const w = info.width, h = info.height, stroke = Math.max(3, Math.round(Math.max(w, h) / 220));
