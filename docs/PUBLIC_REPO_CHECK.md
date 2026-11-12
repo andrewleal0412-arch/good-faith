@@ -106,8 +106,6 @@ Every other variable the code reads is in the file, the demo scripts' and the en
 These are not repository findings, but they are on the same checklist and are not done yet.
 
 - The README's hero line still reads "Demo video: to be added before submission".
-- `docs/DEVPOST_DRAFT.md` has placeholders where the access code and the video link go, and the repository it names
-  is still private.
 - `npm audit --omit=dev`, run again today, lists 10 advisories (5 high, 2 moderate, 3 low), all inside
   `@paypal/agent-toolkit` 1.11.0's own dependencies. Dependabot will list them the moment the repository is public.
   The README's Known limits explains why they are there and why npm's only fix is a downgrade of the toolkit.

@@ -57,7 +57,7 @@ Three things to check inside your copy, under a minute each.
 
 ### Best Use of PayPal + AI
 
-- Claude never decides an amount. It reads the figures code computed, then calls PayPal's own tools: `get_invoice`, `create_refund`, `get_refund`, and `get_dispute` in a PayPal dispute. The refund review and the receipt name the close-out's three tools beside the steps that called them, with a tip on what each did.
+- Code computes every charge and the refund. The close-out agent reads those figures, then calls PayPal's own tools: `get_invoice`, `create_refund`, `get_refund`, and `get_dispute` in a PayPal dispute. The refund review and the receipt name the close-out's three tools beside the steps that called them, with a tip on what each did.
 - `create_refund` is wrapped so it waits for the landlord and passes `guardRefund`, which reads the database and PayPal again and refuses any other rail, amount, payment or account.
 - The same rail rule sends the close-out and a settlement against the original payment inside PayPal's 180-day window, else as a Payout to the account the tenants named in writing ([`refund-rail.ts`](src/lib/refund-rail.ts)).
 - Every refund and Payout carries an idempotency key from the app's own records, so a retry after a lost answer gets the first result back.
