@@ -6,6 +6,7 @@ import { db } from "./db";
 import { usd } from "./deductions";
 import { imageType } from "./images";
 import { loadPdf } from "./pdf-guard";
+import { noMoneyWhy } from "./refund-rail";
 import { packFor } from "./states/server";
 import { dateIn, describeDelivery, longDate, type Statement, type StatementPhoto } from "./statement";
 import { slots } from "./slots";
@@ -497,9 +498,11 @@ export async function buildStatementPdf(s: Statement): Promise<{ bytes: Uint8Arr
     w.text(st.example ? `${DEMO_EXAMPLE.short}. ${DEMO_EXAMPLE.text}`
       : st.paypalId
         ? `${st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : "PayPal refund of the original deposit payment"} (PayPal id ${st.paypalId})${st.sentAt ? `, sent ${longDate(onDay(st.sentAt))}` : ""}.`
-        : st.refundSent && s.refund.amount >= s.totals.depositHeld - 0.005
-          ? "No money moved: the whole deposit had already gone back with the statement."
-          : "No money moved: the deposit was used in full, and the balance claimed went down.", { color: INK2 });
+        : {
+          whole_back: "No money moved: the whole deposit had already gone back with the statement.",
+          nothing_more: "No money moved: nothing more was agreed back on top of the statement's refund.",
+          used_in_full: "No money moved: the deposit was used in full, and the balance claimed went down.",
+        }[noMoneyWhy({ depositHeld: s.totals.depositHeld, refunded: st.refundSent ? s.refund.amount : 0 })], { color: INK2 });
   }
 
   // 5. Local deposit interest (item 11).

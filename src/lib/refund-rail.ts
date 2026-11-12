@@ -44,6 +44,13 @@ export function settledExtra(o: { agreed: number; depositHeld: number; refunded:
   return Math.round(Math.max(0, Math.min(o.agreed, o.depositHeld - o.refunded)) * 100) / 100;
 }
 
+/** Why a settlement moved no money, from what the statement's refund already sent back: all of the deposit, part of it
+ *  (the agents agreed nothing more), or none (the deductions used the deposit, and the balance claimed went down). */
+export type NoMoneyWhy = "whole_back" | "nothing_more" | "used_in_full";
+export function noMoneyWhy(o: { depositHeld: number; refunded: number }): NoMoneyWhy {
+  return o.depositHeld > 0 && o.refunded >= o.depositHeld - 0.005 ? "whole_back" : o.refunded > 0.005 ? "nothing_more" : "used_in_full";
+}
+
 /** What a settlement may still send: the deposit less every return that didn't fail (the statement's refund, an
  *  earlier Payout, PayPal's refunds through the tenants' PayPal dispute). The agreed amount goes only when it fits:
  *  a PayPal dispute refund can leave less of the deposit than the lawful range assumed, and paying the agreed amount

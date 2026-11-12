@@ -48,7 +48,7 @@ type InvoiceWithRefunds = Invoice & {
 
 /** How the settlement's amount goes back, or why it can't, from the facts as they stand now. */
 export async function settlementPlan(tenancyId: string, amount: number): Promise<SettlementPlan> {
-  if (amount <= 0) return { rail: "none", amount: 0, why: "The settlement changes what the statement keeps without any money moving: the deposit was used in full." };
+  if (amount <= 0) return { rail: "none", amount: 0, why: "The settlement sends nothing more back, so no money moves." };
   if (!SANDBOX) return { blocked: "This build has no landlord sign-in, so it won't move live money." };
   let state: Awaited<ReturnType<typeof closeOutState>>;
   try {

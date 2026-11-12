@@ -287,6 +287,11 @@ const CITES = (file, pack) => new Set(range.allowedCitations(pack, file.ranges))
   eq("settled extra: nothing once the whole deposit went back", rail.settledExtra({ agreed: 400, depositHeld: 2000, refunded: 2000 }), 0);
   eq("settled extra: the demo's $270 on a $2,800 deposit is unchanged", rail.settledExtra({ agreed: 270, depositHeld: 2800, refunded: 1790 }), 270);
   eq("settled extra: no refund yet (the deductions used the deposit)", rail.settledExtra({ agreed: 500, depositHeld: 2000, refunded: 0 }), 500);
+  // A settlement that moved no money says why, and only what is true (2026-11-12: $3,790 of a $4,800 deposit went back,
+  // the agents agreed $0 more, and the pages said "the deposit was used in full").
+  eq("no money moved: part went back, nothing more agreed / all of it went back / none went back",
+    [rail.noMoneyWhy({ depositHeld: 4800, refunded: 3790 }), rail.noMoneyWhy({ depositHeld: 4800, refunded: 4800 }), rail.noMoneyWhy({ depositHeld: 4800, refunded: 0 })],
+    ["nothing_more", "whole_back", "used_in_full"]);
   // Before that refund goes (2026-10-05): the dispute pages read whether it will be the whole deposit, by the pack's own
   // standing, so an agreed amount isn't shown as money on top of it. Move-out September 10, day 14 September 24.
   const owedFirst = (pack, { input, ...o } = {}) => rail.wholeOwedBeforeRefund({

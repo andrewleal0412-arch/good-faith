@@ -143,7 +143,7 @@ export function describe(action: string, d: Record<string, unknown> | null): str
     case "settlement_paid": return d?.demo_example ? `Settled the dispute: ${usd(d?.amount as number)} back to the tenants, the demo's recorded example (no PayPal money moved)`
       : Number(d?.amount) > 0
       ? `Sent the settlement of ${usd(d?.amount as number)} through PayPal (${d?.refund_id ? `refund ${d.refund_id}` : `payout ${d?.payout_batch_id}`}, ${String(d?.status).toLowerCase()})`
-      : "Settled the dispute with no money moving: the deposit was used in full";
+      : "Settled the dispute with no money moving";
     case "settlement_failed": return `PayPal didn't accept the settlement of ${usd(d?.amount as number)}`;
     case "settlement_blocked": return `Stopped a settlement payment that didn't match the rules: ${d?.reason}`;
     case "settlement_unconfirmed": return `PayPal didn't confirm the settlement of ${usd(d?.amount as number)}, so it may have gone; checking again sends the same request`;

@@ -12,6 +12,7 @@ import { dayLabel, shortDate, whenText } from "@/lib/dates";
 import { DEMO_EXAMPLE, TENANT_VIEW_TIP } from "@/lib/copy";
 import { usd } from "@/lib/deductions";
 import { streetLine } from "@/lib/ledger";
+import { noMoneyWhy, type NoMoneyWhy } from "@/lib/refund-rail";
 import { demoTenantPath } from "@/lib/tenant-links";
 import { pageTenancy, signedUrlsFor, thumbsFor } from "@/lib/workspace";
 import {
@@ -497,12 +498,18 @@ async function LiveDelivery({ live, panel }: { live: Live; panel: Parameters<typ
 
 const SETTLEMENT_TIP = "The tenants disputed this statement through their link. Their advocate and the landlord's negotiator, each held to what the law and the record allow, agreed on the figures below; the tenants accepted them and the landlord approved them. This section amends the statement. Not legal advice.";
 
+const NO_MONEY: Record<NoMoneyWhy, string> = {
+  whole_back: "No money moved: the whole deposit had already gone back with the statement",
+  nothing_more: "No money moved: nothing more was agreed back on top of the statement's refund",
+  used_in_full: "No money moved: the deposit was used in full",
+};
+
 /** The amended statement: the tenants disputed it, both sides settled, and the extra amount went back by PayPal. */
 function SettlementSection({ n, st, landlord, deducted, refund, deposit, zone }: { n: number; st: StatementSettlement; landlord: string; deducted: number; refund: number; deposit: number; zone: string }) {
   const dayOf = (ts: string) => dateIn(ts, zone); // the day where the property is
   const how = st.example ? DEMO_EXAMPLE.short
     : st.rail === "payout" ? "PayPal Payout to the account the tenants designated" : st.rail ? "PayPal refund of the original deposit payment"
-      : st.refundSent && refund >= deposit - 0.005 ? "No money moved: the whole deposit had already gone back with the statement" : "No money moved: the deposit was used in full";
+      : NO_MONEY[noMoneyWhy({ depositHeld: deposit, refunded: st.refundSent ? refund : 0 })];
   return (
     <Section n={n} title="Settlement" tip={SETTLEMENT_TIP}>
       <p className="text-ink-2">

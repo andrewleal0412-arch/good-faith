@@ -11,7 +11,7 @@ import {
 } from "./negotiator";
 import { allowedCitations, checkProposal } from "./lawful-range";
 import { tenancyDepositBlock } from "./demo-pool";
-import { settledExtra } from "./refund-rail";
+import { noMoneyWhy, settledExtra, type NoMoneyWhy } from "./refund-rail";
 import type { StatePack } from "./states/types";
 
 // The negotiation over a sent dispute, with the database: the turns as stored, the landlord's negotiator run (claimed
@@ -326,6 +326,7 @@ export type SettlementView = {
   // The statement's refund was already the whole deposit (New York's forfeited deductions under a live dispute), so the
   // settlement records what was agreed and moves no money (settlement.ts).
   wholeBack: boolean;
+  noMoney: NoMoneyWhy; // why no money moved, when none did (refund-rail.ts)
 };
 export type NegotiationView = {
   turns: TurnView[];
@@ -386,6 +387,7 @@ export function negotiationView(d: NegotiationRow, facts: DisputeFacts, turns: T
     recheck: recheckable(s),
     example: isDemoExample(s.raw),
     wholeBack: !!facts.refunded && facts.depositHeld > 0 && settledExtra({ agreed: num(s.amount), depositHeld: facts.depositHeld, refunded: facts.refunded.amount }) === 0 && num(s.amount) > 0,
+    noMoney: noMoneyWhy({ depositHeld: facts.depositHeld, refunded: facts.refunded?.amount ?? 0 }),
   } : null;
   const outcome = d.negotiation_outcome;
   return {

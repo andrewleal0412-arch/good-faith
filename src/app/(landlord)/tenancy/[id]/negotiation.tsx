@@ -172,7 +172,7 @@ export function Negotiation({ tenancyId, v, tenantsLabel, landlordLabel, quiet, 
                   </p>
                 ) : (
                   <p className="break-all text-xs text-ink-3">
-                    {s.paypalId ? `PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : s.wholeBack ? "No money moved: the whole deposit had already gone back" : "No money moved: the deposit was used in full"}
+                    {s.paypalId ? `PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : s.wholeBack || s.noMoney === "whole_back" ? "No money moved: the whole deposit had already gone back" : s.noMoney === "nothing_more" ? "No money moved: nothing more was agreed back on top of the refund" : "No money moved: the deposit was used in full"}
                   </p>
                 )}
               </div>

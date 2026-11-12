@@ -618,7 +618,8 @@ function Sent({ token, landlord, view, negotiation, zone, onAgain }: {
         </p>
         <p className="mt-1.5 text-ink-2">
           {s.example ? `Back to you on top of the statement's refund. ${DEMO_EXAMPLE.tenant}`
-            : s.wholeBack ? "The whole deposit already went back to you with the statement's refund, so no more money moved."
+            : s.wholeBack || (s.amount <= 0 && s.noMoney === "whole_back") ? "The whole deposit already went back to you with the statement's refund, so no more money moved."
+              : s.amount <= 0 && s.noMoney === "nothing_more" ? "Nothing more was agreed back, so no more money moved; the statement's refund stands."
               : s.amount > 0 ? `Back to you on top of the statement's refund${s.paypalId ? `, PayPal ${s.rail === "payout" ? "payout" : "refund"} ${s.paypalId}` : ""}.` : "The deposit was used in full, so no money moved; the balance claimed went down."}{" "}
           {/* The amended statement is the tenants' own PDF, built fresh from the records (their deposit page's Open in
               browser), so the sentence that names it opens it. */}
