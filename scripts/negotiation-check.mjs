@@ -162,6 +162,22 @@ const CITES = (file, pack) => new Set(range.allowedCitations(pack, file.ranges))
     raw: turnOf([L(1, "counter", 200)], "We'd take the cap at 200 — a fair middle."), });
   check("wording: the tenants' side may say 'cap' (only the landlord's limit is private)", /cap/.test(t.turn.message ?? ""), t.turn.message);
   check("wording: no em dashes survive", !(t.turn.message ?? "").includes("—"), t.turn.message);
+
+  // The limit as a figure, with none of the words (docs/AUDIT.md, second pass): "the most we can return is $500".
+  const fig = nego.checkTurn({ side: "landlord", actor: "agent", ranges: file.ranges, own: nego.statementKeeps(file.ranges), other: nego.keepsOf(t1), allowed: CITES(file, CA), limit: 500,
+    raw: turnOf([L(1, "counter", 400, "We can go as high as $500.00 back on this one.")], "The most we can return is $500.", "Return 500 dollars at most; offer $320 now.") });
+  check("figure: a reason naming the limit's figure is replaced", fig.turn.proposal[0].reason === file.ranges.lines[0].reasons[0], fig.turn.proposal[0].reason);
+  check("figure: a message naming it is replaced", /proposes \$320\.00 back/.test(fig.turn.message), fig.turn.message);
+  eq("figure: reasoning naming it is dropped", fig.turn.reasoning, null);
+  const own = nego.checkTurn({ side: "landlord", actor: "agent", ranges: file.ranges, own: nego.statementKeeps(file.ranges), other: nego.keepsOf(t1), allowed: CITES(file, CA), limit: 500,
+    raw: turnOf([L(1, "counter", 400, "The carpet was 2 years old; $400 of the $720 stands.")], "We propose $320 back in all.") });
+  check("figure: the turn's own figures stand", /\$400 of the \$720/.test(own.turn.proposal[0].reason) && own.turn.message === "We propose $320 back in all.", `${own.turn.proposal[0].reason} | ${own.turn.message}`);
+  const at = nego.checkTurn({ side: "landlord", actor: "agent", ranges: file.ranges, own: nego.statementKeeps(file.ranges), other: nego.keepsOf(t1), allowed: CITES(file, CA), limit: 320,
+    raw: turnOf([L(1, "counter", 400)], "We propose $320 back.") });
+  check("figure: a limit equal to what goes back is that offer, and stands", at.turn.message === "We propose $320 back.", at.turn.message);
+  const ten = nego.checkTurn({ side: "tenant", actor: "agent", ranges: file.ranges, own: nego.keepsOf(t1), other: { carpet: 400, wall: 140, range: 150 }, allowed: CITES(file, CA),
+    raw: turnOf([L(1, "counter", 200)], "We'd settle for $500 back.") });
+  check("figure: the tenants' figures are their own", ten.turn.message === "We'd settle for $500 back.", ten.turn.message);
 }
 {
   // The landlord's limit.

@@ -168,6 +168,11 @@ const clamp = (x: number, lo: number, hi: number) => Math.min(Math.max(x, lo), h
 /** Words that would hand the landlord's private limit to the tenants (both sides read every turn's reasoning). */
 const LIMIT_WORDS = /\b(limit|authori[sz]|ceiling|cap(?:ped)? (?:at|of)|allowed to give|instructions?)\b/i;
 
+/** The dollar figures a text names ("$1,250", "$450.00", "450 dollars"), in cents. */
+const figures = (s: string): number[] =>
+  [...s.matchAll(/\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?|\b(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s*(?:dollars|usd)\b/gi)]
+    .map((m) => Math.round(Number(`${(m[1] ?? m[3]).replace(/,/g, "")}.${m[2] ?? m[4] ?? "0"}`) * 100));
+
 /** One side's answer made lawful and fair: every line once, each figure inside its range and between the two sides'
  *  last figures, the landlord's limit kept, citations from the list, wording that informs. Every change is listed in
  *  `checks.adjustments` in plain words. `ok: false` when the landlord's limit can't be kept by any lawful answer: its
@@ -258,12 +263,26 @@ export function checkTurn(o: CheckInput): CheckResult {
   const allOwn = lines.every((l) => same(l.keep, ownKeeps[l.deduction_id]));
   const move: TurnMove = allOther ? (o.side === "landlord" ? "concede" : "accept") : allOwn ? "hold" : "counter";
 
+  // The limit as a figure gives it away without any of LIMIT_WORDS ("the most we can return is $450"), so a landlord
+  // text naming it is read as naming the limit, unless the figure is one of this turn's own (what goes back, what is
+  // kept, a charge, its keep or range), which the tenants see anyway.
+  const limitCents = o.side === "landlord" && o.limit != null ? Math.round(o.limit * 100) : null;
+  const shown = new Set([check.amountBack, check.totalKeep, ...lines.flatMap((l) => [l.amount, l.keep, l.min, l.max])].map((x) => Math.round(x * 100)));
+  const namesLimit = (s: string) => limitCents != null && !shown.has(limitCents) && figures(s).includes(limitCents);
+  for (const l of lines) {
+    const own = o.ranges.lines.find((r) => r.id === l.deduction_id)!.reasons[0] ?? "";
+    if (l.reason && l.reason !== own && namesLimit(l.reason)) {
+      adjustments.push(`Line ${l.n}: ${who}'s wording went past what it may say, so the app's own reason is shown.`);
+      l.reason = own;
+    }
+  }
+
   const fallback = o.side === "landlord"
     ? `The landlord's negotiator proposes ${usd(check.amountBack)} back.`
     : `The tenants' advocate proposes ${usd(check.amountBack)} back.`;
   let message = cleanText(o.raw?.message, 600);
   let reasoning = cleanText(o.raw?.reasoning, 900);
-  const leaks = (s: string) => beyondInforming(s) || (o.side === "landlord" && LIMIT_WORDS.test(s));
+  const leaks = (s: string) => beyondInforming(s) || (o.side === "landlord" && (LIMIT_WORDS.test(s) || namesLimit(s)));
   if (message && leaks(message)) { adjustments.push(`${cap(who)}'s message went past what it may say, so the app's own is shown.`); message = ""; }
   if (reasoning && leaks(reasoning)) { adjustments.push(`${cap(who)}'s reasoning went past what it may say, so it isn't shown.`); reasoning = ""; }
   const strayInMessage = message && strayCitation(message, o.allowed);
