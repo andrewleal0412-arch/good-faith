@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { extractLeaseTerms } from "@/lib/extract";
+import { extractLeaseTerms, NotALease } from "@/lib/extract";
 import { isPdf, readForm, UNREADABLE } from "@/lib/images";
 import { leaseResult } from "@/lib/lease-result";
 import { claudeNeverAnswered, takeAllowance } from "@/lib/limits";
@@ -44,6 +44,8 @@ export async function POST(req: Request) {
     if (upload.error) console.error("lease upload failed", upload.error.message);
     return Response.json(leaseResult(terms, upload.error ? null : leasePath));
   } catch (e) {
+    // Claude read it and it isn't a lease: the check is spent, and the page shows why.
+    if (e instanceof NotALease) return Response.json({ error: e.message }, { status: 422 });
     console.error("lease extraction failed", e);
     // Claude never answered (an overload, a bad key): nothing was spent, so the check goes back to today's allowance.
     if (claudeNeverAnswered(e)) await run.giveBack();

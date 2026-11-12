@@ -1,5 +1,5 @@
 import { audit, db } from "@/lib/db";
-import { inspectRoom, type Finding, type InspectPhoto } from "@/lib/inspect";
+import { inspectRoom, PhotosDontCompare, type Finding, type InspectPhoto } from "@/lib/inspect";
 import { claudeNeverAnswered, inspectPhotoLimit, inspectRoomLimit, takeAllowance } from "@/lib/limits";
 import { tenancyPack } from "@/lib/tenancy-pack";
 import { routeTenancy } from "@/lib/workspace";
@@ -63,10 +63,15 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
       // Attach the actual photo paths so the statement can show each before/after pair (AB 2801).
       return { room, findings: findings.map((f) => ({ ...f, id: crypto.randomUUID(), source: "inspection" as const, moveInPath: r.in[f.moveInPhoto] ?? r.in[0], moveOutPath: r.out[f.moveOutPhoto] ?? r.out[0] })), spent: true };
     } catch (e) {
+      // Claude answered that the photos don't show one room, or can't be seen: the run is spent, and the landlord is
+      // told which room and what to add, instead of getting findings about the wrong photos.
+      if (e instanceof PhotosDontCompare) return { room, findings: null, spent: true, problem: e.message };
       console.error(`inspection failed for ${room}`, e);
       return { room, findings: null, spent: asked && !claudeNeverAnswered(e) };
     }
   }));
+  const problems = results.flatMap((r) => (r.problem ? [r.problem] : []));
+  if (problems.length) return Response.json({ error: problems.join(" ") }, { status: 422 });
   const failed = results.filter((r) => !r.findings).map((r) => r.room);
   if (failed.length) {
     // When no room got an answer from Claude, the inspection cost nothing and goes back to today's allowance.

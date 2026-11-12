@@ -11,7 +11,9 @@
 //     turns on the demo's three charges (no adjustment by the code, agreed at $270 back);
 //   - the two readers' prompts as the model gets them (src/lib/extract.ts, inspect.ts, each called with a recording
 //     model in the job's place): the lease and the words in a photo are data, not a message to the model, the PDF and
-//     the photos still arrive as file parts, and the answer comes back through the same code;
+//     the photos still arrive as file parts, and the answer comes back through the same code; photos Claude says
+//     don't show one room or can't be seen, and a PDF with no address, tenant, rent or deposit, are refused with the
+//     landlord's message instead of read;
 //   - the PayPal client itself (src/lib/paypal.ts), with a scripted PayPal in fetch's place and the stubs off: cold
 //     requests at once share one sign-in, a 401 drops the cached token and the call goes once more with a fresh one
 //     and the same PayPal-Request-Id (once only, and never for another status), a failed sign-in is tried again by
@@ -256,7 +258,7 @@ stubsOn(true);
   const finding = { item: "Bedroom carpet", label: "Carpet stain", summary: "Stain about 2 ft across; not in the move-in photo.", observation: "A dark stain near the center.",
     classification: "damage", reason: "Beyond ordinary wear", remedy: "replace", severity: "moderate", confidence: 0.8, moveInPhoto: 0, moveOutPhoto: 0,
     box: { x: 0.4, y: 0.5, w: 0.2, h: 0.1 }, moveInBox: null };
-  const photos = recorder(JSON.stringify({ findings: [finding] }));
+  const photos = recorder(JSON.stringify({ photos: "same_room", findings: [finding] }));
   const photo = (tag) => ({ data: new TextEncoder().encode(`not an image: ${tag}`), mediaType: "image/jpeg" });
   const found = await inspect.inspectRoom("Bedroom 1", [photo("in")], [photo("out")], CA, photos.m);
   eq("photo reader: the model passed in is the one called, once, not the stub (which refuses this job)", [photos.seen.calls, stubLines.length - before], [1, 0]);
@@ -272,6 +274,26 @@ stubsOn(true);
     [2, ["image/jpeg", "image/jpeg"], ["not an image: in", "not an image: out"]]);
   const texts = userParts(photos.seen.prompt ?? []).filter((p) => p.type === "text").map((p) => p.text);
   check("photo reader: the move-in photo is announced before the move-out photo", texts.findIndex((t) => /MOVE-IN photos/.test(t)) < texts.findIndex((t) => /MOVE-OUT photos/.test(t)));
+
+  // What a judge might upload instead: a zebra or another room as the Kitchen's move-out photo, a photo too dark to
+  // see, a menu as the lease. Each reader says so in the landlord's words instead of answering as if it were the real
+  // thing: Claude read a bedroom's carpet stain as a Kitchen finding, and a menu as a lease with no state.
+  for (const [answer, want] of [["different_rooms", /photos of the Kitchen don't show the same room/], ["unusable", /photos of the Kitchen are too dark or blurred/]]) {
+    const m = recorder(JSON.stringify({ photos: answer, findings: [finding] }));
+    let threw = null;
+    try { await inspect.inspectRoom("Kitchen", [photo("in")], [photo("a zebra")], CA, m.m); } catch (e) { threw = e; }
+    check(`photo reader: "${answer}" is refused with the room named, and no finding comes back`,
+      Boolean(inspect.PhotosDontCompare) && threw instanceof inspect.PhotosDontCompare && want.test(threw.message), String(threw));
+  }
+  const empty = { propertyAddress: null, city: null, state: "", landlordName: null, ownerType: "unknown", ownerPropertyCount: null, ownerUnitCount: null,
+    buildingUnitCount: null, tenants: [], tenancyStartDate: null, leaseEndDate: null, monthlyRent: null, securityDeposit: null, otherMoveInCharges: [],
+    nonrefundableLanguage: [], lateFee: null, mandatoryCleaningClause: null, electronicPaymentMethods: [], tenantIsServiceMember: null };
+  let notLease = null;
+  try { await extract.extractLeaseTerms(new TextEncoder().encode("%PDF-1.4 a menu"), "menu.pdf", recorder(JSON.stringify(empty)).m); } catch (e) { notLease = e; }
+  check("lease reader: a PDF with no address, tenant, rent or deposit is refused as not a lease",
+    Boolean(extract.NotALease) && notLease instanceof extract.NotALease && /doesn't read as a lease/.test(notLease.message), String(notLease));
+  const partial = await extract.extractLeaseTerms(new TextEncoder().encode("%PDF-1.4 a short lease"), "short.pdf", recorder(JSON.stringify({ ...empty, monthlyRent: 2400 })).m);
+  eq("lease reader: a lease with any one of them still reads", partial.monthlyRent, 2400);
 }
 
 /* ---------- 4. The fake PayPal ---------- */
