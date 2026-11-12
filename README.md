@@ -203,7 +203,7 @@ City rules are shown as warnings only, never enforced. Sources, time zones and k
 
 ## Checks
 
-The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and fourteen check scripts (2,308 assertions) on every push. Three browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the welcome card and the seven beats of the demo script in Chromium and checks every dollar figure on the way, `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px, and `scripts/align-check.py` measures every icon, dot, tile and badge against the text beside it at both widths.
+The badge at the top of this file is [GitHub Actions](.github/workflows/checks.yml) running `tsc`, `eslint` and fourteen check scripts (2,312 assertions) on every push. Three browser walks run by hand on a production build with Claude and PayPal stubbed: `scripts/e2e-demo.py` walks the welcome card and the seven beats of the demo script in Chromium and checks every dollar figure on the way, `scripts/a11y-check.py` holds every page to WCAG 2.2 AA at 1280 and 390 px, and `scripts/align-check.py` measures every icon, dot, tile and badge against the text beside it at both widths.
 
 ```bash
 python scripts/e2e-demo.py --worktree <a new dir> --shots <dir>    # the judges' path end to end
@@ -215,7 +215,7 @@ python scripts/align-check.py --worktree <a new dir> --shots <dir> # every mark 
 | Check | Result | Run by |
 |---|---|---|
 | `tsc`, `eslint --max-warnings=0` | Clean | CI, every push |
-| `state-packs` 316, `zone` 118, `lawful-range` 167, `negotiation` 148, `paypal-webhook` 175, `grid` 108, `demo-welcome` 70, `chargeback` 148, `jev` 166, `reconcile` 87, `cache` 354, `thumbs` 169, `e2e-stubs` 112, `page-weight` 170 | All passed | CI, every push |
+| `state-packs` 316, `zone` 118, `lawful-range` 167, `negotiation` 148, `paypal-webhook` 175, `grid` 108, `demo-welcome` 70, `chargeback` 148, `jev` 166, `reconcile` 87, `cache` 354, `thumbs` 169, `e2e-stubs` 116, `page-weight` 170 | All passed | CI, every push |
 | `security-check.mjs` | 135 of 135 | By hand, 2026-11-11, until its line in `checks.yml` is pushed |
 | `ca-snapshot.mjs` | Identical, 17 sections | By hand, 2026-10-16 |
 | `clipboard-check.py` on a production build | 8 of 8 | By hand, 2026-10-15 |

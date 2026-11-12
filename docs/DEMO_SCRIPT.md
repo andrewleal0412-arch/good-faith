@@ -1,5 +1,7 @@
 # Demo video script
 
+The submitted video tells the same story in a different order and was recorded on the test build, with Claude and PayPal stubbed so every take matched (its refund IDs start with E2E). The beats below also work as a walk through the hosted demo, where the Claude and PayPal calls are real.
+
 Under three minutes, seven beats, one fresh demo copy. Each beat names the screen to show, what to click, and one line to say. The times are a budget, not a stopwatch. `scripts/e2e-demo.py` walks beats 1 to 7 on a production build (with Claude and PayPal stubbed) and checks every figure on the way, so a passing run means the main path below works as written; the optional beats are not in it.
 
 The order follows the money: the move-out first, since that is where a landlord starts and where Claude is seen at work, then the refund it leads to, the tenants' answer, the two agents, and the settlement both sides approve; the lease check and the second state close on what the same engine does before a tenancy starts and outside California. The deposit has no beat of its own: it is the payment the refund review names ("from the 1140 E. Juniper Hollow Ln deposit"), and the close-out agent verifies it with PayPal before it proposes the refund on that same payment, so beat 2 shows it at the moment it matters.
