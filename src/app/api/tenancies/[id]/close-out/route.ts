@@ -18,8 +18,8 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/tenancies/[id]
   // payment is open: its response is where money goes back then (src/lib/chargeback-store.ts).
   const blocked = (await tenancyDepositBlock(ws.id, id)) ?? (await openDisputeBlock(id));
   if (blocked) return Response.json({ error: blocked }, { status: 409 });
-  // Today's allowance, checked before the agent's first Claude call. The approval that resumes this run is part of
-  // the same run and isn't counted again.
+  // Today's allowance, checked before the agent's first Claude call. The first approval answer that resumes this run is
+  // part of it and isn't counted again; a later one is ([runId]/route.ts).
   const run = await takeAllowance("close_out");
   if (run.refused) return run.refused;
   try {

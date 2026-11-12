@@ -272,6 +272,13 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   check("accepting the settlement is checked against the turn shown", /movedSince\(await loadTurns\(d\.id\), b\?\.turn\)/.test(src("src/app/api/t/[token]/dispute/accept/route.ts")));
   const flow = src("src/app/t/[token]/dispute/dispute-flow.tsx");
   check("the tenants' page sends the turn it showed with both accepts", /post\("accept", \{ name, turn: lastTurn \}\)/.test(flow) && /post\("offer", \{ accept: true, name, turn: lastTurn \}\)/.test(flow));
+
+  // The first answer to a close-out's approval resumes the run its start paid for; every later one (declined, proposed
+  // again, declined...) takes another close_out allowance, so the agent can't run past the day's limit.
+  const resume = src("src/app/api/tenancies/[id]/close-out/[runId]/route.ts");
+  check("resuming a close-out after its first answer takes the allowance", /const allowance = answered \? await takeAllowance\("close_out"\) : null;/.test(resume) && /if \(allowance\?\.refused\) return allowance\.refused;/.test(resume));
+  check("an answer counts every earlier approval response in the run", /tool-approval-response/.test(resume) && /select\("id, messages"\)/.test(resume));
+  check("a resume that fails before the agent runs gives its allowance back", /catch \(e\) \{[^}]{0,200}?await allowance\?\.giveBack\(\);/.test(resume));
 }
 
 /* ---------- Replies carry no internal error text ---------- */
