@@ -1,14 +1,14 @@
 import { audit, db } from "@/lib/db";
 import { checkEdit, EDIT_FIELDS, editRowOf, FIELD_LABEL, inputWords, limitsFor, rangeBreach, storedColumns, type Changes, type EditField } from "@/lib/deduction-edit";
-import { deductionsLocked, disputeFacts } from "@/lib/disputes";
+import { deductionsLocked, disputeFacts, statementOut } from "@/lib/disputes";
 import { lawfulRanges } from "@/lib/lawful-range";
 import { mayRemove, routeTenancy } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
-// Remove a deduction before the statement goes out. Its receipt goes too (when this workspace stored it); after-repair
-// photos stay as evidence. Refused while a dispute the tenants sent is open (the negotiation is over these lines) and
-// once the deductions are final (deductionsLocked).
+// Remove a deduction before the statement goes out (statementOut). Its receipt goes too (when this workspace stored it);
+// after-repair photos stay as evidence. Refused while a dispute the tenants sent is open (the negotiation is over these
+// lines) and once the deductions are final (deductionsLocked).
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[id]/deductions/[did]">) {
   const { id, did } = await ctx.params;
   const ws = await routeTenancy(id, { write: true });
@@ -17,6 +17,8 @@ export async function DELETE(_req: Request, ctx: RouteContext<"/api/tenancies/[i
   if (!d) return Response.json({ error: "No such deduction." }, { status: 404 });
   const locked = await deductionsLocked(id);
   if (locked) return locked;
+  const out = await statementOut(id);
+  if (out) return out;
   // Only a receipt this workspace uploaded for this tenancy is removed. A demo copy's deductions point at the template's
   // receipts, which every copy shares and none may delete.
   if (d.receipt_path && (await mayRemove(ws, id, d.receipt_path))) await db.storage.from("receipts").remove([d.receipt_path]);

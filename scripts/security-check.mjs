@@ -238,6 +238,22 @@ const ms = async (f) => { const t = performance.now(); const v = await f(); retu
   check("no other code loads a PDF without the limits", loads.length === 0, loads.join(", "));
 }
 
+/* ---------- The landlord's own copy can't be turned against its tenants ---------- */
+{
+  // Once the statement is out its lines can't be added or removed (PATCH already holds each to its delivered amount).
+  // The law's removal of every line (New York after day 14, Florida once the claim notice's time ran out) still goes.
+  const out = src("src/lib/disputes.ts").match(/export async function statementOut[\s\S]*?\n}\n/)?.[0] ?? "";
+  check("statementOut reads the delivery as PATCH does", /statement_delivered_at/.test(out) && /statement_delivery/.test(out) && /status: 409/.test(out));
+  const add = src("src/app/api/tenancies/[id]/deductions/route.ts");
+  const post = add.slice(add.indexOf("export async function POST"), add.indexOf("export async function DELETE"));
+  const bulk = add.slice(add.indexOf("export async function DELETE"));
+  check("adding a deduction is refused once the statement is out", /const out = await statementOut\(id\);\s*if \(out\) return out;/.test(post));
+  check("the law's removal of every line still goes after the statement", !/statementOut\(/.test(bulk));
+  const one = src("src/app/api/tenancies/[id]/deductions/[did]/route.ts");
+  const del = one.slice(one.indexOf("export async function DELETE"), one.indexOf("export async function PATCH"));
+  check("removing one deduction is refused once the statement is out", /const out = await statementOut\(id\);\s*if \(out\) return out;/.test(del));
+}
+
 /* ---------- Replies carry no internal error text ---------- */
 {
   const agent = src("src/lib/agent.ts");

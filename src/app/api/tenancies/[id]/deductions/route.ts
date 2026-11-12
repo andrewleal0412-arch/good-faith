@@ -1,7 +1,7 @@
 import { todayIn } from "@/lib/dates";
 import { audit, db } from "@/lib/db";
 import { checkAdd, rangeBreach } from "@/lib/deduction-edit";
-import { deductionsLocked, disputeFacts } from "@/lib/disputes";
+import { deductionsLocked, disputeFacts, statementOut } from "@/lib/disputes";
 import { type Performer, type Proration, type Work } from "@/lib/deductions";
 import { lawfulRanges, type RangeDeduction } from "@/lib/lawful-range";
 import { loadPdf, PdfTooBig } from "@/lib/pdf-guard";
@@ -52,6 +52,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/tenancies/[id]/
   if (!finding) return Response.json({ error: "That finding is from an older comparison. Refresh the page." }, { status: 400 });
   const locked = await deductionsLocked(id);
   if (locked) return locked;
+  const out = await statementOut(id);
+  if (out) return out;
   if (finding.status === "dismissed") return Response.json({ error: "That finding was dismissed. Reopen it first." }, { status: 400 });
   if (finding.classification === "wear_and_tear") {
     return Response.json({ error: packFor((t.properties as { state?: string | null } | null)?.state).copy.wearRefused }, { status: 400 });

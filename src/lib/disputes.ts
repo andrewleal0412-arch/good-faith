@@ -179,6 +179,15 @@ export async function latestDispute(tenancyId: string): Promise<DisputeRow | nul
   return (data as DisputeRow | null) ?? null;
 }
 
+/** Once the statement is out its lines can't be added or removed: a charge can only be lowered in its cell, where PATCH
+ *  holds it to its delivered amount (limitsFor). Delivered as PATCH reads it: a time and a delivery record. The law's
+ *  own removal of every line (the bulk DELETE, only when the next step asks for it) lowers what went out and still goes. */
+export async function statementOut(tenancyId: string): Promise<Response | null> {
+  const { data } = await db.from("tenancies").select("statement_delivered_at, statement_delivery").eq("id", tenancyId).maybeSingle();
+  if (!data?.statement_delivered_at || !data.statement_delivery) return null;
+  return Response.json({ error: "The statement went out with these deductions, so none can be added or removed now. A charge can still be lowered in its cell." }, { status: 409 });
+}
+
 /** For the landlord's deduction routes (add, change, remove): a 409 once the deductions are final (the deposit went
  *  back, a settlement was reached, or PayPal's refund through the tenants' PayPal dispute covers what is owed) or while
  *  a dispute the tenants sent is open, so the statement being negotiated and settled is the one they disputed; null
